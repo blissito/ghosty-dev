@@ -1,0 +1,25 @@
+{
+  "name": "ghosty-bitacora",
+  "version": "0.1.0",
+  "description": "El trabajo vive en la bitácora (GitHub Issues), no en la sesión del agente; se cierra con evidencia.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "bitacora": "bin/bitacora.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skill",
+    "templates",
+    ".github/workflows/evidence-gate.yml",
+    "AGENTS.md",
+    "SPEC.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
