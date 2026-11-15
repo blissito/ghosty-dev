@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { setup, issue, VALID_EVIDENCE } from '../testkit/helpers.mjs';
-import { formatEvidence } from '../src/evidence.mjs';
+import { setup, issue, VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
+import { formatEvidence, formatRevision } from '../src/evidence.mjs';
 
 const CRITERIA = '## Criterios de aceptación\n- [ ] /health responde 200\n';
 
@@ -38,6 +38,7 @@ test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y A
     '.github/ghosty-dev/gate.mjs',
     '.github/ghosty-dev/evidence.mjs',
     '.claude/skills/ghosty-dev/SKILL.md',
+    '.claude/agents/ghosty-dev-revisor.md',
   ]) {
     assert.ok(existsSync(join(repo, f)), f);
   }
@@ -53,12 +54,13 @@ test('la puerta instalada corre sola con el gh falso', () => {
   const s = setup({ issues: { 3: { ...issue(3, 'Salud', { body: CRITERIA }) } } });
   s.run('init');
   const db = s.read();
-  db.issues[3].comments.push({ body: formatEvidence(3, VALID_EVIDENCE) });
+  db.issues[3].comments.push({ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, VALID_EVIDENCE) });
   writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db));
-  const event = s.write('event.json', JSON.stringify({ pull_request: { body: 'Closes #3' } }));
+  const event = s.write('event.json', JSON.stringify({ pull_request: { body: 'Closes #3', head: { sha: SHA } } }));
   const env = { ...process.env, GITHUB_EVENT_PATH: event, GHOSTY_DEV_GH: join(import.meta.dirname, '..', 'testkit', 'fake-gh.mjs'), FAKE_GH_STATE: join(s.root, 'gh.json') };
   const out = execFileSync(process.execPath, [join(s.repo, '.github/ghosty-dev/gate.mjs')], { env, encoding: 'utf8' });
   assert.match(out, /#3: evidencia válida/);
+  assert.match(out, /#3: revisión del commit a1b2c3d sin hallazgos/);
 });
 
 test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierra', () => {
@@ -250,4 +252,32 @@ test('wait --watch espera al CI en una sola llamada y dice si quedó verde', () 
   assert.equal(out.timedOut, false);
   assert.ok(s.read().calls.some((c) => c[0] === 'pr' && c[1] === 'checks' && c.includes('--watch')));
   assert.ok(s.read().issues[5].labels.includes('ghosty-dev:esperando-ci'));
+});
+
+test('review sin --file da el encargo del revisor; con --file lo publica atado al commit del PR', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:esperando-ci'], assignees: ['agente-a'] }) },
+    prs: [{ number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', headRefOid: SHA }],
+  });
+  const brief = s.run('review', '5');
+  assert.equal(brief.code, 0, brief.err);
+  assert.match(brief.out, /Revisa el pendiente #5/);
+  assert.match(brief.out, /contexto limpio|No escribiste este código/);
+  assert.doesNotMatch(brief.out, /^---/);
+
+  const bad = s.run('review', '5', '--file', s.write('mal.md', '## Revisión\nTodo bien\n'));
+  assert.notEqual(bad.code, 0);
+
+  const ok = s.run('review', '5', '--file', s.write('rev.md', revisionMd(1)), '--json');
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(JSON.parse(ok.out).open, 1);
+  const body = s.read().issues[5].comments.at(-1).body;
+  assert.match(body, new RegExp(`ghosty-dev:revision v0\\.1 sha=${SHA}`));
+});
+
+test('review se niega si el pendiente no tiene PR', () => {
+  const s = setup({ issues: { 5: issue(5, 'X') } });
+  const r = s.run('review', '5', '--file', s.write('rev.md', revisionMd()));
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /no tiene PR/);
 });

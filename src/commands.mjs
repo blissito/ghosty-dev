@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { gh, ghJson, git } from './gh.mjs';
-import { validateEvidence, formatEvidence, findValidEvidence } from './evidence.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, validateRevision, formatRevision } from './evidence.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -155,6 +155,26 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
   return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente' };
 }
 
+// PR abierto del pendiente (rama ghosty-dev/<n>-…).
+function prOf(n) {
+  const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,headRefName,headRefOid,url']) ?? [];
+  return prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`)) ?? null;
+}
+
+// Vuelve a correr la puerta del PR del pendiente: publicar evidencia o revisión es el evento que la despierta.
+function rerunGate(n) {
+  const pr = prOf(n);
+  let rerun = null;
+  if (pr) {
+    const runs = ghJson(
+      ['run', 'list', '--workflow', 'evidence-gate.yml', '--branch', pr.headRefName, '--limit', '1', '--json', 'databaseId'],
+      { allowFail: true },
+    );
+    if (runs?.[0] && gh(['run', 'rerun', String(runs[0].databaseId)], { allowFail: true }) !== null) rerun = runs[0].databaseId;
+  }
+  return rerun;
+}
+
 // ---------- evidence (Ley 2; «proof of work», Symphony) ----------
 
 export function evidence(n, file) {
@@ -165,16 +185,7 @@ export function evidence(n, file) {
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
   const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md) }) || '').trim();
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR.
-  const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,headRefName']) ?? [];
-  const pr = prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
-  let rerun = null;
-  if (pr) {
-    const runs = ghJson(
-      ['run', 'list', '--workflow', 'evidence-gate.yml', '--branch', pr.headRefName, '--limit', '1', '--json', 'databaseId'],
-      { allowFail: true },
-    );
-    if (runs?.[0] && gh(['run', 'rerun', String(runs[0].databaseId)], { allowFail: true }) !== null) rerun = runs[0].databaseId;
-  }
+  const rerun = rerunGate(n);
   return { number: n, posted: true, url: url || null, rerun };
 }
 
@@ -197,6 +208,27 @@ export function add(title, { goal, criteria, context, blockedBy, discoveredIn } 
   if (!number) throw new Error(`No se pudo leer el número del pendiente: ${url}`);
   const blocked = blockedBy ? block(number, blockedBy) : null;
   return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null };
+}
+
+// ---------- review (Cognition: un escritor, el revisor no comparte contexto; Anthropic: evaluador separado) ----------
+
+// El encargo del revisor: el mismo texto que usa el subagente de Claude Code, sin su frontmatter.
+export function reviewBrief(n) {
+  const raw = readFileSync(join(ROOT, 'agents', 'ghosty-dev-revisor.md'), 'utf8');
+  const body = raw.replace(/^---\n[\s\S]*?\n---\n/, '').trim();
+  return `Revisa el pendiente #${n} de este repo.\n\n${body}\n`;
+}
+
+export function review(n, { file } = {}) {
+  if (!file) return { number: n, brief: reviewBrief(n) };
+  if (!existsSync(file)) throw new UserError(`No existe ${file}.`);
+  const md = readFileSync(file, 'utf8');
+  const { ok, errors, open } = validateRevision(md);
+  if (!ok) throw new UserError(`Revisión inválida para #${n}:\n- ${errors.join('\n- ')}`);
+  const pr = prOf(n);
+  if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto: la revisión va sobre el commit del PR.`);
+  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatRevision(n, pr.headRefOid, md) }) || '').trim();
+  return { number: n, sha: pr.headRefOid, open, url: url || null, rerun: rerunGate(n) };
 }
 
 // ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
@@ -297,6 +329,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
     ['src/evidence.mjs', '.github/ghosty-dev/evidence.mjs'],
     ['src/gate.mjs', '.github/ghosty-dev/gate.mjs'],
     ['skill/SKILL.md', '.claude/skills/ghosty-dev/SKILL.md'],
+    ['agents/ghosty-dev-revisor.md', '.claude/agents/ghosty-dev-revisor.md'],
   ];
   const plan = [];
   for (const state of STATES) plan.push({ action: 'label', name: label(state) });

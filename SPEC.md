@@ -42,8 +42,8 @@ traza a una ley o a una fuente de esta tabla.
 | El trabajo vive en un libro mayor fuera de la sesión; «la sesión es ganado» | Steve Yegge — Beads / Gas Town | [Welcome to Gas Town](https://steve-yegge.medium.com/welcome-to-gas-town-4f25ee16dd04), [gastownhall/beads](https://github.com/gastownhall/beads) | el pendiente = issue de GitHub |
 | `ready` / `claim`: el agente toma el siguiente trabajo sin bloqueo | Steve Yegge — Beads (`bd ready --claim`) | [gastownhall/beads](https://github.com/gastownhall/beads) | `ghosty-dev ready [--claim]`, `claim`, `show`, `close`, `init` escribe `AGENTS.md` |
 | El ticket como unidad de trabajo y «proof of work» antes del merge | OpenAI — Symphony | [post, 2026-04-27](https://openai.com/index/open-source-codex-orchestration-symphony/) | comentario de evidencia, `evidence`, Action `ghosty-dev/evidencia` |
-| Un solo escritor; el revisor no comparte contexto con el que escribió | Cognition (Walden Yan) | [Multi-Agents: What's Actually Working](https://cognition.com/blog/multi-agents-working) | un asignado por pendiente, un worktree por pendiente; el Clerk lee evidencia, no la sesión |
-| El autor se califica de más: el evaluador va separado | Prithvi Rajasekaran — Anthropic | [Harness design for long-running apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) | el agente no se aprueba: lo valida la puerta y lo decide el Clerk |
+| Un solo escritor; el revisor no comparte contexto con el que escribió | Cognition (Walden Yan) | [Multi-Agents: What's Actually Working](https://cognition.com/blog/multi-agents-working) | un asignado por pendiente, un worktree por pendiente; el subagente `ghosty-dev-revisor` sólo lee pendiente + diff (§4b) |
+| El autor se califica de más: el evaluador va separado | Prithvi Rajasekaran — Anthropic | [Harness design for long-running apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) | el agente no se aprueba: revisión de otra sesión atada al commit (`ghosty-dev review`), la puerta la exige y decide el Clerk |
 | Un verificador casi perfecto vale más que un orquestador | Nicholas Carlini — Anthropic | [Building a C compiler](https://www.anthropic.com/engineering/building-c-compiler) | «Verificación» exige comandos con su salida; CI rojo no cierra |
 | Dependencias entre tareas sin herramienta nueva | GitHub — «blocked by» y sub-issues | [Creating issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies), [REST](https://docs.github.com/en/rest/issues/issue-dependencies), [`gh --blocked-by` (≥2.94)](https://github.blog/changelog/2026-06-10-manage-sub-issues-types-and-dependencies-from-github-cli/) | `ghosty-dev block` (API nativa; respaldo: lista en el cuerpo) |
 | El conocimiento en un solo papel se pierde (imagen, no mecanismo) | Karel Čapek — *R.U.R.* (1920) | [Gutenberg 59112](https://gutenberg.org/cache/epub/59112/pg59112-images.html) | — |
@@ -115,6 +115,33 @@ no aplica
 ```
 
 (En el comentario real, la verificación va en un bloque con tres comillas invertidas.)
+
+## 4b. La revisión (contexto limpio, atada al commit)
+
+Quien escribe se califica de más (Anthropic, *Harness design*); el revisor no comparte contexto con quien escribió
+(Cognition, *Multi-Agents: What's Actually Working*). Por eso, antes de la evidencia, **otro agente** revisa el PR:
+lee sólo el pendiente y el diff, escribe pruebas que intentan romper el cambio y no arregla código.
+
+Lo publica con `ghosty-dev review <n> --file revision.md`, que lo valida y lo ata al commit exacto del PR:
+
+```markdown
+<!-- ghosty-dev:revision v0.1 sha=<head del PR> -->
+## Revisión
+(bloque con «$ comando» y su salida)
+- [x] ataque que el código aguantó
+- [ ] ataque que lo rompió — qué pasa (archivo:línea)
+Hallazgos abiertos: <número de renglones con [ ]>
+```
+
+La puerta exige, por cada `Closes #n`, **una revisión del commit actual con 0 hallazgos abiertos** además de la
+evidencia. Un push nuevo invalida la revisión anterior. Con hallazgos, quien escribe agrega al PR las pruebas del
+revisor, arregla y pide otra revisión (tope: 3 rondas; luego decide la persona).
+
+**Lo que la puerta NO puede probar.** En local, quien escribe y quien revisa usan la misma cuenta de GitHub: la
+puerta no distingue quién publicó la revisión. Sí prueba que existe, que tiene pruebas con su salida, que sus
+cuentas cuadran y que es del commit exacto que se va a mergear. Lo demás es disciplina del protocolo: el revisor
+es una sesión aparte (el subagente `ghosty-dev-revisor` en Claude Code; en otros agentes, `ghosty-dev review <n>`
+pegado en otra sesión), y es mejor si es **otro modelo**.
 
 ## 5. Protocolo
 

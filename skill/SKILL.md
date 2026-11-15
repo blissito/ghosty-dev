@@ -27,7 +27,7 @@ git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
 ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
 ```
 
-- **CI verde** → publica la evidencia en ese momento, sin que nadie te lo pida.
+- **CI verde** → pide la revisión (abajo) y, cuando no tenga hallazgos abiertos, publica la evidencia.
 - **CI rojo** → arréglalo, sube y vuelve a esperar.
 - **Se acabaron los 5 min** → el pendiente queda en `esperando-ci`: toma otro independiente o termina.
   `ghosty-dev ready` te lo vuelve a ofrecer con `ci-verde` o `ci-rojo` cuando resuelva.
@@ -42,6 +42,22 @@ el merge sin abrir el código.
 
 El PR lo mergea el **Clerk** (la persona) después de leer la evidencia; `Closes #<n>` cierra el pendiente.
 Si no hubo PR (tarea sin código), `ghosty-dev close <n>`, que también exige evidencia.
+
+## La revisión: tú no te calificas
+
+Quien escribe se califica de más. Antes de la evidencia, **otro agente con contexto limpio** revisa tu PR:
+
+- **En Claude Code:** lanza el subagente `ghosty-dev-revisor` y pásale **sólo** «Revisa el pendiente #<n>». Nada
+  de lo que pensaste, probaste o decidiste: si se lo cuentas, ya no es una revisión limpia.
+- **Sin subagentes (Codex u otro):** corre `ghosty-dev review <n>` y pídele a la persona que pegue ese encargo
+  en **otra sesión** (mejor si es otro modelo).
+
+El revisor publica su revisión en el issue, atada al commit exacto del PR. La puerta exige una revisión **del
+commit actual** con `Hallazgos abiertos: 0`.
+
+- **Con hallazgos:** agrega al PR el archivo de pruebas que te pasó el revisor, arregla el código hasta que pase,
+  sube, `ghosty-dev wait <n> --watch` y vuelve a pedir la revisión (cada push necesita revisión nueva).
+- **Tope: 3 rondas.** Si a la tercera sigue con hallazgos, detente y explícale a la persona qué falta.
 
 ## El archivo de evidencia
 
@@ -97,5 +113,4 @@ ghosty-dev block <n> --by <nuevo>
 - Tomar un pendiente asignado a otro, o trabajar dos pendientes en el mismo worktree.
 - Cerrar un issue con `gh issue close` directo, o publicar evidencia que no corriste.
 - Sondear el CI (`sleep`, loops, preguntar una y otra vez). La única espera es `ghosty-dev wait <n> --watch`.
-- Calificarte a ti mismo como revisión: la revisión la hace otra sesión o la persona, leyendo sólo el pendiente,
-  la evidencia y el diff.
+- Calificarte a ti mismo, escribir o publicar tú la revisión, o contarle al revisor lo que hiciste.

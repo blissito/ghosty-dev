@@ -2,19 +2,33 @@
 
 **No necesitas una fábrica: necesitas una bitácora que no se pierda y evidencia que no mienta.**
 
+## Cómo se usa (3 pasos)
+
+1. **Le dices a tu agente qué hay que hacer.** Él lo apunta como pendientes (issues de GitHub).
+2. **Le dices «toma el siguiente pendiente».** Lo hace, abre el PR, espera las pruebas, **otro agente con
+   contexto limpio lo revisa** y deja la evidencia en el issue.
+3. **Tú lees la evidencia y la revisión, y das merge.** Sin las dos, GitHub no te deja.
+
+Sólo necesitas Claude Code (o Codex) y GitHub. Todo lo demás lo hace el agente.
+
+## Las tres leyes
+
 ghosty-dev es una forma de trabajar con agentes de código (Claude Code, Codex…) sobre GitHub Issues:
 
 1. **El trabajo vive en la bitácora, no en la sesión.** Cada tarea es un *pendiente* (un issue). La sesión del
    agente se tira; el pendiente no.
 2. **Se revisa la evidencia, no el código.** Un pendiente se cierra con un comentario de evidencia (qué se hizo,
-   comandos y su salida, CI, preview). Sin evidencia, el check `ghosty-dev/evidencia` no deja mergear.
-3. **Se espera por evento, no se sondea.** El agente no vigila el CI: lo deja en `esperando` y termina.
+   comandos y su salida, CI) y una revisión de otro agente que no vio cómo se escribió, atada al commit exacto.
+   Sin las dos, el check `ghosty-dev/evidencia` no deja mergear.
+3. **Se espera por evento, no se sondea.** El agente espera al CI con una sola llamada que no gasta tokens; si
+   tarda, toma otro pendiente.
 
 ## Por qué no es una fábrica
 
 Una fábrica pone agentes en línea con roles fijos (planea → construye → revisa) que se pasan la estafeta. Aquí no
-hay línea: **un solo escritor por pendiente**, paralelo sólo entre pendientes independientes (cada uno en su
-worktree), y una persona —el **Clerk**— que lee la evidencia y decide el corte. Las piezas son de Beads, Symphony,
+hay línea: **un solo escritor por pendiente**, **un revisor con contexto limpio** que intenta romperlo (quien
+escribe se califica de más), paralelo sólo entre pendientes independientes (cada uno en su worktree), y una
+persona —el **Clerk**— que lee la evidencia y decide el corte. Las piezas son de Beads, Symphony,
 Cognition y Anthropic, y están citadas en [SPEC.md](SPEC.md#2-qué-copiamos-y-de-quién).
 
 ## Instalar
@@ -46,7 +60,8 @@ ghosty-dev ready                         # #1  listo  Agregar /health
 ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en ../tu-repo-1
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
 ghosty-dev wait 1 --watch                # espera al CI en una sola llamada, sin sondear (tope 5 min)
-ghosty-dev ready                         # #1  ci-verde  Agregar /health
+# el subagente ghosty-dev-revisor (contexto limpio) intenta romperlo y publica:
+ghosty-dev review 1 --file revision.md   # atada al commit del PR; con hallazgos, se arregla y se repite
 ghosty-dev evidence 1 --file evidencia.md
 # el check ghosty-dev/evidencia pasa; el Clerk lee la evidencia y mergea
 ```
@@ -56,7 +71,7 @@ Al agente se le dice una sola cosa: «toma el siguiente pendiente». La skill (`
 
 ## Comandos
 
-`init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n>` · `evidence <n> --file f.md` · `block <n> --by <m>` ·
+`init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 `show <n>` · `close <n>`. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
 ## Tests

@@ -59,3 +59,18 @@ export function setup(state = {}) {
   };
   return { root, repo, run, read, write };
 }
+
+export const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+export const revisionMd = (open = 0) => `## Revisión
+Revisó: ghosty-dev-revisor, otra sesión con contexto limpio.
+
+\`\`\`sh
+$ node --test test/revision-3.test.js
+ok 1 - URL mal formada responde 400
+# pass 1
+\`\`\`
+
+- [x] URL mal formada no tumba el proceso
+${open ? '- [ ] cuerpo enorme tumba el proceso (server.js:12)\n' : ''}
+Hallazgos abiertos: ${open}
+`;

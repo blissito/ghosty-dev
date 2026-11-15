@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria } from '../src/evidence.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor } from '../src/evidence.mjs';
 import { closingRefs, evaluatePullRequest } from '../src/gate.mjs';
-import { VALID_EVIDENCE } from '../testkit/helpers.mjs';
+import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
 const ISSUE = '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n';
 
@@ -49,15 +49,43 @@ test('sólo cuenta un comentario con la marca de evidencia', () => {
 test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   assert.deepEqual(closingRefs('Closes #3, fixes #4 y resolves #3'), [3, 4]);
   const issues = {
-    3: { body: ISSUE, comments: [{ body: formatEvidence(3, VALID_EVIDENCE) }] },
-    4: { body: ISSUE, comments: [{ body: 'listo, ya compila' }] },
+    3: { body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, VALID_EVIDENCE) }] },
+    4: { body: ISSUE, comments: [{ body: formatRevision(4, SHA, revisionMd()) }, { body: 'listo, ya compila' }] },
   };
-  const r = evaluatePullRequest({ body: 'Closes #3\nCloses #4' }, (n) => issues[n]);
+  const head = { sha: SHA };
+  const r = evaluatePullRequest({ body: 'Closes #3\nCloses #4', head }, (n) => issues[n]);
   assert.equal(r.ok, false);
-  assert.match(r.lines[1], /#4: sin comentario/);
-  assert.equal(evaluatePullRequest({ body: 'Closes #3' }, (n) => issues[n]).ok, true);
+  assert.ok(r.lines.some((l) => /#4: sin comentario/.test(l)));
+  assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 
 test('un PR que no cierra ningún pendiente no pasa la puerta', () => {
   assert.equal(evaluatePullRequest({ body: 'arreglos varios' }, () => null).ok, false);
+});
+
+test('revisión válida: comandos con salida, ataques y hallazgos que cuadran', () => {
+  assert.deepEqual(validateRevision(revisionMd(0)), { ok: true, errors: [], open: 0 });
+  assert.equal(validateRevision(revisionMd(1)).open, 1);
+  const lies = revisionMd(1).replace('Hallazgos abiertos: 1', 'Hallazgos abiertos: 0');
+  assert.match(validateRevision(lies).errors.join(' '), /no cuadra/);
+  assert.equal(validateRevision('## Revisión\nTodo bien.\n').ok, false);
+});
+
+test('la puerta exige revisión del commit actual y sin hallazgos abiertos', () => {
+  const evid = { body: formatEvidence(3, VALID_EVIDENCE) };
+  const pr = { body: 'Closes #3', head: { sha: SHA } };
+  const run = (comments) => evaluatePullRequest(pr, () => ({ body: ISSUE, comments }));
+  // Sin revisión: no pasa, aunque la evidencia sea válida.
+  let r = run([evid]);
+  assert.equal(r.ok, false);
+  assert.match(r.lines[0], /falta la revisión del commit a1b2c3d/);
+  // Revisión de otro commit (hubo push después): no cuenta.
+  r = run([{ body: formatRevision(3, 'ffffffffffffffffffffffffffffffffffffffff', revisionMd()) }, evid]);
+  assert.match(r.lines[0], /falta la revisión/);
+  // Revisión del commit actual con un hallazgo abierto: no pasa.
+  r = run([{ body: formatRevision(3, SHA, revisionMd(1)) }, evid]);
+  assert.match(r.lines[0], /1 hallazgo/);
+  // Revisión limpia del commit actual + evidencia: pasa.
+  assert.equal(run([{ body: formatRevision(3, SHA, revisionMd()) }, evid]).ok, true);
+  assert.ok(findRevisionFor([{ body: formatRevision(3, SHA, revisionMd()) }], SHA.slice(0, 7)));
 });

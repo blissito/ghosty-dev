@@ -39,6 +39,7 @@ ghosty-dev init
 - `.github/ISSUE_TEMPLATE/pendiente.md`: la plantilla de pendiente.
 - `.github/workflows/evidence-gate.yml` y `.github/ghosty-dev/`: la Action que no deja mergear sin evidencia.
 - `.claude/skills/ghosty-dev/SKILL.md`: la skill que te dice cómo trabajar los pendientes.
+- `.claude/agents/ghosty-dev-revisor.md`: el revisor con contexto limpio (subagente de Claude Code).
 - `AGENTS.md`: las tres reglas para cualquier agente. Si ya existe, `init` agrega una sección al final.
 
 El check obligatorio se pone en el paso 4, después del push: la Action corre la puerta desde la rama principal, así

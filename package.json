@@ -10,6 +10,7 @@
   "files": [
     "bin",
     "src",
+    "agents",
     "skill",
     "templates",
     ".github/workflows/evidence-gate.yml",
