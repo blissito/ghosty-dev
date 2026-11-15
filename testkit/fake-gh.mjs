@@ -92,8 +92,10 @@ if (group === 'label' && verb === 'create') {
     const i = issue(m[1]);
     out({ id: i.id, number: i.number, state: i.state });
   } else fail(`fake gh: api ${path} no soportado`);
+} else if (group === 'browse') {
+  out('');
 } else if (group === 'repo' && verb === 'view') {
-  out({ nameWithOwner: db.repo, defaultBranchRef: { name: 'main' } });
+  out({ nameWithOwner: db.repo, defaultBranchRef: { name: 'main' }, url: `https://github.com/${db.repo}` });
 } else if (group === 'pr' && verb === 'list') {
   out(db.prs);
 } else if (group === 'run' && verb === 'list') {

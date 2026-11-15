@@ -229,3 +229,10 @@ test('si la puerta no está en main, init no protege la rama y protect lo hace d
   assert.equal(run('protect').code, 0);
   assert.deepEqual(read().protection.required_status_checks.contexts, ['ghosty-dev/evidencia']);
 });
+
+test('board da la liga de los pendientes abiertos del repo', () => {
+  const { run } = setup();
+  const r = run('board', '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.match(JSON.parse(r.out).url, /^https:\/\/github\.com\/acme\/demo\/issues\?q=/);
+});

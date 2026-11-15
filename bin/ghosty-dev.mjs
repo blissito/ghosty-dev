@@ -14,6 +14,7 @@ Uso: ghosty-dev <comando> [opciones]
   protect                                vuelve obligatorio ghosty-dev/evidencia en la rama principal
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
+  board                                  abre en el navegador los pendientes abiertos del repo
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
   wait <n>                               lo deja en «esperando» (CI); termina tu sesión, ready lo vuelve a ofrecer
@@ -93,6 +94,9 @@ try {
     const r = cmd.protect(process.cwd());
     if (!r.ok) throw new cmd.UserError(r.later ? `La puerta todavía no está en ${r.branch}: sube los archivos de init directo a ${r.branch} y vuelve a correr ghosty-dev protect.` : `${r.reason}. Márcalo en Settings → Branches.`);
     print(r, (x) => readyBanner(x));
+  } else if (command === 'board') {
+    const r = cmd.board();
+    print(r, (x) => `Pendientes abiertos en el navegador: ${x.url}`);
   } else if (command === 'add') {
     const r = cmd.add(arg, {
       goal: values.goal,

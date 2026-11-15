@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, appendFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { gh, ghJson, git } from './gh.mjs';
 import { validateEvidence, formatEvidence, findValidEvidence } from './evidence.mjs';
 
@@ -181,6 +182,18 @@ export function add(title, { goal, criteria, context, blockedBy, discoveredIn } 
   if (!number) throw new Error(`No se pudo leer el número del pendiente: ${url}`);
   const blocked = blockedBy ? block(number, blockedBy) : null;
   return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null };
+}
+
+// ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
+
+export function board() {
+  const repo = ghJson(['repo', 'view', '--json', 'url']);
+  const url = `${repo.url}/issues?q=${encodeURIComponent('is:issue is:open label:ghosty-dev:listo,ghosty-dev:tomado,ghosty-dev:esperando,ghosty-dev:bloqueado')}`;
+  if (!process.env.GHOSTY_DEV_NO_OPEN) {
+    const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+    spawnSync(opener, [url], { stdio: 'ignore' });
+  }
+  return { url };
 }
 
 // ---------- block (dependencias nativas de GitHub; Beads: bd dep add) ----------
