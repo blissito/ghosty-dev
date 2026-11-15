@@ -22,7 +22,7 @@ Cognition y Anthropic, y están citadas en [SPEC.md](SPEC.md#2-qué-copiamos-y-d
 Requiere Node 20+ y [`gh`](https://cli.github.com) autenticado.
 
 ```sh
-git clone <este repo> ghosty-bitacora && (cd ghosty-bitacora && npm link)
+git clone https://github.com/blissito/ghosty-bitacora ghosty-bitacora && (cd ghosty-bitacora && npm link)
 cd ~/tu-repo && bitacora init        # etiquetas, plantilla, Action, skill y AGENTS.md
 git add -A && git commit -m "Bitácora" && git push
 ```
