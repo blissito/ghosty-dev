@@ -38,6 +38,10 @@ ghosty-dev init
 - `.claude/skills/ghosty-dev/SKILL.md`: la skill que te dice cómo trabajar los pendientes.
 - `AGENTS.md`: las tres reglas para cualquier agente. Si ya existe, `init` agrega una sección al final.
 
+Además deja el check `ghosty-dev/evidencia` como obligatorio en la rama principal, sin quitar los checks que ya
+estaban. Lo hace con el `gh` de la persona. Si GitHub no lo deja (no es admin, o es un repo privado sin plan de
+pago), `init` lo dice en su salida y sigue: avísale a la persona que lo marque en *Settings → Branches*.
+
 Si un archivo ya existía, `init` no lo toca. Usa `--force` sólo si la persona te lo pide.
 
 ## 4. Guarda los cambios en una rama
@@ -50,13 +54,7 @@ git commit -m "ghosty-dev: pendientes en GitHub Issues que se cierran con eviden
 
 **Pregunta a la persona antes de hacer push o de abrir el PR.** Enséñale la lista de archivos de `git show --stat`.
 
-## 5. Haz obligatoria la puerta de evidencia
-
-El check se llama `ghosty-dev/evidencia`. Dile a la persona que lo marque como obligatorio en
-*Settings → Branches → Require status checks*. Si te pide que lo hagas tú, usa `gh api` sobre la protección de la
-rama principal y enséñale el comando antes de correrlo.
-
-## 6. Comprueba y avisa
+## 5. Comprueba y avisa
 
 ```sh
 ghosty-dev ready

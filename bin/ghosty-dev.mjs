@@ -8,7 +8,9 @@ const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
 
-  init [--dir D] [--dry-run] [--force]   etiquetas, plantilla de pendiente, Action de evidencia, skill y AGENTS.md
+  init [--dir D] [--dry-run] [--force] [--no-protect]
+                                         etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
+                                         y el check ghosty-dev/evidencia obligatorio en la rama principal
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
   wait <n>                               lo deja en «esperando» (CI); termina tu sesión, ready lo vuelve a ofrecer
@@ -29,6 +31,7 @@ const { values, positionals } = parseArgs({
     'no-worktree': { type: 'boolean' },
     'dry-run': { type: 'boolean' },
     force: { type: 'boolean' },
+    'no-protect': { type: 'boolean' },
     dir: { type: 'string' },
     file: { type: 'string' },
     by: { type: 'string' },
@@ -52,7 +55,7 @@ try {
     console.log(HELP);
   } else if (command === 'init') {
     const dir = resolve(values.dir ?? process.cwd());
-    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force });
+    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'] });
     print(plan, (p) =>
       [values['dry-run'] ? `Ensayo en seco en ${dir} (no se escribe nada):` : `Bitácora instalada en ${dir}:`]
         .concat(p.map((x) => `  ${x.action.padEnd(6)} ${x.name ?? x.path}`))

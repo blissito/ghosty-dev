@@ -59,6 +59,16 @@ if (group === 'label' && verb === 'create') {
   const path = args.find((a, idx) => idx > 0 && !a.startsWith('-') && args[idx - 1] !== '-X' && args[idx - 1] !== '-F');
   let m;
   if (path === 'user') out({ login: db.me });
+  else if ((m = path.match(/branches\/([^/]+)\/protection(\/required_status_checks(\/contexts)?)?$/))) {
+    if (db.noAdmin) fail('HTTP 403: Must have admin rights to Repository.');
+    const body = method === 'GET' ? null : JSON.parse(stdin());
+    if (method === 'GET') {
+      if (!db.protection) fail('HTTP 404: Branch not protected');
+    } else if (method === 'PUT') db.protection = body;
+    else if (method === 'PATCH') db.protection.required_status_checks = body;
+    else if (method === 'POST') db.protection.required_status_checks.contexts.push(...body.contexts);
+    out(db.protection);
+  }
   else if ((m = path.match(/issues\/(\d+)\/dependencies\/blocked_by$/))) {
     if (!db.depsApi) fail('HTTP 404: Not Found');
     const i = issue(m[1]);
@@ -74,6 +84,8 @@ if (group === 'label' && verb === 'create') {
     const i = issue(m[1]);
     out({ id: i.id, number: i.number, state: i.state });
   } else fail(`fake gh: api ${path} no soportado`);
+} else if (group === 'repo' && verb === 'view') {
+  out({ nameWithOwner: db.repo, defaultBranchRef: { name: 'main' } });
 } else if (group === 'pr' && verb === 'list') {
   out(db.prs);
 } else if (group === 'run' && verb === 'list') {

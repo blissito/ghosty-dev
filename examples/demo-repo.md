@@ -26,7 +26,7 @@ gh repo create ghosty-dev-demo --public --source . --push
 ghosty-dev init && git add -A && git commit -m "Bitácora" && git push
 ```
 
-En *Settings → Branches → main*: checks obligatorios `test` y `ghosty-dev/evidencia`.
+`init` deja `ghosty-dev/evidencia` obligatorio en main; agrega `test` con `gh api` o en *Settings → Branches*.
 
 ## 2. Los tres pendientes
 

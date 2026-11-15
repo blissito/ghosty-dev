@@ -21,6 +21,7 @@ test('init --dry-run no escribe ni llama a gh', () => {
   assert.equal(r.code, 0, r.err);
   const plan = JSON.parse(r.out);
   assert.equal(plan.filter((p) => p.action === 'label').length, 4);
+  assert.ok(plan.some((p) => p.action === 'gate'));
   assert.equal(read().calls.length, 0);
   assert.equal(existsSync(join(repo, '.github')), false);
 });
@@ -164,4 +165,35 @@ test('las copias de la puerta en .github/ghosty-dev están al día con src/', ()
   for (const f of ['evidence.mjs', 'gate.mjs']) {
     assert.equal(readFileSync(join(root, '.github/ghosty-dev', f), 'utf8'), readFileSync(join(root, 'src', f), 'utf8'), f);
   }
+});
+
+test('init deja ghosty-dev/evidencia obligatorio en main sin pisar los checks que ya había', () => {
+  const { run, read, write } = setup({ protection: { required_status_checks: { strict: true, contexts: ['test'] } } });
+  const r = run('init', '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(read().protection.required_status_checks.contexts, ['test', 'ghosty-dev/evidencia']);
+  assert.equal(read().protection.required_status_checks.strict, true);
+  const again = JSON.parse(run('init', '--json').out);
+  assert.match(again.find((p) => p.action === 'gate').name, /ya estaba/);
+});
+
+test('init protege la rama aunque no tuviera protección', () => {
+  const { run, read } = setup();
+  assert.equal(run('init').code, 0);
+  assert.deepEqual(read().protection.required_status_checks.contexts, ['ghosty-dev/evidencia']);
+});
+
+test('sin permisos de admin, init termina y dice cómo hacerlo a mano', () => {
+  const { run, read } = setup({ noAdmin: true });
+  const r = run('init', '--json');
+  assert.equal(r.code, 0, r.err);
+  const step = JSON.parse(r.out).find((p) => p.name?.includes('ghosty-dev/evidencia'));
+  assert.equal(step.action, 'skip');
+  assert.match(step.name, /Settings/);
+});
+
+test('--no-protect no toca la protección de la rama', () => {
+  const { run, read } = setup();
+  assert.equal(run('init', '--no-protect').code, 0);
+  assert.equal(read().protection, undefined);
 });

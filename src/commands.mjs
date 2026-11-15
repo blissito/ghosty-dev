@@ -209,7 +209,34 @@ export function close(n) {
 
 const AGENTS_MARK = '<!-- ghosty-dev:agents -->';
 
-export function init(dir, { dryRun = false, force = false } = {}) {
+// ---------- puerta obligatoria (Ley 2): el check ghosty-dev/evidencia se exige en la rama principal ----------
+
+export const GATE_CHECK = 'ghosty-dev/evidencia';
+
+// Agrega el check a la protección de la rama sin pisar la que ya exista. Usa el gh de la persona: hace falta ser
+// admin del repo (en privados, además, un plan de pago de GitHub). Si no se puede, devuelve el motivo.
+export function protect(dir) {
+  const repo = ghJson(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], { cwd: dir, allowFail: true });
+  if (!repo) return { ok: false, reason: 'no se pudo leer el repo con gh' };
+  const branch = repo.defaultBranchRef?.name || 'main';
+  const base = `repos/${repo.nameWithOwner}/branches/${branch}/protection`;
+  const has = gh(['api', base], { cwd: dir, allowFail: true });
+  let done;
+  if (has == null) {
+    const body = { required_status_checks: { strict: false, contexts: [GATE_CHECK] }, enforce_admins: false, required_pull_request_reviews: null, restrictions: null };
+    done = gh(['api', '-X', 'PUT', base, '--input', '-'], { cwd: dir, input: JSON.stringify(body), allowFail: true });
+  } else {
+    const current = JSON.parse(has).required_status_checks;
+    if (current?.contexts?.includes(GATE_CHECK)) return { ok: true, branch, already: true };
+    done = current
+      ? gh(['api', '-X', 'POST', `${base}/required_status_checks/contexts`, '--input', '-'], { cwd: dir, input: JSON.stringify({ contexts: [GATE_CHECK] }), allowFail: true })
+      : gh(['api', '-X', 'PATCH', `${base}/required_status_checks`, '--input', '-'], { cwd: dir, input: JSON.stringify({ strict: false, contexts: [GATE_CHECK] }), allowFail: true });
+  }
+  if (done == null) return { ok: false, branch, reason: 'GitHub no dejó proteger la rama (¿eres admin? en repos privados pide plan de pago)' };
+  return { ok: true, branch };
+}
+
+export function init(dir, { dryRun = false, force = false, protectBranch = true } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
@@ -227,6 +254,7 @@ export function init(dir, { dryRun = false, force = false } = {}) {
   const agentsText = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : null;
   const agentsAction = agentsText === null ? 'write' : agentsText.includes(AGENTS_MARK) ? 'skip' : 'append';
   plan.push({ action: agentsAction, path: 'AGENTS.md' });
+  if (protectBranch) plan.push({ action: 'gate', name: `${GATE_CHECK} obligatorio en la rama principal` });
   if (dryRun) return plan;
 
   for (const state of STATES) {
@@ -242,5 +270,11 @@ export function init(dir, { dryRun = false, force = false } = {}) {
   const agentsSection = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8');
   if (agentsAction === 'write') writeFileSync(agentsPath, agentsSection);
   if (agentsAction === 'append') appendFileSync(agentsPath, `\n${agentsSection}`);
+  if (protectBranch) {
+    const r = protect(dir);
+    const step = plan[plan.length - 1];
+    if (r.ok) step.name = `${GATE_CHECK} obligatorio en ${r.branch}${r.already ? ' (ya estaba)' : ''}`;
+    else Object.assign(step, { action: 'skip', name: `${GATE_CHECK}: ${r.reason}. Márcalo en Settings → Branches.` });
+  }
   return plan;
 }

@@ -31,10 +31,11 @@ A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh
 npm install -g github:blissito/ghosty-dev
-cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill y AGENTS.md
+cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill, AGENTS.md y el check obligatorio
 ```
 
-Luego, en *Settings → Branches*, marca `ghosty-dev/evidencia` como check obligatorio.
+`init` también deja `ghosty-dev/evidencia` como check obligatorio en la rama principal, con tu propio `gh`
+(hace falta ser admin del repo; en repos privados, GitHub lo pide con plan de pago).
 
 ## Demo en 1 minuto
 
