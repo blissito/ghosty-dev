@@ -192,7 +192,7 @@ export function evidence(n, file) {
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
-  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md) }) || '').trim();
+  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md, prOf(n)) }) || '').trim();
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR.
   const rerun = rerunGate(n);
   return { number: n, posted: true, url: url || null, rerun };
@@ -238,7 +238,7 @@ export function review(n, { file } = {}) {
   if (!ok) throw new UserError(`Revisión inválida para #${n}:\n- ${errors.join('\n- ')}`);
   const pr = prOf(n);
   if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto: la revisión va sobre el commit del PR.`);
-  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatRevision(n, pr.headRefOid, md) }) || '').trim();
+  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatRevision(n, pr.headRefOid, md, pr) }) || '').trim();
   return { number: n, sha: pr.headRefOid, open, url: url || null, rerun: rerunGate(n) };
 }
 

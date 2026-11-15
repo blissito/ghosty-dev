@@ -318,3 +318,15 @@ test('wait --watch no da verde si el commit nuevo todavía no tiene checks', () 
   assert.equal(JSON.parse(r.out).ci, 'sin-checks');
   assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);
 });
+
+test('la evidencia y la revisión enlazan el PR', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:esperando-ci'], assignees: ['agente-a'], body: '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n' }) },
+    prs: [{ number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', headRefOid: SHA }],
+  });
+  assert.equal(s.run('review', '5', '--file', s.write('r.md', revisionMd())).code, 0);
+  assert.equal(s.run('evidence', '5', '--file', s.write('e.md', VALID_EVIDENCE)).code, 0);
+  const [rev, ev] = s.read().issues[5].comments.slice(-2).map((c) => c.body);
+  assert.match(rev, /PR: https:\/\/github\.com\/acme\/demo\/pull\/9/);
+  assert.match(ev, /PR: https:\/\/github\.com\/acme\/demo\/pull\/9/);
+});
