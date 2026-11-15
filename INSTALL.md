@@ -3,6 +3,9 @@
 Una persona te pidió algo como «Instala github.com/blissito/ghosty-dev aquí». Sigue estos pasos tú solo, en orden,
 desde la raíz del repo donde estás trabajando. No le hagas preguntas a la persona salvo donde este archivo lo dice.
 
+**Si te piden actualizar ghosty-dev** en un repo donde ya está: reinstala el CLI (paso 2) antes de correr
+`ghosty-dev init --force`. Si no, `init` usa la versión vieja que ya estaba instalada.
+
 ## 1. Revisa lo que hace falta
 
 ```sh
