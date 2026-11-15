@@ -61,6 +61,8 @@ function ciOf(n) {
   const pr = prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
   if (!pr) return { status: 'sin-pr' };
   const checks = (pr.statusCheckRollup || []).filter((c) => !(c.name || c.context || '').startsWith('ghosty-dev'));
+  // Justo después de un push GitHub aún no registra los checks del commit nuevo: cero checks NO es verde.
+  if (checks.length === 0) return { status: 'sin-checks', pr };
   const pending = checks.some((c) => (c.status ? c.status !== 'COMPLETED' : ['PENDING', 'EXPECTED'].includes(c.state)));
   if (pending) return { status: 'pendiente', pr };
   const red = checks.some((c) =>
@@ -88,7 +90,7 @@ export function ready() {
       login ??= me();
       const mine = issue.assignees.length === 0 || issue.assignees.some((a) => a.login === login);
       const ci = ciOf(issue.number);
-      if (mine && ci.status !== 'pendiente') out.push({ ...base, reason: `ci-${ci.status}`, pr: ci.pr?.url ?? null });
+      if (mine && ci.status !== 'pendiente' && ci.status !== 'sin-checks') out.push({ ...base, reason: `ci-${ci.status}`, pr: ci.pr?.url ?? null });
     }
   }
   return out;
@@ -147,8 +149,14 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
   if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
   if (state === 'tomado') setState(issue, 'esperando');
   if (!watch) return { number: n, state: 'esperando' };
-  const before = ciOf(n);
+  let before = ciOf(n);
   if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr' };
+  // Tras un push, los checks tardan unos segundos en aparecer: se espera a que existan (tope ~90 s).
+  const step = Number(process.env.GHOSTY_DEV_REGISTER_WAIT_MS ?? 10_000);
+  for (let i = 0; before.status === 'sin-checks' && i < 9; i++) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, step);
+    before = ciOf(n);
+  }
   if (before.status === 'pendiente') {
     gh(['pr', 'checks', String(before.pr.number), '--watch', '--interval', '10'], { allowFail: true, timeout: minutes * 60_000 });
   }

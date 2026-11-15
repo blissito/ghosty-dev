@@ -307,3 +307,14 @@ test('add abre el tablero una sola vez por tanda', () => {
   assert.match(decodeURIComponent(a.board), /ghosty-dev:por-hacer/);
   assert.equal(b.board, null);
 });
+
+test('wait --watch no da verde si el commit nuevo todavía no tiene checks', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) },
+    prs: [{ number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', statusCheckRollup: [{ name: 'ghosty-dev/evidencia', status: 'COMPLETED', conclusion: 'FAILURE' }] }],
+  });
+  const r = s.run('wait', '5', '--watch', '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(JSON.parse(r.out).ci, 'sin-checks');
+  assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);
+});

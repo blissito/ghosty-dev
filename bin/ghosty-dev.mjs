@@ -148,7 +148,9 @@ try {
         ? `#${x.number} esperando el CI. Toma otro pendiente o termina: ghosty-dev ready te lo ofrece cuando resuelva.`
         : x.ci === 'sin-pr'
           ? `#${x.number} no tiene PR abierto todavía.`
-          : `#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Publica la evidencia con ghosty-dev evidence.' : ' Arréglalo y vuelve a subir.'}`,
+          : x.ci === 'sin-checks'
+            ? `#${x.number}: el commit actual del PR no tiene checks (¿el repo tiene CI en pull_request?). No es verde.`
+            : `#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Pide la revisión (subagente ghosty-dev-revisor).' : ' Arréglalo y vuelve a subir.'}`,
     );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file);
