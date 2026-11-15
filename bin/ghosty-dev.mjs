@@ -134,7 +134,7 @@ try {
     );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file);
-    print(r, (x) => `Evidencia publicada en #${x.number}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
+    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
   } else if (command === 'block') {
     const r = cmd.block(num(arg), num(values.by, '--by <m>'));
     print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);

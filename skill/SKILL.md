@@ -36,6 +36,10 @@ ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude
 ghosty-dev evidence <n> --file evidencia.md   # valida el formato y lo publica en el issue
 ```
 
+Después de publicarla, dile a la persona **dónde está y qué dice**: la liga del comentario (la imprime
+`ghosty-dev evidence`) y un resumen de tres renglones (qué se hizo, qué pruebas pasaron, CI). Que pueda decidir
+el merge sin abrir el código.
+
 El PR lo mergea el **Clerk** (la persona) después de leer la evidencia; `Closes #<n>` cierra el pendiente.
 Si no hubo PR (tarea sin código), `ghosty-dev close <n>`, que también exige evidencia.
 

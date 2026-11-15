@@ -163,7 +163,7 @@ export function evidence(n, file) {
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
-  gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md) });
+  const url = (gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md) }) || '').trim();
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR.
   const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,headRefName']) ?? [];
   const pr = prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
@@ -175,7 +175,7 @@ export function evidence(n, file) {
     );
     if (runs?.[0] && gh(['run', 'rerun', String(runs[0].databaseId)], { allowFail: true }) !== null) rerun = runs[0].databaseId;
   }
-  return { number: n, posted: true, rerun };
+  return { number: n, posted: true, url: url || null, rerun };
 }
 
 // ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------
