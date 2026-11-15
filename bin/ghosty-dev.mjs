@@ -59,24 +59,35 @@ const num = (v, what = '<n>') => {
 };
 
 // Se imprime al terminar la instalación; el agente lo copia tal cual en su último mensaje.
-function readyBanner({ repo, branch }) {
-  const ghost = [
-    '     .-~~~~~-.   ',
-    '    /         \\  ',
-    '   |  (o)-(o)  | ',
-    '   |           | ',
-    '   |           | ',
-    '    \\/\\/\\/\\/\\/   ',
-  ];
+// La mascota es la de GhostyCode (crates/tui/src/tui/underwater.rs): halo, cabeza, ojos y cola en bloques.
+const GHOST_EYES = ['◐', '─', '◐', '◑', '●', '◕', '◠', '✧', '◕']; // un recorrido corto de su línea de tiempo
+const ghostRows = (eye) => ['   ˚    ', ' ▄████▄ ', `▐ ${eye}  ${eye} ▌`, '▐█▀██▀█▌'];
+
+function readyBanner({ repo, branch }, eye = '◕') {
   const text = [
     `ghosty-dev está listo${repo ? ` en ${repo}` : ''}`,
     '',
     '✓ etiquetas y plantilla de pendiente',
     `✓ la puerta ghosty-dev/evidencia es obligatoria en ${branch}`,
-    '',
+    '✓ revisor con contexto limpio (.claude/agents/ghosty-dev-revisor.md)',
     'Dile a tu agente qué hay que hacer: él abre los pendientes.',
   ];
-  return ghost.map((g, i) => `${g}   ${text[i] ?? ''}`.trimEnd()).join('\n');
+  const ghost = ghostRows(eye);
+  return text.map((t, i) => `${ghost[i] ?? '        '}    ${t}`.trimEnd()).join('\n');
+}
+
+// En una terminal de verdad (una persona, no un agente) los ojos se mueven un par de segundos y terminan contentos.
+async function showBanner(data) {
+  if (!process.stdout.isTTY || values.json || process.env.NO_COLOR || process.env.CI) {
+    console.log(readyBanner(data));
+    return;
+  }
+  const lines = readyBanner(data).split('\n').length;
+  for (let i = 0; i < GHOST_EYES.length; i++) {
+    if (i) process.stdout.write(`\x1b[${lines}A`);
+    process.stdout.write(readyBanner(data, GHOST_EYES[i]) + '\n');
+    await new Promise((r) => setTimeout(r, 260));
+  }
 }
 
 function print(data, human) {
@@ -98,7 +109,8 @@ try {
   } else if (command === 'protect') {
     const r = cmd.protect(process.cwd());
     if (!r.ok) throw new cmd.UserError(r.later ? `La puerta todavía no está en ${r.branch}: sube los archivos de init directo a ${r.branch} y vuelve a correr ghosty-dev protect.` : `${r.reason}. Márcalo en Settings → Branches.`);
-    print(r, (x) => readyBanner(x));
+    if (values.json) print(r, () => '');
+    else await showBanner(r);
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file });
     if (r.brief) print(r, (x) => x.brief);
