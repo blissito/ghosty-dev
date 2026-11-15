@@ -251,13 +251,13 @@ export function protect(dir) {
     done = gh(['api', '-X', 'PUT', base, '--input', '-'], { cwd: dir, input: JSON.stringify(body), allowFail: true });
   } else {
     const current = JSON.parse(has).required_status_checks;
-    if (current?.contexts?.includes(GATE_CHECK)) return { ok: true, branch, already: true };
+    if (current?.contexts?.includes(GATE_CHECK)) return { ok: true, repo: repo.nameWithOwner, branch, already: true };
     done = current
       ? gh(['api', '-X', 'POST', `${base}/required_status_checks/contexts`, '--input', '-'], { cwd: dir, input: JSON.stringify({ contexts: [GATE_CHECK] }), allowFail: true })
       : gh(['api', '-X', 'PATCH', `${base}/required_status_checks`, '--input', '-'], { cwd: dir, input: JSON.stringify({ strict: false, contexts: [GATE_CHECK] }), allowFail: true });
   }
   if (done == null) return { ok: false, branch, reason: 'GitHub no dejó proteger la rama (¿eres admin? en repos privados pide plan de pago)' };
-  return { ok: true, branch };
+  return { ok: true, repo: repo.nameWithOwner, branch };
 }
 
 export function init(dir, { dryRun = false, force = false, protectBranch = true } = {}) {

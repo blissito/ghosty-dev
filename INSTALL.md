@@ -73,5 +73,9 @@ que lo marque en *Settings → Branches*.
 ghosty-dev ready
 ```
 
-Una lista vacía es correcta en un repo sin pendientes. Termina con un mensaje corto a la persona:
-qué se instaló, que la puerta ya es obligatoria y que, para empezar, basta con pedirte «toma el siguiente pendiente».
+Una lista vacía es correcta en un repo sin pendientes.
+
+Termina tu mensaje a la persona con el dibujo que imprimió `ghosty-dev protect`, **copiado tal cual dentro de un
+bloque de código** (sin cambiarle nada). Antes del dibujo, una sola línea con el commit que subiste. No le pidas a
+la persona que corra comandos: para empezar, basta con que te diga qué hay que hacer («hay que agregar /health») y
+tú abres los pendientes con `ghosty-dev add`; después, «toma el siguiente pendiente».

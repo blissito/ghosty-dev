@@ -52,6 +52,27 @@ const num = (v, what = '<n>') => {
   return n;
 };
 
+// Se imprime al terminar la instalación; el agente lo copia tal cual en su último mensaje.
+function readyBanner({ repo, branch }) {
+  const ghost = [
+    '     .-~~~~~-.   ',
+    '    /         \\  ',
+    '   |  (o)-(o)  | ',
+    '   |           | ',
+    '   |           | ',
+    '    \\/\\/\\/\\/\\/   ',
+  ];
+  const text = [
+    `ghosty-dev está listo${repo ? ` en ${repo}` : ''}`,
+    '',
+    '✓ etiquetas y plantilla de pendiente',
+    `✓ la puerta ghosty-dev/evidencia es obligatoria en ${branch}`,
+    '',
+    'Dile a tu agente qué hay que hacer: él abre los pendientes.',
+  ];
+  return ghost.map((g, i) => `${g}   ${text[i] ?? ''}`.trimEnd()).join('\n');
+}
+
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
   else console.log(human(data));
@@ -71,7 +92,7 @@ try {
   } else if (command === 'protect') {
     const r = cmd.protect(process.cwd());
     if (!r.ok) throw new cmd.UserError(r.later ? `La puerta todavía no está en ${r.branch}: sube los archivos de init directo a ${r.branch} y vuelve a correr ghosty-dev protect.` : `${r.reason}. Márcalo en Settings → Branches.`);
-    print(r, (x) => `ghosty-dev/evidencia obligatorio en ${x.branch}${x.already ? ' (ya estaba)' : ''}.`);
+    print(r, (x) => readyBanner(x));
   } else if (command === 'add') {
     const r = cmd.add(arg, {
       goal: values.goal,
