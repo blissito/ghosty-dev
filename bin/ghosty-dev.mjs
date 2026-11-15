@@ -11,6 +11,8 @@ Uso: ghosty-dev <comando> [opciones]
   init [--dir D] [--dry-run] [--force] [--no-protect]
                                          etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
                                          y el check ghosty-dev/evidencia obligatorio en la rama principal
+  add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
+                                         --context, --from <n> si lo descubriste trabajando #n)
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
   wait <n>                               lo deja en «esperando» (CI); termina tu sesión, ready lo vuelve a ofrecer
@@ -35,6 +37,10 @@ const { values, positionals } = parseArgs({
     dir: { type: 'string' },
     file: { type: 'string' },
     by: { type: 'string' },
+    goal: { type: 'string' },
+    criteria: { type: 'string', multiple: true },
+    context: { type: 'string' },
+    from: { type: 'string' },
   },
 });
 
@@ -61,6 +67,15 @@ try {
         .concat(p.map((x) => `  ${x.action.padEnd(6)} ${x.name ?? x.path}`))
         .join('\n'),
     );
+  } else if (command === 'add') {
+    const r = cmd.add(arg, {
+      goal: values.goal,
+      criteria: values.criteria ?? [],
+      context: values.context,
+      blockedBy: values.by ? num(values.by, '--by <m>') : undefined,
+      discoveredIn: values.from ? num(values.from, '--from <n>') : undefined,
+    });
+    print(r, (x) => `Pendiente #${x.number} abierto: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}`);
   } else if (command === 'ready') {
     const list = cmd.ready();
     if (values.claim) {

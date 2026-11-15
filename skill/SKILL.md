@@ -60,13 +60,25 @@ $ npm test
 Reglas: la salida es la real (si la recortas, dilo); un criterio que no se cumple se queda `[ ]` y no publicas;
 CI rojo no se publica como evidencia.
 
+## Abrir pendientes desde la plática
+
+Cuando la persona te diga qué hay que hacer («hay que paginar /pedidos»), tú abres el pendiente. Escribe un
+objetivo (qué debe quedar cierto) y criterios que se puedan comprobar. Si son varios, uno por pendiente, y marca
+los bloqueos. Enséñale a la persona la lista antes de crearlos.
+
+```sh
+ghosty-dev add "Paginar /pedidos" --goal "GET /pedidos responde por páginas de 20" \
+  --criteria "acepta ?page=N" --criteria "hay un test por página"
+ghosty-dev add "Exportar CSV" --goal "…" --criteria "…" --by 12   # bloqueado por #12
+```
+
 ## Lo que descubras
 
 Si encuentras un bug, un test roto que no es tuyo o trabajo que falta: **abre un pendiente nuevo**, no una nota
 ni un comentario perdido, y sigue con el tuyo.
 
 ```sh
-gh issue create --label ghosty-dev:listo --title "…" --body "Descubierto en #<n>. …"
+ghosty-dev add "título" --goal "…" --criteria "…" --from <n>
 # si tu pendiente no puede seguir sin él:
 ghosty-dev block <n> --by <nuevo>
 ```

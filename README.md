@@ -40,7 +40,7 @@ cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill, AG
 ## Demo en 1 minuto
 
 ```sh
-gh issue create --label ghosty-dev:listo --title "Agregar /health" --body-file pendiente.md
+ghosty-dev add "Agregar /health" --goal "GET /health responde 200" --criteria "hay un test"
 ghosty-dev ready                         # #1  listo  Agregar /health
 ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en ../tu-repo-1
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
@@ -55,7 +55,7 @@ Al agente se le dice una sola cosa: «toma el siguiente pendiente». La skill (`
 
 ## Comandos
 
-`init` · `ready [--json] [--claim]` · `claim <n>` · `wait <n>` · `evidence <n> --file f.md` · `block <n> --by <m>` ·
+`init` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n>` · `evidence <n> --file f.md` · `block <n> --by <m>` ·
 `show <n>` · `close <n>`. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
 ## Tests

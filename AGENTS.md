@@ -13,6 +13,6 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
 3. **Se espera por evento, no se sondea.** Con el PR abierto y el CI corriendo: `ghosty-dev wait <n>` y termina.
    `ghosty-dev ready` te lo vuelve a ofrecer cuando el CI resuelva.
 
-Un solo escritor por pendiente. Lo que descubras va a un pendiente nuevo (`gh issue create --label
-ghosty-dev:listo`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
+Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
+(`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Especificación: `SPEC.md` del paquete ghosty-dev.

@@ -162,6 +162,27 @@ export function evidence(n, file) {
   return { number: n, posted: true, rerun };
 }
 
+// ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------
+
+export function pendienteBody({ goal, criteria = [], context, discoveredIn }) {
+  if (!goal?.trim()) throw new UserError('Falta el objetivo: --goal "qué debe quedar cierto".');
+  if (!criteria.length) throw new UserError('Falta al menos un criterio: --criteria "…" (se puede repetir).');
+  const parts = ['## Objetivo', goal.trim(), '', '## Criterios de aceptación', ...criteria.map((x) => `- [ ] ${x.trim()}`)];
+  const ctx = [discoveredIn ? `Descubierto en #${discoveredIn}.` : '', context?.trim() ?? ''].filter(Boolean).join(' ');
+  if (ctx) parts.push('', '## Contexto', ctx);
+  return parts.join('\n') + '\n';
+}
+
+export function add(title, { goal, criteria, context, blockedBy, discoveredIn } = {}) {
+  if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--by <m>].');
+  const body = pendienteBody({ goal, criteria, context, discoveredIn });
+  const url = gh(['issue', 'create', '--title', title.trim(), '--label', label('listo'), '--body-file', '-'], { input: body }).trim();
+  const number = Number(url.match(/(\d+)\s*$/)?.[1]);
+  if (!number) throw new Error(`No se pudo leer el número del pendiente: ${url}`);
+  const blocked = blockedBy ? block(number, blockedBy) : null;
+  return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null };
+}
+
 // ---------- block (dependencias nativas de GitHub; Beads: bd dep add) ----------
 
 export function block(n, by) {

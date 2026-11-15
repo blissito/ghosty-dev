@@ -30,7 +30,7 @@ ghosty-dev init && git add -A && git commit -m "Bitácora" && git push
 
 ## 2. Los tres pendientes
 
-Cada uno con `gh issue create --label ghosty-dev:listo --title … --body-file …`. Cuerpos:
+El agente los abre desde la plática con `ghosty-dev add "título" --goal … --criteria …`. Contenido:
 
 **#1 Servidor HTTP con /health**
 ```markdown

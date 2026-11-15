@@ -197,3 +197,23 @@ test('--no-protect no toca la protección de la rama', () => {
   assert.equal(run('init', '--no-protect').code, 0);
   assert.equal(read().protection, undefined);
 });
+
+test('add abre un pendiente con la plantilla y, con --by, lo deja bloqueado', () => {
+  const { run, read } = setup({ issues: { 1: issue(1, 'Servidor con /health') } });
+  const r = run('add', 'Endpoint /version', '--goal', 'GET /version responde la versión', '--criteria', 'responde 200', '--criteria', 'hay un test', '--by', '1', '--json');
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.number, 2);
+  const i = read().issues[2];
+  assert.match(i.body, /## Objetivo\nGET \/version responde la versión/);
+  assert.match(i.body, /- \[ \] responde 200\n- \[ \] hay un test/);
+  assert.deepEqual(i.blockedBy, [1]);
+  assert.ok(i.labels.includes('ghosty-dev:bloqueado'));
+});
+
+test('add sin criterios se niega', () => {
+  const { run } = setup();
+  const r = run('add', 'X', '--goal', 'algo');
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /criterio/);
+});

@@ -32,6 +32,10 @@ const login = (who) => (who === '@me' ? db.me : who);
 const [group, verb] = args;
 if (group === 'label' && verb === 'create') {
   if (!db.labels.includes(args[2])) db.labels.push(args[2]);
+} else if (group === 'issue' && verb === 'create') {
+  const number = Math.max(0, ...Object.keys(db.issues).map(Number)) + 1;
+  db.issues[number] = { number, id: 1000 + number, title: flag('--title'), labels: [flag('--label')], body: stdin(), assignees: [], state: 'open', comments: [], blockedBy: [] };
+  out(`https://github.com/${db.repo}/issues/${number}\n`);
 } else if (group === 'issue' && verb === 'list') {
   out(Object.values(db.issues).filter((i) => i.state === 'open').map(view));
 } else if (group === 'issue' && verb === 'view') {
