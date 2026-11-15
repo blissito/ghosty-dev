@@ -17,7 +17,8 @@ Uso: ghosty-dev <comando> [opciones]
   board                                  abre en el navegador los pendientes abiertos del repo
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
-  wait <n>                               lo deja en «esperando» (CI); termina tu sesión, ready lo vuelve a ofrecer
+  wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI en una sola llamada
+                                         (tope 5 min) y dice si quedó verde o rojo
   evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
   block <n> --by <m>                     #n queda bloqueado por #m
   show <n> [--json]                      estado, bloqueos y si ya tiene evidencia
@@ -39,6 +40,8 @@ const { values, positionals } = parseArgs({
     dir: { type: 'string' },
     file: { type: 'string' },
     by: { type: 'string' },
+    watch: { type: 'boolean' },
+    minutes: { type: 'string' },
     goal: { type: 'string' },
     criteria: { type: 'string', multiple: true },
     context: { type: 'string' },
@@ -121,8 +124,14 @@ try {
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait') {
-    const r = cmd.wait(num(arg));
-    print(r, (x) => `#${x.number} esperando el CI. Termina tu sesión: ghosty-dev ready te lo ofrece cuando resuelva.`);
+    const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined });
+    print(r, (x) =>
+      !values.watch || x.timedOut
+        ? `#${x.number} esperando el CI. Toma otro pendiente o termina: ghosty-dev ready te lo ofrece cuando resuelva.`
+        : x.ci === 'sin-pr'
+          ? `#${x.number} no tiene PR abierto todavía.`
+          : `#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Publica la evidencia con ghosty-dev evidence.' : ' Arréglalo y vuelve a subir.'}`,
+    );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file);
     print(r, (x) => `Evidencia publicada en #${x.number}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);

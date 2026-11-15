@@ -12,8 +12,9 @@ Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pen
    el issue, no en tu contexto ni en un TODO de markdown.
 2. **Se revisa la evidencia, no el código.** Nunca digas «ya quedó» sin evidencia; nunca cierres sin el
    comentario de evidencia.
-3. **Se espera por evento, no se sondea.** No te quedes vigilando el CI: deja el pendiente en `esperando` y
-   termina.
+3. **Se espera por evento, no se sondea.** Nunca preguntes una y otra vez por el CI (`sleep`, loops). Espéralo
+   con UNA sola llamada que se bloquea (`ghosty-dev wait <n> --watch`, tope 5 min); si tarda más, toma otro
+   pendiente o termina.
 
 ## El ciclo
 
@@ -23,10 +24,13 @@ ghosty-dev claim <n>               # te lo asigna y crea su worktree y su rama g
 cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree, un escritor
 # … código y tests …
 git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
-ghosty-dev wait <n>                # CI corriendo: termina tu sesión aquí
+ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
 ```
 
-Cuando `ghosty-dev ready` te devuelva el pendiente con `ci-verde` (o `ci-rojo`, entonces arréglalo y repite):
+- **CI verde** → publica la evidencia en ese momento, sin que nadie te lo pida.
+- **CI rojo** → arréglalo, sube y vuelve a esperar.
+- **Se acabaron los 5 min** → el pendiente queda en `esperando-ci`: toma otro independiente o termina.
+  `ghosty-dev ready` te lo vuelve a ofrecer con `ci-verde` o `ci-rojo` cuando resuelva.
 
 ```sh
 ghosty-dev evidence <n> --file evidencia.md   # valida el formato y lo publica en el issue
@@ -88,6 +92,6 @@ ghosty-dev block <n> --by <nuevo>
 
 - Tomar un pendiente asignado a otro, o trabajar dos pendientes en el mismo worktree.
 - Cerrar un issue con `gh issue close` directo, o publicar evidencia que no corriste.
-- Dormir/sondear esperando CI (`sleep`, `gh run watch`, loops).
+- Sondear el CI (`sleep`, loops, preguntar una y otra vez). La única espera es `ghosty-dev wait <n> --watch`.
 - Calificarte a ti mismo como revisión: la revisión la hace otra sesión o la persona, leyendo sólo el pendiente,
   la evidencia y el diff.

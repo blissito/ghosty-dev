@@ -1,9 +1,9 @@
 // Envoltura mínima sobre `gh` y `git`. GHOSTY_DEV_GH permite cambiar el binario (los tests usan un gh falso).
 import { execFileSync } from 'node:child_process';
 
-function run(bin, args, { input, allowFail, cwd } = {}) {
+function run(bin, args, { input, allowFail, cwd, timeout } = {}) {
   try {
-    return execFileSync(bin, args, { encoding: 'utf8', input, cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    return execFileSync(bin, args, { encoding: 'utf8', input, cwd, timeout, stdio: ['pipe', 'pipe', 'pipe'] });
   } catch (e) {
     if (allowFail) return null;
     const detail = (e.stderr || e.message || '').toString().trim();

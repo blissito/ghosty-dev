@@ -129,7 +129,7 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
    worktree `../<repo>-<n>`. Si ya tiene otro asignado, falla. Si dos se asignan a la vez, el que ve a otro se retira.
 3. **work.** Un pendiente por worktree. Lo que descubra va a un pendiente nuevo, no a una nota.
 4. **PR.** La descripción lleva `Closes #<n>`.
-5. **wait.** `ghosty-dev wait <n>` pone `esperando` y el agente **termina su sesión**. No sondea.
+5. **wait.** `ghosty-dev wait <n> --watch` pone `esperando-ci` y espera al CI con una sola llamada bloqueante (no gasta tokens; tope 5 min). Si el CI tarda más, el agente toma otro pendiente o **termina su sesión**. Nunca sondea.
 6. **evidence.** Al volver a salir en `ready`, el agente escribe la evidencia y la publica con
    `ghosty-dev evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
 7. **close.** El Clerk lee la evidencia y mergea; `Closes #n` cierra el pendiente. Sin PR: `ghosty-dev close <n>`,

@@ -138,11 +138,21 @@ export function claim(n, { worktree = true } = {}) {
 
 // ---------- wait (Ley 3; Beads gates «so agents never need to poll») ----------
 
-export function wait(n) {
+// Ley 3: esperar no es sondear. Con --watch, una sola llamada bloqueante (gh pr checks --watch) espera al CI
+// sin gastar tokens; si tarda más que el tope, el pendiente queda en esperando-ci y el agente sigue con otro.
+export function wait(n, { watch = false, minutes = 5 } = {}) {
   const issue = viewIssue(n);
-  if (stateOf(issue) !== 'tomado') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
-  setState(issue, 'esperando');
-  return { number: n, state: 'esperando' };
+  const state = stateOf(issue);
+  if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
+  if (state === 'tomado') setState(issue, 'esperando');
+  if (!watch) return { number: n, state: 'esperando' };
+  const before = ciOf(n);
+  if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr' };
+  if (before.status === 'pendiente') {
+    gh(['pr', 'checks', String(before.pr.number), '--watch', '--interval', '10'], { allowFail: true, timeout: minutes * 60_000 });
+  }
+  const ci = ciOf(n);
+  return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente' };
 }
 
 // ---------- evidence (Ley 2; «proof of work», Symphony) ----------

@@ -10,7 +10,7 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
    (secciones «Qué se hizo», «Verificación» con comandos `$ …` y su salida real, «CI» con resultado y liga,
    «Preview», «Criterios de aceptación» marcados). El PR lleva `Closes #<n>`; sin evidencia, el check
    `ghosty-dev/evidencia` no deja mergear. Nunca cierres un issue sin evidencia.
-3. **Se espera por evento, no se sondea.** Con el PR abierto y el CI corriendo: `ghosty-dev wait <n>` y termina.
+3. **Se espera por evento, no se sondea.** Con el PR abierto: `ghosty-dev wait <n> --watch` espera al CI en una sola llamada (tope 5 min); si tarda más, toma otro pendiente o termina.
    `ghosty-dev ready` te lo vuelve a ofrecer cuando el CI resuelva.
 
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo

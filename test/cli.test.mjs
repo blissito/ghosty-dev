@@ -237,3 +237,17 @@ test('board da la liga de los pendientes abiertos del repo', () => {
   assert.equal(r.code, 0, r.err);
   assert.match(JSON.parse(r.out).url, /^https:\/\/github\.com\/acme\/demo\/issues\?q=/);
 });
+
+test('wait --watch espera al CI en una sola llamada y dice si quedó verde', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) },
+    prs: [{ number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', statusCheckRollup: [{ name: 'test', status: 'IN_PROGRESS' }] }],
+  });
+  const r = s.run('wait', '5', '--watch', '--json');
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.ci, 'verde');
+  assert.equal(out.timedOut, false);
+  assert.ok(s.read().calls.some((c) => c[0] === 'pr' && c[1] === 'checks' && c.includes('--watch')));
+  assert.ok(s.read().issues[5].labels.includes('ghosty-dev:esperando-ci'));
+});

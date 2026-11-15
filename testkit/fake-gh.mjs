@@ -96,6 +96,10 @@ if (group === 'label' && verb === 'create') {
   out('');
 } else if (group === 'repo' && verb === 'view') {
   out({ nameWithOwner: db.repo, defaultBranchRef: { name: 'main' }, url: `https://github.com/${db.repo}` });
+} else if (group === 'pr' && verb === 'checks') {
+  // Simula que el CI termina mientras se espera.
+  for (const p of db.prs) for (const c of p.statusCheckRollup || []) if (c.status !== 'COMPLETED') Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult ?? 'SUCCESS' });
+  out('');
 } else if (group === 'pr' && verb === 'list') {
   out(db.prs);
 } else if (group === 'run' && verb === 'list') {

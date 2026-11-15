@@ -45,7 +45,7 @@ ghosty-dev add "Agregar /health" --goal "GET /health responde 200" --criteria "h
 ghosty-dev ready                         # #1  listo  Agregar /health
 ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en ../tu-repo-1
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
-ghosty-dev wait 1                        # esperando el CI; la sesión termina
+ghosty-dev wait 1 --watch                # espera al CI en una sola llamada, sin sondear (tope 5 min)
 ghosty-dev ready                         # #1  ci-verde  Agregar /health
 ghosty-dev evidence 1 --file evidencia.md
 # el check ghosty-dev/evidencia pasa; el Clerk lee la evidencia y mergea
