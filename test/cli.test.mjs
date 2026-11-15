@@ -158,3 +158,10 @@ test('close sin evidencia se niega; con evidencia cierra', () => {
   assert.equal(s.read().issues[5].state, 'closed');
   assert.equal(JSON.parse(s.run('show', '5', '--json').out).evidence, true);
 });
+
+test('las copias de la puerta en .github/bitacora están al día con src/', () => {
+  const root = join(import.meta.dirname, '..');
+  for (const f of ['evidence.mjs', 'gate.mjs']) {
+    assert.equal(readFileSync(join(root, '.github/bitacora', f), 'utf8'), readFileSync(join(root, 'src', f), 'utf8'), f);
+  }
+});

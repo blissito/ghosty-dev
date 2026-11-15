@@ -32,7 +32,7 @@ Luego, en *Settings → Branches*, marca `bitacora/evidencia` como check obligat
 ## Demo en 1 minuto
 
 ```sh
-gh issue create --template pendiente.md --title "Agregar /health"    # o desde la web
+gh issue create --label bitacora:listo --title "Agregar /health" --body-file pendiente.md
 bitacora ready                         # #1  listo  Agregar /health
 bitacora claim 1                       # rama bitacora/1-agregar-health en ../tu-repo-1
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
