@@ -45,7 +45,7 @@ traza a una ley o a una fuente de esta tabla.
 | Un solo escritor; el revisor no comparte contexto con el que escribió | Cognition (Walden Yan) | [Multi-Agents: What's Actually Working](https://cognition.com/blog/multi-agents-working) | un asignado por pendiente, un worktree por pendiente; el Clerk lee evidencia, no la sesión |
 | El autor se califica de más: el evaluador va separado | Prithvi Rajasekaran — Anthropic | [Harness design for long-running apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) | el agente no se aprueba: lo valida la puerta y lo decide el Clerk |
 | Un verificador casi perfecto vale más que un orquestador | Nicholas Carlini — Anthropic | [Building a C compiler](https://www.anthropic.com/engineering/building-c-compiler) | «Verificación» exige comandos con su salida; CI rojo no cierra |
-| Dependencias entre tareas sin herramienta nueva | GitHub — sub-issues y «blocked by» | docs de GitHub Issues | `bitacora block` (API nativa; respaldo: lista en el cuerpo) |
+| Dependencias entre tareas sin herramienta nueva | GitHub — «blocked by» y sub-issues | [Creating issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies), [REST](https://docs.github.com/en/rest/issues/issue-dependencies), [`gh --blocked-by` (≥2.94)](https://github.blog/changelog/2026-06-10-manage-sub-issues-types-and-dependencies-from-github-cli/) | `bitacora block` (API nativa; respaldo: lista en el cuerpo) |
 | El conocimiento en un solo papel se pierde (imagen, no mecanismo) | Karel Čapek — *R.U.R.* (1920) | [Gutenberg 59112](https://gutenberg.org/cache/epub/59112/pg59112-images.html) | — |
 
 `wait` y el estado `esperando` salen de la **Ley 3**.
