@@ -126,7 +126,7 @@ try {
       blockedBy: values.by ? num(values.by, '--by <m>') : undefined,
       discoveredIn: values.from ? num(values.from, '--from <n>') : undefined,
     });
-    print(r, (x) => `Pendiente #${x.number} abierto: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}`);
+    print(r, (x) => `Pendiente #${x.number} abierto: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
   } else if (command === 'ready') {
     const list = cmd.ready();
     if (values.claim) {

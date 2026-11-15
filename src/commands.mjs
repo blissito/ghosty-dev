@@ -1,5 +1,6 @@
 // Comandos de la bitácora. Cada uno se traza a una ley o a una fuente (ver SPEC.md, «Qué copiamos y de quién»).
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, appendFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -207,7 +208,9 @@ export function add(title, { goal, criteria, context, blockedBy, discoveredIn } 
   const number = Number(url.match(/(\d+)\s*$/)?.[1]);
   if (!number) throw new Error(`No se pudo leer el número del pendiente: ${url}`);
   const blocked = blockedBy ? block(number, blockedBy) : null;
-  return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null };
+  // La persona ve sus pendientes en GitHub: se abre el tablero una vez por tanda (no en cada add).
+  const board = openBoardOncePerBatch(url);
+  return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null, board };
 }
 
 // ---------- review (Cognition: un escritor, el revisor no comparte contexto; Anthropic: evaluador separado) ----------
@@ -233,9 +236,21 @@ export function review(n, { file } = {}) {
 
 // ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
 
-export function board() {
-  const repo = ghJson(['repo', 'view', '--json', 'url']);
-  const url = `${repo.url}/issues?q=${encodeURIComponent('is:issue is:open label:ghosty-dev:listo,ghosty-dev:tomado,ghosty-dev:esperando,ghosty-dev:bloqueado')}`;
+const BATCH_MS = 2 * 60_000;
+function openBoardOncePerBatch(issueUrl) {
+  const repoUrl = issueUrl.replace(/\/issues\/\d+\s*$/, '');
+  const stamp = join(tmpdir(), `ghosty-dev-board-${repoUrl.replace(/[^a-z0-9]+/gi, '_')}`);
+  try {
+    if (Date.now() - statSync(stamp).mtimeMs < BATCH_MS) return null;
+  } catch {}
+  writeFileSync(stamp, '');
+  return board(repoUrl).url;
+}
+
+export function board(repoUrl) {
+  const base = repoUrl ?? ghJson(['repo', 'view', '--json', 'url']).url;
+  const labels = STATES.map(label).join(',');
+  const url = `${base}/issues?q=${encodeURIComponent(`is:issue is:open label:${labels}`)}`;
   if (!process.env.GHOSTY_DEV_NO_OPEN) {
     const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
     spawnSync(opener, [url], { stdio: 'ignore' });

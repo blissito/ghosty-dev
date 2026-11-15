@@ -237,7 +237,9 @@ test('board da la liga de los pendientes abiertos del repo', () => {
   const { run } = setup();
   const r = run('board', '--json');
   assert.equal(r.code, 0, r.err);
-  assert.match(JSON.parse(r.out).url, /^https:\/\/github\.com\/acme\/demo\/issues\?q=/);
+  const url = decodeURIComponent(JSON.parse(r.out).url);
+  assert.match(url, /^https:\/\/github\.com\/acme\/demo\/issues\?q=/);
+  assert.match(url, /ghosty-dev:por-hacer,ghosty-dev:en-curso,ghosty-dev:esperando-ci/);
 });
 
 test('wait --watch espera al CI en una sola llamada y dice si quedó verde', () => {
@@ -296,4 +298,12 @@ test('init --force actualiza sólo la sección de ghosty-dev en AGENTS.md', () =
   assert.match(now, /ghosty-dev-revisor/);
   assert.equal(run('init', '--force').code, 0);
   assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), now);
+});
+
+test('add abre el tablero una sola vez por tanda', () => {
+  const { run } = setup({ repo: `acme/tanda-${Date.now()}` });
+  const a = JSON.parse(run('add', 'A', '--goal', 'g', '--criteria', 'c', '--json').out);
+  const b = JSON.parse(run('add', 'B', '--goal', 'g', '--criteria', 'c', '--json').out);
+  assert.match(decodeURIComponent(a.board), /ghosty-dev:por-hacer/);
+  assert.equal(b.board, null);
 });
