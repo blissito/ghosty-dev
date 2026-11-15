@@ -281,3 +281,19 @@ test('review se niega si el pendiente no tiene PR', () => {
   assert.notEqual(r.code, 0);
   assert.match(r.err, /no tiene PR/);
 });
+
+test('init --force actualiza sólo la sección de ghosty-dev en AGENTS.md', () => {
+  const { run, repo } = setup();
+  const old = '# Reglas del repo\n\n<!-- ghosty-dev:agents -->\n## Bitácora (ghosty-dev)\ntexto viejo\n\n## Otra cosa\nde la persona\n';
+  writeFileSync(join(repo, 'AGENTS.md'), old);
+  assert.equal(run('init').code, 0);
+  assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), old);
+  assert.equal(run('init', '--force').code, 0);
+  const now = readFileSync(join(repo, 'AGENTS.md'), 'utf8');
+  assert.match(now, /^# Reglas del repo/);
+  assert.match(now, /## Otra cosa\nde la persona/);
+  assert.doesNotMatch(now, /texto viejo/);
+  assert.match(now, /ghosty-dev-revisor/);
+  assert.equal(run('init', '--force').code, 0);
+  assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), now);
+});

@@ -18,3 +18,4 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Especificación: `SPEC.md` del paquete ghosty-dev.
+<!-- /ghosty-dev:agents -->

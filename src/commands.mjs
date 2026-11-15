@@ -291,6 +291,21 @@ export function close(n) {
 // ---------- init (Beads: bd init escribe AGENTS.md e instala la skill) ----------
 
 const AGENTS_MARK = '<!-- ghosty-dev:agents -->';
+const AGENTS_END = '<!-- /ghosty-dev:agents -->';
+
+// Reemplaza sólo la sección de ghosty-dev en un AGENTS.md ajeno. Sin marca de cierre (v0.1), la sección termina
+// en el siguiente encabezado «## » que no sea el suyo, o al final del archivo.
+export function replaceAgentsSection(text, section) {
+  const start = text.indexOf(AGENTS_MARK);
+  let end = text.indexOf(AGENTS_END, start);
+  if (end !== -1) end += AGENTS_END.length;
+  else {
+    const own = text.indexOf('\n## ', start);
+    const next = own === -1 ? -1 : text.indexOf('\n## ', own + 1);
+    end = next === -1 ? text.length : next;
+  }
+  return `${text.slice(0, start)}${section.trimEnd()}\n${text.slice(end).replace(/^\n*/, '\n')}`.replace(/\n+$/, '\n');
+}
 
 // ---------- puerta obligatoria (Ley 2): el check ghosty-dev/evidencia se exige en la rama principal ----------
 
@@ -339,7 +354,8 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
   }
   const agentsPath = join(dir, 'AGENTS.md');
   const agentsText = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : null;
-  const agentsAction = agentsText === null ? 'write' : agentsText.includes(AGENTS_MARK) ? 'skip' : 'append';
+  const agentsAction =
+    agentsText === null ? 'write' : !agentsText.includes(AGENTS_MARK) ? 'append' : force ? 'update' : 'skip';
   plan.push({ action: agentsAction, path: 'AGENTS.md' });
   if (protectBranch) plan.push({ action: 'gate', name: `${GATE_CHECK} obligatorio en la rama principal` });
   if (dryRun) return plan;
@@ -358,6 +374,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
   const agentsSection = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8');
   if (agentsAction === 'write') writeFileSync(agentsPath, agentsSection);
   if (agentsAction === 'append') appendFileSync(agentsPath, `\n${agentsSection}`);
+  if (agentsAction === 'update') writeFileSync(agentsPath, replaceAgentsSection(agentsText, agentsSection));
   if (protectBranch) {
     const r = protect(dir);
     const step = plan[plan.length - 1];
