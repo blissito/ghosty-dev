@@ -38,21 +38,34 @@ ghosty-dev init
 - `.claude/skills/ghosty-dev/SKILL.md`: la skill que te dice cómo trabajar los pendientes.
 - `AGENTS.md`: las tres reglas para cualquier agente. Si ya existe, `init` agrega una sección al final.
 
-Además deja el check `ghosty-dev/evidencia` como obligatorio en la rama principal, sin quitar los checks que ya
-estaban. Lo hace con el `gh` de la persona. Si GitHub no lo deja (no es admin, o es un repo privado sin plan de
-pago), `init` lo dice en su salida y sigue: avísale a la persona que lo marque en *Settings → Branches*.
+El check obligatorio se pone en el paso 4, después del push: la Action corre la puerta desde la rama principal, así
+que primero tiene que estar ahí.
 
 Si un archivo ya existía, `init` no lo toca. Usa `--force` sólo si la persona te lo pide.
 
-## 4. Guarda los cambios en una rama
+## 4. Súbelo directo a la rama principal y protégela
+
+La instalación no es un pendiente: va directo a la rama principal, sin PR. Si fuera un PR, la puerta no podría
+pasar, porque la Action la corre desde la rama principal y ahí todavía no existe.
 
 ```sh
-git switch -c ghosty-dev-init
+git switch <rama principal>          # main, casi siempre
 git add .github .claude AGENTS.md
 git commit -m "ghosty-dev: pendientes en GitHub Issues que se cierran con evidencia"
 ```
 
-**Pregunta a la persona antes de hacer push o de abrir el PR.** Enséñale la lista de archivos de `git show --stat`.
+**Pregunta a la persona antes del push.** Enséñale la lista de archivos de `git show --stat`. Con su sí:
+
+```sh
+git push
+ghosty-dev protect                   # ghosty-dev/evidencia obligatorio, sin quitar los checks que ya había
+```
+
+Si la rama principal ya exige PR y no deja el push directo, abre el PR y pídele a la persona que lo mergee como
+admin (por única vez, porque es la instalación de la puerta). Después corre `ghosty-dev protect`.
+
+Si `protect` falla porque la persona no es admin, o porque es un repo privado sin plan de pago de GitHub, dile
+que lo marque en *Settings → Branches*.
 
 ## 5. Comprueba y avisa
 
@@ -61,4 +74,4 @@ ghosty-dev ready
 ```
 
 Una lista vacía es correcta en un repo sin pendientes. Termina con un mensaje corto a la persona:
-qué se instaló, en qué rama quedó y que, para empezar, basta con pedirte «toma el siguiente pendiente».
+qué se instaló, que la puerta ya es obligatoria y que, para empezar, basta con pedirte «toma el siguiente pendiente».

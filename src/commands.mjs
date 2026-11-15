@@ -240,6 +240,9 @@ export function protect(dir) {
   const repo = ghJson(['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'], { cwd: dir, allowFail: true });
   if (!repo) return { ok: false, reason: 'no se pudo leer el repo con gh' };
   const branch = repo.defaultBranchRef?.name || 'main';
+  // La Action corre la puerta desde la rama base: si todavía no está ahí, exigir el check bloquearía TODOS los PR.
+  const onBase = gh(['api', `repos/${repo.nameWithOwner}/contents/.github/ghosty-dev/gate.mjs?ref=${branch}`], { cwd: dir, allowFail: true });
+  if (onBase == null) return { ok: false, later: true, branch, reason: `la puerta todavía no está en ${branch}` };
   const base = `repos/${repo.nameWithOwner}/branches/${branch}/protection`;
   const has = gh(['api', base], { cwd: dir, allowFail: true });
   let done;
@@ -295,6 +298,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
     const r = protect(dir);
     const step = plan[plan.length - 1];
     if (r.ok) step.name = `${GATE_CHECK} obligatorio en ${r.branch}${r.already ? ' (ya estaba)' : ''}`;
+    else if (r.later) Object.assign(step, { action: 'later', name: `${GATE_CHECK}: sube estos archivos directo a ${r.branch} y luego corre ghosty-dev protect` });
     else Object.assign(step, { action: 'skip', name: `${GATE_CHECK}: ${r.reason}. Márcalo en Settings → Branches.` });
   }
   return plan;

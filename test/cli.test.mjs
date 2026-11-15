@@ -217,3 +217,15 @@ test('add sin criterios se niega', () => {
   assert.notEqual(r.code, 0);
   assert.match(r.err, /criterio/);
 });
+
+test('si la puerta no está en main, init no protege la rama y protect lo hace después del push', () => {
+  const { run, read, root } = setup({ gateOnBase: false });
+  const r = run('init', '--json');
+  assert.equal(r.code, 0, r.err);
+  assert.equal(JSON.parse(r.out).find((p) => p.name?.includes('ghosty-dev/evidencia')).action, 'later');
+  assert.equal(read().protection, undefined);
+  assert.notEqual(run('protect').code, 0);
+  writeFileSync(join(root, 'gh.json'), JSON.stringify({ ...read(), gateOnBase: true }));
+  assert.equal(run('protect').code, 0);
+  assert.deepEqual(read().protection.required_status_checks.contexts, ['ghosty-dev/evidencia']);
+});

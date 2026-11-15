@@ -31,11 +31,12 @@ A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh
 npm install -g github:blissito/ghosty-dev
-cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill, AGENTS.md y el check obligatorio
+cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill y AGENTS.md
+git add -A && git commit -m "ghosty-dev" && git push   # directo a main: la puerta corre desde ahí
+ghosty-dev protect                     # ghosty-dev/evidencia obligatorio en main
 ```
 
-`init` también deja `ghosty-dev/evidencia` como check obligatorio en la rama principal, con tu propio `gh`
-(hace falta ser admin del repo; en repos privados, GitHub lo pide con plan de pago).
+`protect` usa tu propio `gh`: hace falta ser admin del repo (en repos privados, GitHub lo pide con plan de pago).
 
 ## Demo en 1 minuto
 
@@ -55,7 +56,7 @@ Al agente se le dice una sola cosa: «toma el siguiente pendiente». La skill (`
 
 ## Comandos
 
-`init` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n>` · `evidence <n> --file f.md` · `block <n> --by <m>` ·
+`init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n>` · `evidence <n> --file f.md` · `block <n> --by <m>` ·
 `show <n>` · `close <n>`. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
 ## Tests

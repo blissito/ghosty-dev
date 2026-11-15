@@ -63,6 +63,10 @@ if (group === 'label' && verb === 'create') {
   const path = args.find((a, idx) => idx > 0 && !a.startsWith('-') && args[idx - 1] !== '-X' && args[idx - 1] !== '-F');
   let m;
   if (path === 'user') out({ login: db.me });
+  else if (path.includes('/contents/.github/ghosty-dev/gate.mjs')) {
+    if (db.gateOnBase === false) fail('HTTP 404: Not Found');
+    out({ name: 'gate.mjs' });
+  }
   else if ((m = path.match(/branches\/([^/]+)\/protection(\/required_status_checks(\/contexts)?)?$/))) {
     if (db.noAdmin) fail('HTTP 403: Must have admin rights to Repository.');
     const body = method === 'GET' ? null : JSON.parse(stdin());

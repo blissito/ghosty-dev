@@ -10,7 +10,8 @@ Uso: ghosty-dev <comando> [opciones]
 
   init [--dir D] [--dry-run] [--force] [--no-protect]
                                          etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
-                                         y el check ghosty-dev/evidencia obligatorio en la rama principal
+                                         (protege la rama sólo si la puerta ya está en ella)
+  protect                                vuelve obligatorio ghosty-dev/evidencia en la rama principal
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
@@ -67,6 +68,10 @@ try {
         .concat(p.map((x) => `  ${x.action.padEnd(6)} ${x.name ?? x.path}`))
         .join('\n'),
     );
+  } else if (command === 'protect') {
+    const r = cmd.protect(process.cwd());
+    if (!r.ok) throw new cmd.UserError(r.later ? `La puerta todavía no está en ${r.branch}: sube los archivos de init directo a ${r.branch} y vuelve a correr ghosty-dev protect.` : `${r.reason}. Márcalo en Settings → Branches.`);
+    print(r, (x) => `ghosty-dev/evidencia obligatorio en ${x.branch}${x.already ? ' (ya estaba)' : ''}.`);
   } else if (command === 'add') {
     const r = cmd.add(arg, {
       goal: values.goal,
