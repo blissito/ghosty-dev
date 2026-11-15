@@ -1,7 +1,7 @@
 ---
 name: Pendiente
 about: Una tarea de la bitácora (un solo escritor; se cierra con evidencia)
-labels: ["bitacora:listo"]
+labels: ["ghosty-dev:listo"]
 ---
 
 ## Objetivo

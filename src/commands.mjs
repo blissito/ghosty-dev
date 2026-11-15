@@ -8,11 +8,11 @@ import { validateEvidence, formatEvidence, findValidEvidence } from './evidence.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const STATES = ['listo', 'tomado', 'esperando', 'bloqueado'];
-export const label = (state) => `bitacora:${state}`;
+export const label = (state) => `ghosty-dev:${state}`;
 const LABEL_STYLE = {
   listo: ['0E8A16', 'Pendiente sin bloqueo: se puede tomar'],
   tomado: ['1D76DB', 'Un agente lo está trabajando (un solo escritor)'],
-  esperando: ['FBCA04', 'Espera un evento (CI); bitacora ready lo vuelve a ofrecer'],
+  esperando: ['FBCA04', 'Espera un evento (CI); ghosty-dev ready lo vuelve a ofrecer'],
   bloqueado: ['B60205', 'Bloqueado por otro pendiente abierto'],
 };
 
@@ -48,12 +48,12 @@ function openBlockers(issue, openNumbers) {
   return [...all].filter((n) => openNumbers.has(n));
 }
 
-// CI del PR del pendiente (rama bitacora/<n>-…), sin contar la propia puerta de evidencia.
+// CI del PR del pendiente (rama ghosty-dev/<n>-…), sin contar la propia puerta de evidencia.
 function ciOf(n) {
   const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,url,headRefName,statusCheckRollup']) ?? [];
-  const pr = prs.find((p) => p.headRefName.startsWith(`bitacora/${n}-`));
+  const pr = prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
   if (!pr) return { status: 'sin-pr' };
-  const checks = (pr.statusCheckRollup || []).filter((c) => !(c.name || c.context || '').startsWith('bitacora'));
+  const checks = (pr.statusCheckRollup || []).filter((c) => !(c.name || c.context || '').startsWith('ghosty-dev'));
   const pending = checks.some((c) => (c.status ? c.status !== 'COMPLETED' : ['PENDING', 'EXPECTED'].includes(c.state)));
   if (pending) return { status: 'pendiente', pr };
   const red = checks.some((c) =>
@@ -93,7 +93,7 @@ const slug = (title) =>
   title.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 function setState(issue, state, extraArgs = []) {
-  const remove = (issue.labels || []).map((l) => l.name).filter((name) => name.startsWith('bitacora:') && name !== label(state));
+  const remove = (issue.labels || []).map((l) => l.name).filter((name) => name.startsWith('ghosty-dev:') && name !== label(state));
   const args = ['issue', 'edit', String(issue.number), '--add-label', label(state), ...extraArgs];
   if (remove.length) args.push('--remove-label', remove.join(','));
   gh(args);
@@ -114,10 +114,10 @@ export function claim(n, { worktree = true } = {}) {
   const after = viewIssue(n);
   if (after.assignees.some((a) => a.login !== login)) {
     gh(['issue', 'edit', String(n), '--remove-assignee', '@me']);
-    throw new UserError(`#${n} lo tomó alguien más al mismo tiempo; toma otro con bitacora ready.`);
+    throw new UserError(`#${n} lo tomó alguien más al mismo tiempo; toma otro con ghosty-dev ready.`);
   }
 
-  const branch = `bitacora/${n}-${slug(issue.title)}`;
+  const branch = `ghosty-dev/${n}-${slug(issue.title)}`;
   let path = null;
   if (worktree) {
     const top = git(['rev-parse', '--show-toplevel']).trim();
@@ -134,7 +134,7 @@ export function claim(n, { worktree = true } = {}) {
 
 export function wait(n) {
   const issue = viewIssue(n);
-  if (stateOf(issue) !== 'tomado') throw new UserError(`#${n} no está tomado; primero bitacora claim ${n}.`);
+  if (stateOf(issue) !== 'tomado') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
   setState(issue, 'esperando');
   return { number: n, state: 'esperando' };
 }
@@ -150,7 +150,7 @@ export function evidence(n, file) {
   gh(['issue', 'comment', String(n), '--body-file', '-'], { input: formatEvidence(n, md) });
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR.
   const prs = ghJson(['pr', 'list', '--state', 'open', '--json', 'number,headRefName']) ?? [];
-  const pr = prs.find((p) => p.headRefName.startsWith(`bitacora/${n}-`));
+  const pr = prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
   let rerun = null;
   if (pr) {
     const runs = ghJson(
@@ -165,7 +165,7 @@ export function evidence(n, file) {
 // ---------- block (dependencias nativas de GitHub; Beads: bd dep add) ----------
 
 export function block(n, by) {
-  if (!by || by === n) throw new UserError('Uso: bitacora block <n> --by <m> (m distinto de n).');
+  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n).');
   const issue = viewIssue(n);
   const blocker = ghJson(['api', API_ISSUE(by)]);
   const native = gh(['api', '-X', 'POST', `${API_ISSUE(n)}/dependencies/blocked_by`, '-F', `issue_id=${blocker.id}`], {
@@ -199,7 +199,7 @@ export function show(n) {
 export function close(n) {
   const issue = viewIssue(n, ',comments');
   if (!findValidEvidence(issue.comments, issue.body)) {
-    throw new UserError(`#${n} no tiene comentario de evidencia válido: no se cierra. Usa bitacora evidence ${n} --file evidencia.md.`);
+    throw new UserError(`#${n} no tiene comentario de evidencia válido: no se cierra. Usa ghosty-dev evidence ${n} --file evidencia.md.`);
   }
   gh(['issue', 'close', String(n), '--reason', 'completed']);
   return { number: n, state: 'cerrado' };
@@ -207,15 +207,15 @@ export function close(n) {
 
 // ---------- init (Beads: bd init escribe AGENTS.md e instala la skill) ----------
 
-const AGENTS_MARK = '<!-- bitacora:agents -->';
+const AGENTS_MARK = '<!-- ghosty-dev:agents -->';
 
 export function init(dir, { dryRun = false, force = false } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
-    ['src/evidence.mjs', '.github/bitacora/evidence.mjs'],
-    ['src/gate.mjs', '.github/bitacora/gate.mjs'],
-    ['skill/SKILL.md', '.claude/skills/bitacora/SKILL.md'],
+    ['src/evidence.mjs', '.github/ghosty-dev/evidence.mjs'],
+    ['src/gate.mjs', '.github/ghosty-dev/gate.mjs'],
+    ['skill/SKILL.md', '.claude/skills/ghosty-dev/SKILL.md'],
   ];
   const plan = [];
   for (const state of STATES) plan.push({ action: 'label', name: label(state) });

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// CLI de ghosty-bitacora: el trabajo vive en GitHub Issues, no en la sesión del agente.
+// CLI de ghosty-dev: el trabajo vive en GitHub Issues, no en la sesión del agente.
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import * as cmd from '../src/commands.mjs';
 
-const HELP = `bitacora — el trabajo vive en la bitácora, no en la sesión
+const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
-Uso: bitacora <comando> [opciones]
+Uso: ghosty-dev <comando> [opciones]
 
   init [--dir D] [--dry-run] [--force]   etiquetas, plantilla de pendiente, Action de evidencia, skill y AGENTS.md
   ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
@@ -18,7 +18,7 @@ Uso: bitacora <comando> [opciones]
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
 Opciones globales: --json (salida en JSON), -h/--help
-Requiere gh autenticado (BITACORA_GH cambia el binario).`;
+Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario).`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -74,7 +74,7 @@ try {
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait') {
     const r = cmd.wait(num(arg));
-    print(r, (x) => `#${x.number} esperando el CI. Termina tu sesión: bitacora ready te lo ofrece cuando resuelva.`);
+    print(r, (x) => `#${x.number} esperando el CI. Termina tu sesión: ghosty-dev ready te lo ofrece cuando resuelva.`);
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file);
     print(r, (x) => `Evidencia publicada en #${x.number}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
@@ -96,7 +96,7 @@ try {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);
   } else {
-    throw new cmd.UserError(`Comando desconocido: ${command}. Usa bitacora --help.`);
+    throw new cmd.UserError(`Comando desconocido: ${command}. Usa ghosty-dev --help.`);
   }
 } catch (e) {
   console.error(e instanceof cmd.UserError ? e.message : `Error: ${e.message}`);

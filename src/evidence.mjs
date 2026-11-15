@@ -1,7 +1,7 @@
 // Formato y validación del comentario de evidencia (Ley 2: se revisa la evidencia, no el código).
-// Archivo autocontenido: `bitacora init` lo copia a .github/bitacora/ para que lo use la Action.
+// Archivo autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/ para que lo use la Action.
 
-export const EVIDENCE_MARKER = '<!-- bitacora:evidencia v0.1 -->';
+export const EVIDENCE_MARKER = '<!-- ghosty-dev:evidencia v0.1 -->';
 
 // Normaliza un encabezado: minúsculas, sin acentos ni signos.
 const norm = (s) =>

@@ -1,4 +1,4 @@
-// Envoltura mínima sobre `gh` y `git`. BITACORA_GH permite cambiar el binario (los tests usan un gh falso).
+// Envoltura mínima sobre `gh` y `git`. GHOSTY_DEV_GH permite cambiar el binario (los tests usan un gh falso).
 import { execFileSync } from 'node:child_process';
 
 function run(bin, args, { input, allowFail, cwd } = {}) {
@@ -11,7 +11,7 @@ function run(bin, args, { input, allowFail, cwd } = {}) {
   }
 }
 
-export const gh = (args, opts) => run(process.env.BITACORA_GH || 'gh', args, opts);
+export const gh = (args, opts) => run(process.env.GHOSTY_DEV_GH || 'gh', args, opts);
 
 export function ghJson(args, opts) {
   const out = gh(args, opts);

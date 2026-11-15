@@ -1,7 +1,7 @@
-# ghosty-bitacora · puerta de evidencia (Ley 2: se revisa la evidencia, no el código).
+# ghosty-dev · puerta de evidencia (Ley 2: se revisa la evidencia, no el código).
 # Falla el check del PR si algún pendiente que cierra («Closes #n») no tiene comentario de evidencia válido.
-# Hazlo obligatorio en Settings → Branches → «Require status checks»: bitacora/evidencia.
-name: bitacora
+# Hazlo obligatorio en Settings → Branches → «Require status checks»: ghosty-dev/evidencia.
+name: ghosty-dev
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
@@ -11,15 +11,15 @@ permissions:
   pull-requests: read
 jobs:
   evidencia:
-    name: bitacora/evidencia
+    name: ghosty-dev/evidencia
     runs-on: ubuntu-latest
     steps:
       # El script sale de la rama base: un PR no puede aflojar su propia puerta.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: .github/bitacora
-      - run: node .github/bitacora/gate.mjs
+          sparse-checkout: .github/ghosty-dev
+      - run: node .github/ghosty-dev/gate.mjs
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

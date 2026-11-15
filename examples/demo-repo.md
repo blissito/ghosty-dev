@@ -6,7 +6,7 @@ con evidencia, sin que la persona lea el código. Ensayo cronometrado: ~10 min.
 ## 1. Preparar el repo (una vez, antes del taller)
 
 ```sh
-mkdir bitacora-demo && cd bitacora-demo && git init -b main
+mkdir ghosty-dev-demo && cd ghosty-dev-demo && git init -b main
 npm init -y && npm pkg set type=module scripts.test="node --test"
 mkdir test && printf "import { test } from 'node:test';\ntest('arranca', () => {});\n" > test/smoke.test.js
 mkdir -p .github/workflows && cat > .github/workflows/ci.yml <<'YML'
@@ -22,15 +22,15 @@ jobs:
       - run: npm test
 YML
 git add -A && git commit -m "Base del demo"
-gh repo create bitacora-demo --public --source . --push
-bitacora init && git add -A && git commit -m "Bitácora" && git push
+gh repo create ghosty-dev-demo --public --source . --push
+ghosty-dev init && git add -A && git commit -m "Bitácora" && git push
 ```
 
-En *Settings → Branches → main*: checks obligatorios `test` y `bitacora/evidencia`.
+En *Settings → Branches → main*: checks obligatorios `test` y `ghosty-dev/evidencia`.
 
 ## 2. Los tres pendientes
 
-Cada uno con `gh issue create --label bitacora:listo --title … --body-file …`. Cuerpos:
+Cada uno con `gh issue create --label ghosty-dev:listo --title … --body-file …`. Cuerpos:
 
 **#1 Servidor HTTP con /health**
 ```markdown
@@ -62,22 +62,22 @@ El README dice cómo instalar, correr y probar el proyecto.
 - [ ] los comandos del README corren tal cual
 ```
 
-Y el bloqueo: `bitacora block 2 --by 1`.
+Y el bloqueo: `ghosty-dev block 2 --by 1`.
 
 ## 3. El guion en vivo
 
 | min | pantalla | qué se dice |
 |---|---|---|
-| 0 | `bitacora ready` → #1 y #3; #2 no aparece | «#2 no se ofrece: está bloqueado por #1.» |
+| 0 | `ghosty-dev ready` → #1 y #3; #2 no aparece | «#2 no se ofrece: está bloqueado por #1.» |
 | 1 | Terminal A (Claude Code): «toma el siguiente pendiente» → `claim 1` | «Un escritor por pendiente, cada uno en su worktree.» |
 | 1 | Terminal B (Codex): «toma el siguiente pendiente» → `claim 3` | «Paralelo sólo entre pendientes independientes.» |
-| 4 | Los dos abren PR y corren `bitacora wait` | «No se quedan vigilando el CI: terminan.» |
-| 6 | El check `bitacora/evidencia` en rojo en el PR | «Sin evidencia no hay merge.» |
-| 7 | `bitacora ready` → `ci-verde`; el agente publica la evidencia; el check pasa | «Fíjate en lo que NO hago: no leo el código. Leo la evidencia.» |
-| 8 | Merge de #1 → `bitacora ready` ahora ofrece #2 como `desbloqueado` | «El bloqueo se resolvió solo, por evento.» |
-| 9 | `bitacora close` sobre un issue sin evidencia → se niega | «Nadie cierra con un "ya quedó".» |
+| 4 | Los dos abren PR y corren `ghosty-dev wait` | «No se quedan vigilando el CI: terminan.» |
+| 6 | El check `ghosty-dev/evidencia` en rojo en el PR | «Sin evidencia no hay merge.» |
+| 7 | `ghosty-dev ready` → `ci-verde`; el agente publica la evidencia; el check pasa | «Fíjate en lo que NO hago: no leo el código. Leo la evidencia.» |
+| 8 | Merge de #1 → `ghosty-dev ready` ahora ofrece #2 como `desbloqueado` | «El bloqueo se resolvió solo, por evento.» |
+| 9 | `ghosty-dev close` sobre un issue sin evidencia → se niega | «Nadie cierra con un "ya quedó".» |
 
 ## 4. Plan B
 
 Si el CI o la red fallan en vivo: tener grabado el recorrido completo y, en local, `node --test` del propio
-ghosty-bitacora (corre sin red) para enseñar las pruebas de conformidad.
+ghosty-dev (corre sin red) para enseñar las pruebas de conformidad.

@@ -12,7 +12,7 @@ test('--help corre', () => {
   const { run } = setup();
   const r = run('--help');
   assert.equal(r.code, 0);
-  assert.match(r.out, /bitacora ready|ready \[--json\]/);
+  assert.match(r.out, /ghosty-dev ready|ready \[--json\]/);
 });
 
 test('init --dry-run no escribe ni llama a gh', () => {
@@ -30,19 +30,19 @@ test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y A
   writeFileSync(join(repo, 'AGENTS.md'), '# Reglas del repo\n');
   const r = run('init');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(read().labels.sort(), ['bitacora:bloqueado', 'bitacora:esperando', 'bitacora:listo', 'bitacora:tomado']);
+  assert.deepEqual(read().labels.sort(), ['ghosty-dev:bloqueado', 'ghosty-dev:esperando', 'ghosty-dev:listo', 'ghosty-dev:tomado']);
   for (const f of [
     '.github/ISSUE_TEMPLATE/pendiente.md',
     '.github/workflows/evidence-gate.yml',
-    '.github/bitacora/gate.mjs',
-    '.github/bitacora/evidence.mjs',
-    '.claude/skills/bitacora/SKILL.md',
+    '.github/ghosty-dev/gate.mjs',
+    '.github/ghosty-dev/evidence.mjs',
+    '.claude/skills/ghosty-dev/SKILL.md',
   ]) {
     assert.ok(existsSync(join(repo, f)), f);
   }
   const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8');
   assert.match(agents, /^# Reglas del repo/);
-  assert.match(agents, /bitacora:agents/);
+  assert.match(agents, /ghosty-dev:agents/);
   // Segunda vez: no duplica ni pisa.
   run('init');
   assert.equal(readFileSync(join(repo, 'AGENTS.md'), 'utf8'), agents);
@@ -55,8 +55,8 @@ test('la puerta instalada corre sola con el gh falso', () => {
   db.issues[3].comments.push({ body: formatEvidence(3, VALID_EVIDENCE) });
   writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db));
   const event = s.write('event.json', JSON.stringify({ pull_request: { body: 'Closes #3' } }));
-  const env = { ...process.env, GITHUB_EVENT_PATH: event, BITACORA_GH: join(import.meta.dirname, '..', 'testkit', 'fake-gh.mjs'), FAKE_GH_STATE: join(s.root, 'gh.json') };
-  const out = execFileSync(process.execPath, [join(s.repo, '.github/bitacora/gate.mjs')], { env, encoding: 'utf8' });
+  const env = { ...process.env, GITHUB_EVENT_PATH: event, GHOSTY_DEV_GH: join(import.meta.dirname, '..', 'testkit', 'fake-gh.mjs'), FAKE_GH_STATE: join(s.root, 'gh.json') };
+  const out = execFileSync(process.execPath, [join(s.repo, '.github/ghosty-dev/gate.mjs')], { env, encoding: 'utf8' });
   assert.match(out, /#3: evidencia válida/);
 });
 
@@ -64,7 +64,7 @@ test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierr
   const { run, read, root } = setup({ issues: { 1: issue(1, 'Base'), 2: issue(2, 'Encima') } });
   assert.equal(run('block', '2', '--by', '1').code, 0);
   assert.deepEqual(read().issues[2].blockedBy, [1]);
-  assert.ok(read().issues[2].labels.includes('bitacora:bloqueado'));
+  assert.ok(read().issues[2].labels.includes('ghosty-dev:bloqueado'));
   let list = JSON.parse(run('ready', '--json').out);
   assert.deepEqual(list.map((i) => i.number), [1]);
 
@@ -89,15 +89,15 @@ test('claim asigna, marca tomado y crea rama + worktree', () => {
   const r = s.run('claim', '5', '--json');
   assert.equal(r.code, 0, r.err);
   const out = JSON.parse(r.out);
-  assert.equal(out.branch, 'bitacora/5-agregar-health');
+  assert.equal(out.branch, 'ghosty-dev/5-agregar-health');
   assert.ok(existsSync(out.worktree));
   const i = s.read().issues[5];
   assert.deepEqual(i.assignees, ['agente-a']);
-  assert.deepEqual(i.labels, ['bitacora:tomado']);
+  assert.deepEqual(i.labels, ['ghosty-dev:tomado']);
 });
 
 test('un solo escritor: no se toma un pendiente de otro', () => {
-  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['bitacora:tomado'], assignees: ['agente-b'] }) } });
+  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:tomado'], assignees: ['agente-b'] }) } });
   const r = s.run('claim', '5', '--no-worktree');
   assert.equal(r.code, 1);
   assert.match(r.err, /Un solo escritor/);
@@ -114,15 +114,15 @@ test('wait deja el pendiente esperando y ready lo devuelve sólo cuando el CI re
   const pr = (status, conclusion) => ({
     number: 9,
     url: 'https://github.com/acme/demo/pull/9',
-    headRefName: 'bitacora/5-x',
+    headRefName: 'ghosty-dev/5-x',
     statusCheckRollup: [
       { name: 'test', status, conclusion },
-      { name: 'bitacora/evidencia', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { name: 'ghosty-dev/evidencia', status: 'COMPLETED', conclusion: 'FAILURE' },
     ],
   });
-  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['bitacora:tomado'], assignees: ['agente-a'] }) }, prs: [pr('IN_PROGRESS', null)] });
+  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:tomado'], assignees: ['agente-a'] }) }, prs: [pr('IN_PROGRESS', null)] });
   assert.equal(s.run('wait', '5').code, 0);
-  assert.ok(s.read().issues[5].labels.includes('bitacora:esperando'));
+  assert.ok(s.read().issues[5].labels.includes('ghosty-dev:esperando'));
   assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);
 
   const db = s.read();
@@ -134,8 +134,8 @@ test('wait deja el pendiente esperando y ready lo devuelve sólo cuando el CI re
 
 test('evidence rechaza lo inválido y publica lo válido con su marca', () => {
   const s = setup({
-    issues: { 5: issue(5, 'X', { body: CRITERIA, labels: ['bitacora:tomado'], assignees: ['agente-a'] }) },
-    prs: [{ number: 9, headRefName: 'bitacora/5-x' }],
+    issues: { 5: issue(5, 'X', { body: CRITERIA, labels: ['ghosty-dev:tomado'], assignees: ['agente-a'] }) },
+    prs: [{ number: 9, headRefName: 'ghosty-dev/5-x' }],
     runs: [{ databaseId: 77 }],
   });
   const bad = s.run('evidence', '5', '--file', s.write('mala.md', 'ya quedó'));
@@ -146,7 +146,7 @@ test('evidence rechaza lo inválido y publica lo válido con su marca', () => {
   const ok = s.run('evidence', '5', '--file', s.write('buena.md', VALID_EVIDENCE), '--json');
   assert.equal(ok.code, 0, ok.err);
   assert.equal(JSON.parse(ok.out).rerun, 77);
-  assert.match(s.read().issues[5].comments[0].body, /bitacora:evidencia v0\.1/);
+  assert.match(s.read().issues[5].comments[0].body, /ghosty-dev:evidencia v0\.1/);
 });
 
 test('close sin evidencia se niega; con evidencia cierra', () => {
@@ -159,9 +159,9 @@ test('close sin evidencia se niega; con evidencia cierra', () => {
   assert.equal(JSON.parse(s.run('show', '5', '--json').out).evidence, true);
 });
 
-test('las copias de la puerta en .github/bitacora están al día con src/', () => {
+test('las copias de la puerta en .github/ghosty-dev están al día con src/', () => {
   const root = join(import.meta.dirname, '..');
   for (const f of ['evidence.mjs', 'gate.mjs']) {
-    assert.equal(readFileSync(join(root, '.github/bitacora', f), 'utf8'), readFileSync(join(root, 'src', f), 'utf8'), f);
+    assert.equal(readFileSync(join(root, '.github/ghosty-dev', f), 'utf8'), readFileSync(join(root, 'src', f), 'utf8'), f);
   }
 });

@@ -1,8 +1,8 @@
-# ghosty-bitacora · SPEC v0.1
+# ghosty-dev · SPEC v0.1
 
 La bitácora es una forma de trabajar con agentes de código **sin fábrica**: sin roles fijos que se pasan la
 estafeta. El trabajo vive en GitHub Issues, un solo agente escribe cada pendiente y nada se cierra sin
-evidencia. Este documento es la especificación; el CLI `bitacora` es una implementación de referencia.
+evidencia. Este documento es la especificación; el CLI `ghosty-dev` es una implementación de referencia.
 
 ## 1. Las tres leyes
 
@@ -40,12 +40,12 @@ traza a una ley o a una fuente de esta tabla.
 | mecanismo | de quién | fuente | en el repo |
 |---|---|---|---|
 | El trabajo vive en un libro mayor fuera de la sesión; «la sesión es ganado» | Steve Yegge — Beads / Gas Town | [Welcome to Gas Town](https://steve-yegge.medium.com/welcome-to-gas-town-4f25ee16dd04), [gastownhall/beads](https://github.com/gastownhall/beads) | el pendiente = issue de GitHub |
-| `ready` / `claim`: el agente toma el siguiente trabajo sin bloqueo | Steve Yegge — Beads (`bd ready --claim`) | [gastownhall/beads](https://github.com/gastownhall/beads) | `bitacora ready [--claim]`, `claim`, `show`, `close`, `init` escribe `AGENTS.md` |
-| El ticket como unidad de trabajo y «proof of work» antes del merge | OpenAI — Symphony | [post, 2026-04-27](https://openai.com/index/open-source-codex-orchestration-symphony/) | comentario de evidencia, `evidence`, Action `bitacora/evidencia` |
+| `ready` / `claim`: el agente toma el siguiente trabajo sin bloqueo | Steve Yegge — Beads (`bd ready --claim`) | [gastownhall/beads](https://github.com/gastownhall/beads) | `ghosty-dev ready [--claim]`, `claim`, `show`, `close`, `init` escribe `AGENTS.md` |
+| El ticket como unidad de trabajo y «proof of work» antes del merge | OpenAI — Symphony | [post, 2026-04-27](https://openai.com/index/open-source-codex-orchestration-symphony/) | comentario de evidencia, `evidence`, Action `ghosty-dev/evidencia` |
 | Un solo escritor; el revisor no comparte contexto con el que escribió | Cognition (Walden Yan) | [Multi-Agents: What's Actually Working](https://cognition.com/blog/multi-agents-working) | un asignado por pendiente, un worktree por pendiente; el Clerk lee evidencia, no la sesión |
 | El autor se califica de más: el evaluador va separado | Prithvi Rajasekaran — Anthropic | [Harness design for long-running apps](https://www.anthropic.com/engineering/harness-design-long-running-apps) | el agente no se aprueba: lo valida la puerta y lo decide el Clerk |
 | Un verificador casi perfecto vale más que un orquestador | Nicholas Carlini — Anthropic | [Building a C compiler](https://www.anthropic.com/engineering/building-c-compiler) | «Verificación» exige comandos con su salida; CI rojo no cierra |
-| Dependencias entre tareas sin herramienta nueva | GitHub — «blocked by» y sub-issues | [Creating issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies), [REST](https://docs.github.com/en/rest/issues/issue-dependencies), [`gh --blocked-by` (≥2.94)](https://github.blog/changelog/2026-06-10-manage-sub-issues-types-and-dependencies-from-github-cli/) | `bitacora block` (API nativa; respaldo: lista en el cuerpo) |
+| Dependencias entre tareas sin herramienta nueva | GitHub — «blocked by» y sub-issues | [Creating issue dependencies](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-issue-dependencies), [REST](https://docs.github.com/en/rest/issues/issue-dependencies), [`gh --blocked-by` (≥2.94)](https://github.blog/changelog/2026-06-10-manage-sub-issues-types-and-dependencies-from-github-cli/) | `ghosty-dev block` (API nativa; respaldo: lista en el cuerpo) |
 | El conocimiento en un solo papel se pierde (imagen, no mecanismo) | Karel Čapek — *R.U.R.* (1920) | [Gutenberg 59112](https://gutenberg.org/cache/epub/59112/pg59112-images.html) | — |
 
 `wait` y el estado `esperando` salen de la **Ley 3**.
@@ -56,10 +56,10 @@ Un **pendiente** es un issue abierto de GitHub con exactamente una etiqueta de e
 
 | etiqueta | significa |
 |---|---|
-| `bitacora:listo` | se puede tomar (si no tiene bloqueos abiertos) |
-| `bitacora:tomado` | tiene escritor (el asignado); nadie más lo toca |
-| `bitacora:esperando` | su escritor espera un evento (CI); la sesión ya terminó |
-| `bitacora:bloqueado` | depende de otro pendiente abierto |
+| `ghosty-dev:listo` | se puede tomar (si no tiene bloqueos abiertos) |
+| `ghosty-dev:tomado` | tiene escritor (el asignado); nadie más lo toca |
+| `ghosty-dev:esperando` | su escritor espera un evento (CI); la sesión ya terminó |
+| `ghosty-dev:bloqueado` | depende de otro pendiente abierto |
 
 **Cuerpo** (plantilla `.github/ISSUE_TEMPLATE/pendiente.md`):
 
@@ -85,7 +85,7 @@ Ligas, archivos, decisiones previas.
 
 Un comentario del issue es **evidencia válida** si:
 
-1. contiene la marca `<!-- bitacora:evidencia v0.1 -->` (la pone `bitacora evidence`);
+1. contiene la marca `<!-- ghosty-dev:evidencia v0.1 -->` (la pone `ghosty-dev evidence`);
 2. tiene **Qué se hizo** no vacío;
 3. tiene **Verificación** con al menos un bloque de código con comandos `$ …` **y** su salida;
 4. tiene **CI** con el resultado declarado (✅ / verde / passed) y no en rojo (❌ / rojo / failed);
@@ -94,7 +94,7 @@ Un comentario del issue es **evidencia válida** si:
 6. **Preview** es opcional (liga, video del recorrido o «no aplica»).
 
 ```markdown
-<!-- bitacora:evidencia v0.1 -->
+<!-- ghosty-dev:evidencia v0.1 -->
 ## Evidencia del pendiente #12
 
 ## Qué se hizo
@@ -123,21 +123,21 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
                   └── descubre trabajo → pendiente nuevo (+ block si lo frena)
 ```
 
-1. **ready.** El agente pide `bitacora ready --json`: pendientes `listo`/`bloqueado` sin bloqueos abiertos, y los
+1. **ready.** El agente pide `ghosty-dev ready --json`: pendientes `listo`/`bloqueado` sin bloqueos abiertos, y los
    `esperando` suyos cuyo CI ya resolvió (`ci-verde`, `ci-rojo`, `sin-pr`).
-2. **claim.** `bitacora claim <n>` asigna al agente, pone `tomado` y crea la rama `bitacora/<n>-<slug>` en su propio
+2. **claim.** `ghosty-dev claim <n>` asigna al agente, pone `tomado` y crea la rama `ghosty-dev/<n>-<slug>` en su propio
    worktree `../<repo>-<n>`. Si ya tiene otro asignado, falla. Si dos se asignan a la vez, el que ve a otro se retira.
 3. **work.** Un pendiente por worktree. Lo que descubra va a un pendiente nuevo, no a una nota.
 4. **PR.** La descripción lleva `Closes #<n>`.
-5. **wait.** `bitacora wait <n>` pone `esperando` y el agente **termina su sesión**. No sondea.
+5. **wait.** `ghosty-dev wait <n>` pone `esperando` y el agente **termina su sesión**. No sondea.
 6. **evidence.** Al volver a salir en `ready`, el agente escribe la evidencia y la publica con
-   `bitacora evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
-7. **close.** El Clerk lee la evidencia y mergea; `Closes #n` cierra el pendiente. Sin PR: `bitacora close <n>`,
+   `ghosty-dev evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
+7. **close.** El Clerk lee la evidencia y mergea; `Closes #n` cierra el pendiente. Sin PR: `ghosty-dev close <n>`,
    que se niega si no hay evidencia válida.
-8. **block.** `bitacora block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
+8. **block.** `ghosty-dev block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
    `## Bloqueado por` en el cuerpo. El pendiente queda `bloqueado`.
 
-**La puerta** (`.github/workflows/evidence-gate.yml`, check `bitacora/evidencia`): falla si el PR no cierra ningún
+**La puerta** (`.github/workflows/evidence-gate.yml`, check `ghosty-dev/evidencia`): falla si el PR no cierra ningún
 pendiente o si alguno de los que cierra no tiene evidencia válida. Su script se lee de la rama base, para que un PR
 no pueda aflojar su propia puerta. Se vuelve obligatoria con *branch protection*.
 

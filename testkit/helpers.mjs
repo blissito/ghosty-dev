@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BIN = join(HERE, '..', 'bin', 'bitacora.mjs');
+const BIN = join(HERE, '..', 'bin', 'ghosty-dev.mjs');
 const FAKE = join(HERE, 'fake-gh.mjs');
 chmodSync(FAKE, 0o755);
 
@@ -29,12 +29,12 @@ no aplica
 - [x] /health responde 200
 `;
 
-export function issue(number, title, { labels = ['bitacora:listo'], body = '', assignees = [], state = 'open' } = {}) {
+export function issue(number, title, { labels = ['ghosty-dev:listo'], body = '', assignees = [], state = 'open' } = {}) {
   return { number, id: 1000 + number, title, labels, body, assignees, state, comments: [], blockedBy: [] };
 }
 
 export function setup(state = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'bitacora-'));
+  const root = mkdtempSync(join(tmpdir(), 'ghosty-dev-'));
   const repo = join(root, 'demo');
   mkdirSync(repo);
   const git = (...a) => execFileSync('git', a, { cwd: repo, stdio: 'pipe' });
@@ -47,7 +47,7 @@ export function setup(state = {}) {
     const r = spawnSync(process.execPath, [BIN, ...args], {
       cwd: repo,
       encoding: 'utf8',
-      env: { ...process.env, BITACORA_GH: FAKE, FAKE_GH_STATE: stateFile },
+      env: { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile },
     });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };

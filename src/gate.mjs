@@ -1,6 +1,6 @@
 // Puerta de evidencia del PR (Ley 2 + «proof of work» antes del merge, OpenAI Symphony).
-// La corre la Action `bitacora/evidencia`: falla si algún pendiente que el PR cierra no tiene
-// un comentario de evidencia válido. Autocontenido: `bitacora init` lo copia a .github/bitacora/.
+// La corre la Action `ghosty-dev/evidencia`: falla si algún pendiente que el PR cierra no tiene
+// un comentario de evidencia válido. Autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -26,14 +26,14 @@ export function evaluatePullRequest(pr, fetchIssue) {
       lines.push(`#${n}: evidencia válida.`);
     } else {
       ok = false;
-      lines.push(`#${n}: sin comentario de evidencia válido (bitacora evidence ${n} --file evidencia.md).`);
+      lines.push(`#${n}: sin comentario de evidencia válido (ghosty-dev evidence ${n} --file evidencia.md).`);
     }
   }
   return { ok, lines };
 }
 
 function main() {
-  const gh = process.env.BITACORA_GH || 'gh';
+  const gh = process.env.GHOSTY_DEV_GH || 'gh';
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const pr = event.pull_request;
   const fetchIssue = (n) =>
@@ -41,7 +41,7 @@ function main() {
   const { ok, lines } = evaluatePullRequest(pr, fetchIssue);
   const report = lines.map((l) => `- ${l}`).join('\n');
   console.log(report);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### bitacora/evidencia\n${report}\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${report}\n`);
   process.exit(ok ? 0 : 1);
 }
 

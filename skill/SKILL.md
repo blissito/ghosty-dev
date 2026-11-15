@@ -1,12 +1,12 @@
 ---
-name: bitacora
-description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que se cierran con evidencia). Úsala al empezar cualquier tarea de código en un repo con etiquetas bitacora:*, cuando pidan «toma el siguiente pendiente», «cierra el #n» o cuando descubras trabajo nuevo.
+name: ghosty-dev
+description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que se cierran con evidencia). Úsala al empezar cualquier tarea de código en un repo con etiquetas ghosty-dev:*, cuando pidan «toma el siguiente pendiente», «cierra el #n» o cuando descubras trabajo nuevo.
 ---
 
 # Bitácora: el trabajo vive en GitHub Issues, no en tu sesión
 
 Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pendiente** (un issue con etiqueta
-`bitacora:*`). Tres leyes, sin excepción:
+`ghosty-dev:*`). Tres leyes, sin excepción:
 
 1. **El trabajo vive en la bitácora, no en la sesión.** Lo pendiente, lo decidido y lo descubierto se escribe en
    el issue, no en tu contexto ni en un TODO de markdown.
@@ -18,22 +18,22 @@ Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pen
 ## El ciclo
 
 ```sh
-bitacora ready --json            # qué se puede tomar (listo, desbloqueado o CI ya resuelto)
-bitacora claim <n>               # te lo asigna y crea su worktree y su rama bitacora/<n>-…
+ghosty-dev ready --json            # qué se puede tomar (listo, desbloqueado o CI ya resuelto)
+ghosty-dev claim <n>               # te lo asigna y crea su worktree y su rama ghosty-dev/<n>-…
 cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree, un escritor
 # … código y tests …
 git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
-bitacora wait <n>                # CI corriendo: termina tu sesión aquí
+ghosty-dev wait <n>                # CI corriendo: termina tu sesión aquí
 ```
 
-Cuando `bitacora ready` te devuelva el pendiente con `ci-verde` (o `ci-rojo`, entonces arréglalo y repite):
+Cuando `ghosty-dev ready` te devuelva el pendiente con `ci-verde` (o `ci-rojo`, entonces arréglalo y repite):
 
 ```sh
-bitacora evidence <n> --file evidencia.md   # valida el formato y lo publica en el issue
+ghosty-dev evidence <n> --file evidencia.md   # valida el formato y lo publica en el issue
 ```
 
 El PR lo mergea el **Clerk** (la persona) después de leer la evidencia; `Closes #<n>` cierra el pendiente.
-Si no hubo PR (tarea sin código), `bitacora close <n>`, que también exige evidencia.
+Si no hubo PR (tarea sin código), `ghosty-dev close <n>`, que también exige evidencia.
 
 ## El archivo de evidencia
 
@@ -66,9 +66,9 @@ Si encuentras un bug, un test roto que no es tuyo o trabajo que falta: **abre un
 ni un comentario perdido, y sigue con el tuyo.
 
 ```sh
-gh issue create --label bitacora:listo --title "…" --body "Descubierto en #<n>. …"
+gh issue create --label ghosty-dev:listo --title "…" --body "Descubierto en #<n>. …"
 # si tu pendiente no puede seguir sin él:
-bitacora block <n> --by <nuevo>
+ghosty-dev block <n> --by <nuevo>
 ```
 
 ## Prohibido
