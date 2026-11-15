@@ -56,9 +56,9 @@ Un **pendiente** es un issue abierto de GitHub con exactamente una etiqueta de e
 
 | etiqueta | significa |
 |---|---|
-| `ghosty-dev:listo` | se puede tomar (si no tiene bloqueos abiertos) |
-| `ghosty-dev:tomado` | tiene escritor (el asignado); nadie más lo toca |
-| `ghosty-dev:esperando` | su escritor espera un evento (CI); la sesión ya terminó |
+| `ghosty-dev:por-hacer` | se puede tomar (si no tiene bloqueos abiertos) |
+| `ghosty-dev:en-curso` | tiene escritor (el asignado); nadie más lo toca |
+| `ghosty-dev:esperando-ci` | su escritor espera un evento (CI); la sesión ya terminó |
 | `ghosty-dev:bloqueado` | depende de otro pendiente abierto |
 
 **Cuerpo** (plantilla `.github/ISSUE_TEMPLATE/pendiente.md`):

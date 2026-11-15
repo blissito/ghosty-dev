@@ -29,7 +29,7 @@ no aplica
 - [x] /health responde 200
 `;
 
-export function issue(number, title, { labels = ['ghosty-dev:listo'], body = '', assignees = [], state = 'open' } = {}) {
+export function issue(number, title, { labels = ['ghosty-dev:por-hacer'], body = '', assignees = [], state = 'open' } = {}) {
   return { number, id: 1000 + number, title, labels, body, assignees, state, comments: [], blockedBy: [] };
 }
 

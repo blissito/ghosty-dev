@@ -8,13 +8,17 @@ import { validateEvidence, formatEvidence, findValidEvidence } from './evidence.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+// Estado interno → etiqueta visible. Los nombres de la etiqueta son los de un tablero: por hacer, en curso…
 export const STATES = ['listo', 'tomado', 'esperando', 'bloqueado'];
-export const label = (state) => `ghosty-dev:${state}`;
+const LABEL_NAME = { listo: 'por-hacer', tomado: 'en-curso', esperando: 'esperando-ci', bloqueado: 'bloqueado' };
+export const label = (state) => `ghosty-dev:${LABEL_NAME[state]}`;
+// Etiquetas de la v0.1: init las renombra (los issues las conservan) y stateOf todavía las entiende.
+const LEGACY = { listo: 'ghosty-dev:listo', tomado: 'ghosty-dev:tomado', esperando: 'ghosty-dev:esperando' };
 const LABEL_STYLE = {
-  listo: ['0E8A16', 'Pendiente sin bloqueo: se puede tomar'],
-  tomado: ['1D76DB', 'Un agente lo está trabajando (un solo escritor)'],
-  esperando: ['FBCA04', 'Espera un evento (CI); ghosty-dev ready lo vuelve a ofrecer'],
-  bloqueado: ['B60205', 'Bloqueado por otro pendiente abierto'],
+  listo: ['0E8A16', 'Por hacer: un agente lo puede tomar en cuanto no tenga bloqueos'],
+  tomado: ['1D76DB', 'En curso: un agente lo está trabajando en su rama (nadie más lo toca)'],
+  esperando: ['FBCA04', 'Esperando el CI del PR; el agente lo retoma cuando termine'],
+  bloqueado: ['B60205', 'Bloqueado por otro pendiente (sólo en repos sin el «Blocked» nativo de GitHub)'],
 };
 
 const ISSUE_FIELDS = 'number,title,state,labels,assignees,body,url';
@@ -24,7 +28,8 @@ export class UserError extends Error {}
 
 // ---------- lectura ----------
 
-export const stateOf = (issue) => STATES.find((s) => (issue.labels || []).some((l) => l.name === label(s))) ?? null;
+export const stateOf = (issue) =>
+  STATES.find((s) => (issue.labels || []).some((l) => l.name === label(s) || l.name === LEGACY[s])) ?? null;
 
 // «Bloqueado por: #n» en el cuerpo: respaldo cuando el repo no tiene la API de dependencias.
 export function parseBlockedBy(body = '') {
@@ -76,7 +81,7 @@ export function ready() {
     const state = stateOf(issue);
     const base = { number: issue.number, title: issue.title, url: issue.url, state };
     if (state === 'listo' || state === 'bloqueado') {
-      if (openBlockers(issue, openNumbers).length === 0) out.push({ ...base, reason: state === 'listo' ? 'listo' : 'desbloqueado' });
+      if (openBlockers(issue, openNumbers).length === 0) out.push({ ...base, reason: state === 'listo' ? 'por-hacer' : 'desbloqueado' });
     } else if (state === 'esperando') {
       // Ley 3: se ofrece de nuevo sólo cuando el evento (CI) ya resolvió, y sólo a su escritor.
       login ??= me();
@@ -207,8 +212,10 @@ export function block(n, by) {
   });
   if (native === null) {
     gh(['issue', 'edit', String(n), '--body-file', '-'], { input: addBlockedBy(issue.body, by) });
+    setState(issue, 'bloqueado');
+  } else if (stateOf(issue) !== 'listo') {
+    setState(issue, 'listo'); // GitHub ya lo marca «Blocked»: la etiqueta sigue en «por hacer»
   }
-  setState(issue, 'bloqueado');
   return { number: n, blockedBy: by, via: native === null ? 'cuerpo' : 'github' };
 }
 
@@ -296,6 +303,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
 
   for (const state of STATES) {
     const [color, description] = LABEL_STYLE[state];
+    if (LEGACY[state]) gh(['label', 'edit', LEGACY[state], '--name', label(state)], { cwd: dir, allowFail: true });
     gh(['label', 'create', label(state), '--color', color, '--description', description, '--force'], { cwd: dir });
   }
   for (const [from, to] of files) {

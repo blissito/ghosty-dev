@@ -31,7 +31,7 @@ test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y A
   writeFileSync(join(repo, 'AGENTS.md'), '# Reglas del repo\n');
   const r = run('init');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(read().labels.sort(), ['ghosty-dev:bloqueado', 'ghosty-dev:esperando', 'ghosty-dev:listo', 'ghosty-dev:tomado']);
+  assert.deepEqual(read().labels.sort(), ['ghosty-dev:bloqueado', 'ghosty-dev:en-curso', 'ghosty-dev:esperando-ci', 'ghosty-dev:por-hacer']);
   for (const f of [
     '.github/ISSUE_TEMPLATE/pendiente.md',
     '.github/workflows/evidence-gate.yml',
@@ -65,7 +65,8 @@ test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierr
   const { run, read, root } = setup({ issues: { 1: issue(1, 'Base'), 2: issue(2, 'Encima') } });
   assert.equal(run('block', '2', '--by', '1').code, 0);
   assert.deepEqual(read().issues[2].blockedBy, [1]);
-  assert.ok(read().issues[2].labels.includes('ghosty-dev:bloqueado'));
+  // Con dependencias nativas GitHub ya muestra «Blocked»: la etiqueta se queda en por-hacer.
+  assert.deepEqual(read().issues[2].labels, ['ghosty-dev:por-hacer']);
   let list = JSON.parse(run('ready', '--json').out);
   assert.deepEqual(list.map((i) => i.number), [1]);
 
@@ -73,7 +74,7 @@ test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierr
   db.issues[1].state = 'closed';
   writeFileSync(join(root, 'gh.json'), JSON.stringify(db));
   list = JSON.parse(run('ready', '--json').out);
-  assert.deepEqual(list.map((i) => [i.number, i.reason]), [[2, 'desbloqueado']]);
+  assert.deepEqual(list.map((i) => [i.number, i.reason]), [[2, 'por-hacer']]);
 });
 
 test('block sin API de dependencias escribe «Bloqueado por» en el cuerpo', () => {
@@ -94,11 +95,11 @@ test('claim asigna, marca tomado y crea rama + worktree', () => {
   assert.ok(existsSync(out.worktree));
   const i = s.read().issues[5];
   assert.deepEqual(i.assignees, ['agente-a']);
-  assert.deepEqual(i.labels, ['ghosty-dev:tomado']);
+  assert.deepEqual(i.labels, ['ghosty-dev:en-curso']);
 });
 
 test('un solo escritor: no se toma un pendiente de otro', () => {
-  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:tomado'], assignees: ['agente-b'] }) } });
+  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-b'] }) } });
   const r = s.run('claim', '5', '--no-worktree');
   assert.equal(r.code, 1);
   assert.match(r.err, /Un solo escritor/);
@@ -121,9 +122,9 @@ test('wait deja el pendiente esperando y ready lo devuelve sólo cuando el CI re
       { name: 'ghosty-dev/evidencia', status: 'COMPLETED', conclusion: 'FAILURE' },
     ],
   });
-  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:tomado'], assignees: ['agente-a'] }) }, prs: [pr('IN_PROGRESS', null)] });
+  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) }, prs: [pr('IN_PROGRESS', null)] });
   assert.equal(s.run('wait', '5').code, 0);
-  assert.ok(s.read().issues[5].labels.includes('ghosty-dev:esperando'));
+  assert.ok(s.read().issues[5].labels.includes('ghosty-dev:esperando-ci'));
   assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);
 
   const db = s.read();
@@ -135,7 +136,7 @@ test('wait deja el pendiente esperando y ready lo devuelve sólo cuando el CI re
 
 test('evidence rechaza lo inválido y publica lo válido con su marca', () => {
   const s = setup({
-    issues: { 5: issue(5, 'X', { body: CRITERIA, labels: ['ghosty-dev:tomado'], assignees: ['agente-a'] }) },
+    issues: { 5: issue(5, 'X', { body: CRITERIA, labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) },
     prs: [{ number: 9, headRefName: 'ghosty-dev/5-x' }],
     runs: [{ databaseId: 77 }],
   });
@@ -198,7 +199,7 @@ test('--no-protect no toca la protección de la rama', () => {
   assert.equal(read().protection, undefined);
 });
 
-test('add abre un pendiente con la plantilla y, con --by, lo deja bloqueado', () => {
+test('add abre un pendiente con la plantilla y, con --by, lo bloquea con la dependencia nativa', () => {
   const { run, read } = setup({ issues: { 1: issue(1, 'Servidor con /health') } });
   const r = run('add', 'Endpoint /version', '--goal', 'GET /version responde la versión', '--criteria', 'responde 200', '--criteria', 'hay un test', '--by', '1', '--json');
   assert.equal(r.code, 0, r.err);
@@ -208,7 +209,7 @@ test('add abre un pendiente con la plantilla y, con --by, lo deja bloqueado', ()
   assert.match(i.body, /## Objetivo\nGET \/version responde la versión/);
   assert.match(i.body, /- \[ \] responde 200\n- \[ \] hay un test/);
   assert.deepEqual(i.blockedBy, [1]);
-  assert.ok(i.labels.includes('ghosty-dev:bloqueado'));
+  assert.deepEqual(i.labels, ['ghosty-dev:por-hacer']);
 });
 
 test('add sin criterios se niega', () => {
