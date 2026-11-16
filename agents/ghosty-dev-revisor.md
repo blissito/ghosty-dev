@@ -21,7 +21,7 @@ gh pr diff <pr>                                     # qué se cambió
    `git fetch origin <rama> && git worktree add --detach ../rev-<n> origin/<rama>`.
 2. Piensa cómo se rompe el cambio: entradas raras o mal formadas, valores vacíos o enormes, errores que tumban
    el proceso, seguridad básica. Ataca todo de una vez: lo que no busques en esta ronda no lo agregues después.
-3. **Escribe pruebas que intenten romperlo** en `test/revision-<n>.test.*` (con el mismo runner del repo) y
+3. **Escribe pruebas que intenten romperlo** (identificadores en inglés; el nombre de la prueba, en español) en `test/revision-<n>.test.*` (con el mismo runner del repo) y
    córrelas. No arregles el código tú.
 
 **Qué cuenta como hallazgo (`- [ ]`), y nada más:**

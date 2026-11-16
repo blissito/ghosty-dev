@@ -110,6 +110,10 @@ ghosty-dev block <n> --by <nuevo>
 
 ## Prohibido
 
+- Identificadores en otro idioma que no sea inglés: variables, funciones, tipos, parámetros, llaves de objetos
+  y nombres de archivo van en inglés aunque el pendiente esté en español (`{ array: '[1,2]' }`, no
+  `{ arreglo: … }`). En español sólo comentarios, mensajes al usuario y nombres de las pruebas.
+
 - Tomar un pendiente asignado a otro, o trabajar dos pendientes en el mismo worktree.
 - Cerrar un issue con `gh issue close` directo, o publicar evidencia que no corriste.
 - Sondear el CI (`sleep`, loops, preguntar una y otra vez). La única espera es `ghosty-dev wait <n> --watch`.
