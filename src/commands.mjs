@@ -186,6 +186,23 @@ function rerunGate(n) {
 
 // ---------- evidence (Ley 2; «proof of work», Symphony) ----------
 
+// Sólo validar, sin `gh` ni red: lo usa una caja de trabajo que no tiene credenciales (la publicación la hace
+// quien sí las tiene). `issueFile` = el cuerpo del pendiente, para comparar los criterios.
+export function checkEvidence(file, issueFile) {
+  if (!file || !existsSync(file)) throw new UserError('Falta --file <evidencia.md>.');
+  if (issueFile && !existsSync(issueFile)) throw new UserError(`No existe ${issueFile}.`);
+  const { ok, errors } = validateEvidence(readFileSync(file, 'utf8'), issueFile ? readFileSync(issueFile, 'utf8') : '');
+  if (!ok) throw new UserError(`Evidencia inválida:\n- ${errors.join('\n- ')}`);
+  return { ok: true, criteriaChecked: Boolean(issueFile) };
+}
+
+export function checkReview(file) {
+  if (!file || !existsSync(file)) throw new UserError('Falta --file <revision.md>.');
+  const { ok, errors, open } = validateRevision(readFileSync(file, 'utf8'));
+  if (!ok) throw new UserError(`Revisión inválida:\n- ${errors.join('\n- ')}`);
+  return { ok: true, open };
+}
+
 export function evidence(n, file) {
   if (!file || !existsSync(file)) throw new UserError('Falta --file <evidencia.md>.');
   const md = readFileSync(file, 'utf8');

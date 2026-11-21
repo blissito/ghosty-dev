@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { setup, issue, VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 import { formatEvidence, formatRevision } from '../src/evidence.mjs';
 
@@ -329,4 +329,19 @@ test('la evidencia y la revisión enlazan el PR', () => {
   const [rev, ev] = s.read().issues[5].comments.slice(-2).map((c) => c.body);
   assert.match(rev, /PR: https:\/\/github\.com\/acme\/demo\/pull\/9/);
   assert.match(ev, /PR: https:\/\/github\.com\/acme\/demo\/pull\/9/);
+});
+
+test('evidence --check y review --check validan sin gh ni red y no publican', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud', { body: '## Criterios de aceptación\n- [ ] /health responde 200\n' }) } });
+  const env = { ...process.env, GHOSTY_DEV_GH: '/no/existe/gh' };
+  const bin = join(import.meta.dirname, '..', 'bin', 'ghosty-dev.mjs');
+  const run = (...a) => spawnSync(process.execPath, [bin, ...a], { cwd: s.repo, encoding: 'utf8', env });
+  const body = s.write('issue.md', '## Criterios de aceptación\n- [ ] /health responde 200\n');
+  assert.equal(run('evidence', '--check', '--file', s.write('e.md', VALID_EVIDENCE), '--issue-file', body).status, 0);
+  const bad = run('evidence', '--check', '--file', s.write('bad.md', VALID_EVIDENCE.replace('- [x] /health', '- [ ] /health')), '--issue-file', body);
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /Criterio sin cumplir/);
+  assert.equal(run('review', '--check', '--file', s.write('r.md', revisionMd())).status, 0);
+  assert.equal(run('review', '--check', '--file', s.write('r2.md', '## Revisión\nTodo bien.\n')).status, 1);
+  assert.equal(s.read().issues[5].comments.length, 0);
 });

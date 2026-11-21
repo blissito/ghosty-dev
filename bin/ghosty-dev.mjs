@@ -22,6 +22,8 @@ Uso: ghosty-dev <comando> [opciones]
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI en una sola llamada
                                          (tope 5 min) y dice si quedó verde o rojo
   evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
+  evidence --check --file e.md [--issue-file pendiente.md]
+  review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
   block <n> --by <m>                     #n queda bloqueado por #m
   show <n> [--json]                      estado, bloqueos y si ya tiene evidencia
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
@@ -41,6 +43,8 @@ const { values, positionals } = parseArgs({
     'no-protect': { type: 'boolean' },
     dir: { type: 'string' },
     file: { type: 'string' },
+    check: { type: 'boolean' },
+    'issue-file': { type: 'string' },
     by: { type: 'string' },
     watch: { type: 'boolean' },
     minutes: { type: 'string' },
@@ -111,6 +115,12 @@ try {
     if (!r.ok) throw new cmd.UserError(r.later ? `La puerta todavía no está en ${r.branch}: sube los archivos de init directo a ${r.branch} y vuelve a correr ghosty-dev protect.` : `${r.reason}. Márcalo en Settings → Branches.`);
     if (values.json) print(r, () => '');
     else await showBanner(r);
+  } else if (command === 'review' && values.check) {
+    print(cmd.checkReview(values.file), (x) => `Revisión válida: ${x.open} hallazgo(s) abierto(s). No se publicó nada.`);
+  } else if (command === 'evidence' && values.check) {
+    print(cmd.checkEvidence(values.file, values['issue-file']), (x) =>
+      `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}. No se publicó nada.`,
+    );
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file });
     if (r.brief) print(r, (x) => x.brief);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor } from '../src/evidence.mjs';
-import { closingRefs, evaluatePullRequest } from '../src/gate.mjs';
+import { closingRefs, evaluatePullRequest, reviewCheckConfig, externalReview } from '../src/gate.mjs';
 import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
 const ISSUE = '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n';
@@ -88,4 +88,36 @@ test('la puerta exige revisión del commit actual y sin hallazgos abiertos', () 
   // Revisión limpia del commit actual + evidencia: pasa.
   assert.equal(run([{ body: formatRevision(3, SHA, revisionMd()) }, evid]).ok, true);
   assert.ok(findRevisionFor([{ body: formatRevision(3, SHA, revisionMd()) }], SHA.slice(0, 7)));
+});
+
+test('revisión por check externo: otra identidad, atada al commit exacto', () => {
+  const config = reviewCheckConfig('{"reviewCheck":{"name":"Ghosty Review","app":"ghosty-studio"}}');
+  assert.deepEqual(config, { name: 'Ghosty Review', app: 'ghosty-studio' });
+  // Sin `app` no vale: cualquiera con permiso de checks podría publicar uno con ese nombre.
+  assert.equal(reviewCheckConfig('{"reviewCheck":{"name":"Ghosty Review"}}'), null);
+  assert.equal(reviewCheckConfig('no es json'), null);
+  assert.equal(externalReview(null, [], SHA), null);
+
+  const check = (over) => ({ name: 'Ghosty Review', app: { slug: 'ghosty-studio' }, head_sha: SHA, status: 'completed', conclusion: 'success', completed_at: '2026-11-21T10:00:00Z', ...over });
+  const evid = { body: formatEvidence(3, VALID_EVIDENCE) };
+  const pr = { body: 'Closes #3', head: { sha: SHA } };
+  const gate = (runs, comments = [evid]) => evaluatePullRequest(pr, () => ({ body: ISSUE, comments }), externalReview(config, runs, SHA));
+
+  // Check verde del commit: pasa sin comentario de revisión.
+  let r = gate([check()]);
+  assert.equal(r.ok, true);
+  assert.match(r.lines[0], /por el check «Ghosty Review»/);
+  // Con hallazgos (neutral), o corriendo: no pasa.
+  assert.match(gate([check({ conclusion: 'neutral' })]).lines[0], /hallazgos abiertos/);
+  assert.match(gate([check({ status: 'in_progress', conclusion: null })]).lines[0], /sigue corriendo/);
+  // Un check de otro commit, de otra app o con otro nombre no cuenta: se cae a la revisión por comentario.
+  for (const other of [{ head_sha: 'f'.repeat(40) }, { app: { slug: 'otra-app' } }, { name: 'Otra cosa' }]) {
+    r = gate([check(other)]);
+    assert.equal(r.ok, false);
+    assert.match(r.lines[0], /falta la revisión del commit/);
+  }
+  // Un re-run más reciente sustituye al anterior.
+  assert.equal(gate([check({ conclusion: 'neutral', completed_at: '2026-11-21T09:00:00Z' }), check()]).ok, true);
+  // Sin check todavía, la revisión por comentario sigue valiendo (camino local).
+  assert.equal(gate([], [{ body: formatRevision(3, SHA, revisionMd()) }, evid]).ok, true);
 });

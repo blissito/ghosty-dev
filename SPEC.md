@@ -143,6 +143,16 @@ cuentas cuadran y que es del commit exacto que se va a mergear. Lo demás es dis
 es una sesión aparte (el subagente `ghosty-dev-revisor` en Claude Code; en otros agentes, `ghosty-dev review <n>`
 pegado en otra sesión), y es mejor si es **otro modelo**.
 
+**Revisor con otra identidad (opcional).** Si el repo tiene `.github/ghosty-dev/config.json` en la rama base con
+`{ "reviewCheck": { "name": "…", "app": "…" } }`, la puerta acepta como revisión el check con ese nombre,
+publicado por esa GitHub App sobre el commit exacto del PR: `success` pasa; cualquier otra conclusión son
+hallazgos abiertos; si sigue corriendo, la puerta espera. Se exigen los dos campos: sin `app`, cualquiera con
+permiso de checks podría publicar uno con ese nombre. Mientras ese check no exista, la revisión por comentario
+sigue valiendo. Esto sí prueba que quien revisó no es quien escribió.
+
+**Validar sin publicar.** `ghosty-dev evidence --check --file e.md [--issue-file pendiente.md]` y
+`ghosty-dev review --check --file r.md` validan el formato sin `gh` ni red, para entornos sin credenciales.
+
 ## 5. Protocolo
 
 ```
@@ -183,6 +193,8 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C7 | `close` se niega sin evidencia válida | `close sin evidencia se niega…` |
 | C8 | la evidencia exige comandos con salida, CI en verde y todos los criterios marcados | `evidence.test.mjs` |
 | C9 | la puerta falla sin `Closes #n` o con un pendiente sin evidencia | `la puerta encuentra…`, `un PR que no cierra…` |
+| C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
+| C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 
 ## 7. Fuera de v0.1
