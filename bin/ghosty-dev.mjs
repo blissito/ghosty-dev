@@ -3,6 +3,7 @@
 import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import * as cmd from '../src/commands.mjs';
+import * as cloud from '../src/cloud.mjs';
 
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
@@ -17,8 +18,13 @@ Uso: ghosty-dev <comando> [opciones]
   review <n> [--file revision.md]        sin --file: el encargo para el revisor (otra sesión, contexto limpio);
                                          con --file: el revisor publica su revisión atada al commit del PR
   board                                  abre en el navegador los pendientes abiertos del repo
-  ready [--json] [--claim]               pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
+  ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
+  claim <n> --cloud                      lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
+                                         construye ahí, abre el PR, espera el CI y la revisión, y te avisa
+  cloud                                  los pendientes de este repo que van en la nube
+  stop <n>                               detiene #n en la nube y libera su lugar
+  teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI en una sola llamada
                                          (tope 5 min) y dice si quedó verde o rojo
   evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
@@ -29,7 +35,7 @@ Uso: ghosty-dev <comando> [opciones]
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
 Opciones globales: --json (salida en JSON), -h/--help
-Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario).`;
+Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube requiere el CLI ghosty con sesión (ghosty login).`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -37,6 +43,7 @@ const { values, positionals } = parseArgs({
     help: { type: 'boolean', short: 'h' },
     json: { type: 'boolean' },
     claim: { type: 'boolean' },
+    cloud: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
     'dry-run': { type: 'boolean' },
     force: { type: 'boolean' },
@@ -94,6 +101,9 @@ async function showBanner(data) {
   }
 }
 
+const printCloud = (r) =>
+  print(r, (x) => `${x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty dev watch ${x.id}   ·   Detenlo: ghosty-dev stop ${x.number}`);
+
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
   else console.log(human(data));
@@ -143,11 +153,25 @@ try {
       if (!list.length) throw new cmd.UserError('No hay pendientes listos.');
       const first = list[0];
       // Los que esperaban CI ya son tuyos: sólo se retoman, no se vuelven a reclamar.
+      if (values.cloud) {
+        const next = list.find((i) => i.state !== 'esperando');
+        if (!next) throw new cmd.UserError('No hay pendientes listos para mandar a la nube.');
+        printCloud(cloud.start(next.number));
+        process.exit(0);
+      }
       const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'] });
       print(result, (r) => `Tomado #${r.number} ${r.title}${r.worktree ? `\n  worktree: ${r.worktree}\n  rama: ${r.branch}` : ''}${r.resumed ? `\n  retoma: ${r.reason}` : ''}`);
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
     }
+  } else if (command === 'claim' && values.cloud) {
+    printCloud(cloud.start(num(arg)));
+  } else if (command === 'cloud') {
+    print(cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+  } else if (command === 'stop') {
+    print(cloud.stop(num(arg)), (r) => `#${r.number} detenido en la nube. El issue y la rama se quedan.`);
+  } else if (command === 'teleport') {
+    print(cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);

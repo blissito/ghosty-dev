@@ -72,7 +72,9 @@ Al agente se le dice una sola cosa: «toma el siguiente pendiente». La skill (`
 ## Comandos
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
-`show <n>` · `close <n>`. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
+`show <n>` · `close <n>`.
+
+En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty login`): `claim <n> --cloud` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
 ## Tests
 

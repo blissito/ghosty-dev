@@ -178,6 +178,23 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
 pendiente o si alguno de los que cierra no tiene evidencia válida. Su script se lee de la rama base, para que un PR
 no pueda aflojar su propia puerta. Se vuelve obligatoria con *branch protection*.
 
+## 5b. La nube (opcional)
+
+El mismo pendiente lo puede construir un agente en una caja de trabajo en vez de tu compu. El contrato no cambia:
+issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada al commit y la misma puerta.
+
+- `claim <n> --cloud` entrega el pendiente a la nube; `cloud` lista los del repo; `stop <n>` lo detiene;
+  `teleport <n>` lo detiene y trae su rama para seguir en tu compu (un solo escritor: nunca los dos a la vez).
+- La nube trabaja sobre lo que está en GitHub, nunca sobre cambios locales sin subir.
+- La caja no guarda credenciales de GitHub: lo que se sube sale con la cuenta de quien pidió.
+- Cero checks no es verde: si el repo tiene CI, se espera a que corra sobre el commit exacto.
+- La revisión la hace otra identidad (un check atado al commit, ver `reviewCheck` en §4b). Máximo 3 vueltas;
+  después pregunta a la persona.
+- Sólo se mezcla solo si la rama exige `ghosty-dev/evidencia`; si no, la persona mezcla.
+
+La implementación de referencia es Ghosty Studio (`ghosty dev`, con sesión de `ghosty login`). Este CLI sólo
+delega en ese binario (`GHOSTY_DEV_GHOSTY` lo cambia).
+
 ## 6. Pruebas de conformidad
 
 Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con un `gh` falso y sin red):
@@ -195,6 +212,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C9 | la puerta falla sin `Closes #n` o con un pendiente sin evidencia | `la puerta encuentra…`, `un PR que no cierra…` |
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
+| C13 | `claim --cloud` delega sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube | `claim --cloud manda…`, `stop y teleport…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 
 ## 7. Fuera de v0.1
