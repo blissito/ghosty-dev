@@ -60,16 +60,28 @@ if (group === 'label' && verb === 'create') {
   issue(args[2]).state = 'closed';
 } else if (group === 'api') {
   const method = flag('-X') ?? 'GET';
-  const path = args.find((a, idx) => idx > 0 && !a.startsWith('-') && args[idx - 1] !== '-X' && args[idx - 1] !== '-F');
+  const full = args.find((a, idx) => idx > 0 && !a.startsWith('-') && args[idx - 1] !== '-X' && args[idx - 1] !== '-F' && args[idx - 1] !== '--input');
+  const [path, query = ''] = full.split('?');
+  const q = new URLSearchParams(query);
+  const body = args.includes('--input') ? JSON.parse(stdin() || 'null') : null;
+  const page = (list) => (Number(q.get('page') ?? 1) > 1 ? [] : list);
+  // Forma REST de un issue y de un PR.
+  const rest = (i) => ({
+    id: i.id, number: i.number, title: i.title, state: i.state, body: i.body,
+    labels: i.labels.map((name) => ({ name })), assignees: i.assignees.map((l) => ({ login: l })),
+    html_url: `https://github.com/${db.repo}/issues/${i.number}`,
+  });
+  const sha = (p) => p.headRefOid ?? `sha-${p.number}`;
+  const prBySha = (x) => db.prs.find((p) => sha(p) === x);
   let m;
   if (path === 'user') out({ login: db.me });
+  else if (path === 'repos/{owner}/{repo}') out({ full_name: db.repo, default_branch: 'main', html_url: `https://github.com/${db.repo}` });
   else if (path.includes('/contents/.github/ghosty-dev/gate.mjs')) {
     if (db.gateOnBase === false) fail('HTTP 404: Not Found');
     out({ name: 'gate.mjs' });
   }
   else if ((m = path.match(/branches\/([^/]+)\/protection(\/required_status_checks(\/contexts)?)?$/))) {
     if (db.noAdmin) fail('HTTP 403: Must have admin rights to Repository.');
-    const body = method === 'GET' ? null : JSON.parse(stdin());
     if (method === 'GET') {
       if (!db.protection) fail('HTTP 404: Branch not protected');
     } else if (method === 'PUT') db.protection = body;
@@ -77,28 +89,85 @@ if (group === 'label' && verb === 'create') {
     else if (method === 'POST') db.protection.required_status_checks.contexts.push(...body.contexts);
     out(db.protection);
   }
+  else if ((m = path.match(/\/labels(?:\/(.+))?$/)) && !path.includes('/issues/')) {
+    const name = m[1] ? decodeURIComponent(m[1]) : null;
+    if (method === 'POST') {
+      if (db.labels.includes(body.name)) fail('HTTP 422: already_exists');
+      db.labels.push(body.name);
+    } else if (method === 'PATCH') {
+      if (!db.labels.includes(name)) fail('HTTP 404: Not Found');
+      if (body.new_name) db.labels = db.labels.map((l) => (l === name ? body.new_name : l));
+    }
+    out({});
+  }
   else if ((m = path.match(/issues\/(\d+)\/dependencies\/blocked_by$/))) {
     if (!db.depsApi) fail('HTTP 404: Not Found');
     const i = issue(m[1]);
     if (method === 'POST') {
-      const id = Number(flag('-F').split('=')[1]);
-      const blocker = Object.values(db.issues).find((x) => x.id === id);
+      const blocker = Object.values(db.issues).find((x) => x.id === Number(body.issue_id));
       i.blockedBy.push(blocker.number);
       out({});
     } else {
       out(i.blockedBy.map((n) => ({ number: n, state: db.issues[n].state })));
     }
-  } else if ((m = path.match(/issues\/(\d+)$/))) {
+  }
+  else if ((m = path.match(/issues\/(\d+)\/labels(?:\/(.+))?$/))) {
     const i = issue(m[1]);
-    out({ id: i.id, number: i.number, state: i.state });
-  } else fail(`fake gh: api ${path} no soportado`);
+    if (method === 'POST') for (const l of body.labels) if (!i.labels.includes(l)) i.labels.push(l);
+    if (method === 'DELETE') i.labels = i.labels.filter((l) => l !== decodeURIComponent(m[2]));
+    out(i.labels.map((name) => ({ name })));
+  }
+  else if ((m = path.match(/issues\/(\d+)\/assignees$/))) {
+    const i = issue(m[1]);
+    if (method === 'POST') {
+      for (const who of body.assignees) if (!i.assignees.includes(who)) i.assignees.push(who);
+      // Simula una carrera: otro agente se asigna en el mismo instante.
+      if (db.raceWith && !i.assignees.includes(db.raceWith)) i.assignees.push(db.raceWith);
+    }
+    if (method === 'DELETE') i.assignees = i.assignees.filter((a) => !body.assignees.includes(a));
+    out(rest(i));
+  }
+  else if ((m = path.match(/issues\/(\d+)\/comments$/))) {
+    const i = issue(m[1]);
+    if (method === 'POST') {
+      i.comments.push({ author: { login: db.me }, body: body.body });
+      out({ html_url: `https://github.com/${db.repo}/issues/${i.number}#issuecomment-${i.comments.length}` });
+    } else out(page(i.comments.map((c) => ({ body: c.body, user: { login: c.author?.login } }))));
+  }
+  else if ((m = path.match(/issues\/(\d+)$/))) {
+    const i = issue(m[1]);
+    if (method === 'PATCH') Object.assign(i, body.body !== undefined ? { body: body.body } : {}, body.state ? { state: body.state } : {});
+    out(rest(i));
+  }
+  else if (path.endsWith('/issues')) {
+    if (method === 'POST') {
+      const number = Math.max(0, ...Object.keys(db.issues).map(Number)) + 1;
+      db.issues[number] = { number, id: 1000 + number, title: body.title, labels: body.labels ?? [], body: body.body, assignees: [], state: 'open', comments: [], blockedBy: [] };
+      out(rest(db.issues[number]));
+    } else out(page(Object.values(db.issues).filter((i) => i.state === 'open').map(rest)));
+  }
+  else if (path.endsWith('/pulls')) out(page(db.prs.map((p) => ({ number: p.number, html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } }))));
+  else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {
+    const p = prBySha(m[1]);
+    // Simula que el CI termina mientras se espera: la segunda lectura de un check corriendo ya lo ve terminado.
+    const runs = (p?.statusCheckRollup || []).map((c) => {
+      const seen = { name: c.name, status: c.status === 'COMPLETED' ? 'completed' : 'in_progress', conclusion: c.conclusion ? c.conclusion.toLowerCase() : null };
+      if (c.status !== 'COMPLETED' && db.ciResult !== undefined) Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult });
+      return seen;
+    });
+    out({ check_runs: page(runs) });
+  }
+  else if (path.match(/commits\/([^/]+)\/status$/)) out({ statuses: [] });
+  else if (path.match(/actions\/workflows\/[^/]+\/runs$/)) out({ workflow_runs: (db.runs ?? []).map((r) => ({ id: r.databaseId })) });
+  else if (path.match(/actions\/runs\/\d+\/rerun$/)) out({});
+  else fail(`fake gh: api ${method} ${path} no soportado`);
 } else if (group === 'browse') {
   out('');
 } else if (group === 'repo' && verb === 'view') {
   out({ nameWithOwner: db.repo, defaultBranchRef: { name: 'main' }, url: `https://github.com/${db.repo}` });
 } else if (group === 'pr' && verb === 'checks') {
   // Simula que el CI termina mientras se espera.
-  for (const p of db.prs) for (const c of p.statusCheckRollup || []) if (c.status !== 'COMPLETED') Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult ?? 'SUCCESS' });
+  for (const p of db.prs) for (const c of p.statusCheckRollup || []) if (c.status !== 'COMPLETED') Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult });
   out('');
 } else if (group === 'pr' && verb === 'list') {
   out(db.prs);

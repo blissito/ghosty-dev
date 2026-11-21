@@ -84,8 +84,12 @@ function main() {
   const gh = process.env.GHOSTY_DEV_GH || 'gh';
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const pr = event.pull_request;
-  const fetchIssue = (n) =>
-    JSON.parse(execFileSync(gh, ['issue', 'view', String(n), '--json', 'body,comments'], { encoding: 'utf8' }));
+  // REST, igual que el CLI (nada de `gh issue view`, que usa GraphQL).
+  const get = (path) => JSON.parse(execFileSync(gh, ['api', '-X', 'GET', path], { encoding: 'utf8' }));
+  const fetchIssue = (n) => ({
+    body: get(`repos/{owner}/{repo}/issues/${n}`).body || '',
+    comments: get(`repos/{owner}/{repo}/issues/${n}/comments?per_page=100`),
+  });
   // La configuración sale de la rama base (el checkout de la Action), igual que este script.
   let config = null;
   try {
@@ -95,7 +99,7 @@ function main() {
   if (config && pr.head?.sha) {
     let runs = [];
     try {
-      const out = execFileSync(gh, ['api', `repos/{owner}/{repo}/commits/${pr.head.sha}/check-runs?per_page=100`], { encoding: 'utf8' });
+      const out = execFileSync(gh, ['api', '-X', 'GET', `repos/{owner}/{repo}/commits/${pr.head.sha}/check-runs?per_page=100`], { encoding: 'utf8' });
       runs = JSON.parse(out).check_runs || [];
     } catch {}
     external = externalReview(config, runs, pr.head.sha);

@@ -19,3 +19,27 @@ export function ghJson(args, opts) {
 }
 
 export const git = (args, opts) => run('git', args, opts);
+
+// API REST de GitHub. Todo el CLI habla REST (nada de `gh issue`/`gh pr`, que usan GraphQL): así el mismo CLI
+// funciona detrás de un intermediario que sólo deja pasar rutas REST acotadas. `{owner}/{repo}` los resuelve gh.
+export function api(method, path, body, { allowFail, cwd } = {}) {
+  const args = ['api', '-X', method, path];
+  if (body !== undefined) args.push('--input', '-');
+  const out = gh(args, { allowFail, cwd, input: body === undefined ? undefined : JSON.stringify(body) });
+  if (out == null) return null;
+  return out.trim() ? JSON.parse(out) : {};
+}
+
+// Listas completas, de 100 en 100 (tope 10 páginas). `pick` saca el arreglo cuando viene envuelto.
+export function apiAll(path, { pick = (x) => x, allowFail, cwd } = {}) {
+  const all = [];
+  for (let page = 1; page <= 10; page++) {
+    const res = api('GET', `${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`, undefined, { allowFail, cwd });
+    if (res == null) return allFail(all, allowFail);
+    const items = pick(res) || [];
+    all.push(...items);
+    if (items.length < 100) break;
+  }
+  return all;
+}
+const allFail = (all, allowFail) => (allowFail && all.length === 0 ? null : all);

@@ -47,7 +47,7 @@ export function setup(state = {}) {
     const r = spawnSync(process.execPath, [BIN, ...args], {
       cwd: repo,
       encoding: 'utf8',
-      env: { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0' },
+      env: { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0', GHOSTY_DEV_WATCH_MS: '0' },
     });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
