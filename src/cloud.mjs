@@ -1,56 +1,96 @@
 // La nube de ghosty-dev: el mismo pendiente, pero lo construye un agente en una caja de trabajo de tu cuenta de
-// Ghosty en vez de tu compu. Aquí no hay sesión ni tokens: todo pasa por el CLI `ghosty` (ghosty login), que ya
-// guarda y renueva la sesión. Las variables de la vista previa NO pasan por aquí: son `ghosty-dev env` (src/env.mjs),
-// con la sesión propia de ghosty-dev (src/auth.mjs). GHOSTY_DEV_GHOSTY cambia el binario (los tests usan uno falso).
-import { execFileSync } from 'node:child_process';
+// Ghosty en vez de tu compu. Habla directo con la API de Ghosty Studio (/api/v2/me/dev-runs) con la sesión propia
+// de ghosty-dev (src/auth.mjs, permiso `dev`): no hace falta otro CLI. Todo lo que llega del servidor se trata como
+// dato: se valida antes de meterlo en una URL o en un comando de git, y se limpia antes de imprimirlo.
 import { git } from './gh.mjs';
-import { repoFullName as repoName } from './commands.mjs';
+import { repoFullName } from './commands.mjs';
+import { AuthError, checkRepo, plain, request } from './auth.mjs';
 
 export class CloudError extends Error {}
 
-function ghosty(args) {
-  const bin = process.env.GHOSTY_DEV_GHOSTY || 'ghosty';
-  try {
-    const out = execFileSync(bin, [...args, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    return out.trim() ? JSON.parse(out) : {};
-  } catch (e) {
-    if (e.code === 'ENOENT') throw new CloudError('Mandar pendientes a la nube necesita el CLI de Ghosty: npm i -g @ghostystudio/cli && ghosty login. Las variables de la vista previa no: ghosty-dev login y ghosty-dev env.');
-    const detail = (e.stderr || e.message || '').toString().trim().split('\n').slice(-3).join('\n');
-    throw new CloudError(`La nube no aceptó el pendiente: ${detail}`);
-  }
+const RUNS = '/api/v2/me/dev-runs';
+const SCOPE = 'dev';
+const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'merging']);
+
+const call = (method, path, body) => request(method, path, body, { scope: SCOPE });
+
+function repoName() {
+  const repo = repoFullName();
+  checkRepo(repo);
+  return repo;
 }
 
-const view = (r) => ({ number: r.issue, title: r.title, cloud: true, id: r.id, state: r.estado, phase: r.phase, pr: r.prUrl ?? null, url: r.issueUrl, branch: r.branch ?? null, already: !!r.yaEstaba });
+const runId = (id) => {
+  const s = String(id ?? '');
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) throw new CloudError('Ghosty Studio regresó un pendiente con un id inválido.');
+  return s;
+};
+
+// Una rama que viene del servidor nunca llega cruda a git: nada que parezca opción (--upload-pack=…), ni `..`.
+export function safeBranch(b) {
+  if (b == null || b === '') return null;
+  const s = String(b);
+  if (s.length > 200 || s.startsWith('-') || s.includes('..') || s.endsWith('.lock') || s.endsWith('/') || !/^[A-Za-z0-9._/-]+$/.test(s)) return null;
+  return s;
+}
+
+const text = (v, max = 500) => (v == null ? null : plain(v, max));
+const number = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
+
+const view = (r) => ({
+  number: number(r.issue),
+  title: text(r.title) ?? '',
+  cloud: true,
+  id: runId(r.id),
+  state: text(r.estado ?? r.phase, 80),
+  phase: text(r.phase, 40),
+  pr: text(r.prUrl),
+  url: text(r.issueUrl),
+  branch: safeBranch(r.branch),
+  already: r.yaEstaba === true,
+});
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.
-export function start(n) {
-  return view(ghosty(['dev', 'run', repoName(), '--issue', String(n)]));
+// Con `pr` y sin pendiente: gs adopta el PR (vista previa, revisión y checks) y responde SIN id: no crea pendiente.
+export async function start(n, { pr } = {}) {
+  const repo = repoName();
+  const body = { repo };
+  if (n) body.issue = n;
+  if (pr) body.pr = pr;
+  const r = await call('POST', RUNS, body);
+  if (r && r.id == null) {
+    if (r.prUrl) return { repo, cloud: true, services: true, pr: number(r.pr) ?? pr ?? null, prUrl: text(r.prUrl), note: text(r.nota) };
+    throw new CloudError('Ghosty Studio no regresó el pendiente.');
+  }
+  return view(r);
 }
 
 // Los pendientes de este repo que van en la nube (vivos y cerrados recientes).
-export function list() {
-  const res = ghosty(['dev', 'ls', repoName()]);
-  return (Array.isArray(res) ? res : res.runs || []).map(view);
+export async function list() {
+  const res = await call('GET', `${RUNS}?repo=${encodeURIComponent(repoName())}`);
+  return (Array.isArray(res?.runs) ? res.runs : []).map(view);
 }
 
-const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'merging']);
-
-function liveRun(n) {
-  const run = list().find((r) => r.number === n && LIVE.has(r.phase));
+async function liveRun(n) {
+  const run = (await list()).find((r) => r.number === n && LIVE.has(r.phase));
   if (!run) throw new CloudError(`#${n} no va en la nube.`);
   return run;
 }
 
+const stopRun = async (id) => view(await call('POST', `${RUNS}/${encodeURIComponent(runId(id))}`, { op: 'stop' }));
+
 // Detiene el pendiente #n en la nube y libera su lugar. El issue y la rama se quedan.
-export function stop(n) {
-  return view(ghosty(['dev', 'stop', liveRun(n).id]));
+export async function stop(n) {
+  return stopRun((await liveRun(n)).id);
 }
 
 // Trae a tu compu lo que la nube lleva de #n: la detiene (un solo escritor) y deja su rama lista para seguir aquí.
-export function teleport(n) {
-  const run = liveRun(n);
-  const stopped = view(ghosty(['dev', 'stop', run.id]));
+export async function teleport(n) {
+  const run = await liveRun(n);
+  const stopped = await stopRun(run.id);
   const branch = run.branch || stopped.branch;
-  if (branch && git(['fetch', 'origin', `${branch}:${branch}`], { allowFail: true }) === null) git(['fetch', 'origin', branch], { allowFail: true });
+  if (branch && git(['fetch', 'origin', '--', `${branch}:${branch}`], { allowFail: true }) === null) git(['fetch', 'origin', '--', branch], { allowFail: true });
   return { ...stopped, branch };
 }
+
+export { AuthError };

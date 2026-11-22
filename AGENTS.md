@@ -15,7 +15,7 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
 3. **Se espera por evento, no se sondea.** Con el PR abierto: `ghosty-dev wait <n> --watch` espera al CI en una sola llamada (tope 5 min); si tarda más, toma otro pendiente o termina. Si el repo está conectado a Ghosty Studio, `wait --watch` también avisa cuando la vista previa y la revisión de Ghosty terminan, y `ghosty-dev show <n>` da la ficha y los servicios del PR (vista previa con su liga, revisión, smoke, CI): no hace falta otro CLI.
    `ghosty-dev ready` te lo vuelve a ofrecer cuando el CI resuelva.
 
-Las variables de la vista previa (secretos) van con `ghosty-dev login --no-wait` → la persona aprueba la liga →
+La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van con `ghosty-dev login --no-wait` → la persona aprueba la liga →
 `ghosty-dev login --wait` (sólo si `whoami` no encuentra sesión, y preguntando antes) y `ghosty-dev env ls | push <archivo>`
 (sesión propia de Ghosty Studio; GitHub sigue siendo `gh`). El archivo lo nombra la persona y ningún valor se imprime.
 

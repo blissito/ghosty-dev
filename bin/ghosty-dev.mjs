@@ -25,6 +25,8 @@ Uso: ghosty-dev <comando> [opciones]
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
   claim <n> --cloud                      lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
                                          construye ahí, abre el PR, espera el CI y la revisión, y te avisa
+  claim --cloud --pr <m>                 sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
+                                         y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
   stop <n>                               detiene #n en la nube y libera su lugar
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
@@ -40,9 +42,10 @@ Uso: ghosty-dev <comando> [opciones]
                                          (vista previa, revisión, smoke y CI del commit actual)
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
-Variables de la vista previa (sesión propia en Ghosty Studio; GitHub sigue siendo gh):
-  login [--device]                       entra a Ghosty Studio (navegador; --device, sin terminal o con --json:
-                                         liga + código y espera)
+Sesión propia en Ghosty Studio (nube y variables de la vista previa; GitHub sigue siendo gh):
+  login [--device] [--force]             entra a Ghosty Studio (navegador; --device, sin terminal o con --json:
+                                         liga + código y espera); --force pide sesión nueva aunque ya haya una
+                                         (permisos: profile repo:env dev)
   login --no-wait                        para agentes, paso 1: imprime liga + código y sale de inmediato
   login --wait [--timeout 90]            paso 2: espera la aprobación hasta --timeout s; si sigue pendiente sale con 75
   whoami                                 con qué cuenta de Ghosty Studio estás y cuándo vence la sesión
@@ -52,8 +55,8 @@ Variables de la vista previa (sesión propia en Ghosty Studio; GitHub sigue sien
                                          fusiona con las guardadas, --replace reemplaza todas
 
 Opciones globales: --json (salida en JSON), -h/--help
-Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube requiere el CLI ghosty con sesión (ghosty login).
-Variables: GHOSTY_DEV_TOKEN (CI) manda sobre la sesión guardada; GHOSTY_DEV_BASE_URL cambia el servidor.`;
+Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube y las variables usan la sesión de ghosty-dev login.
+Variables: GHOSTY_DEV_TOKEN (CI) manda sobre la sesión guardada; GHOSTY_DEV_BASE_URL cambia el servidor (sólo https).`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -81,6 +84,7 @@ const { values, positionals } = parseArgs({
     from: { type: 'string' },
     device: { type: 'boolean' },
     'no-wait': { type: 'boolean' },
+    pr: { type: 'string' },
     wait: { type: 'boolean' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
@@ -135,7 +139,11 @@ async function showBanner(data) {
 }
 
 const printCloud = (r) =>
-  print(r, (x) => `${x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty dev watch ${x.id}   ·   Detenlo: ghosty-dev stop ${x.number}`);
+  print(r, (x) =>
+    x.services
+      ? `PR #${x.pr ?? '?'}: vista previa, revisión y checks en cada push; tu terminal lo sigue escribiendo.${x.prUrl ? `\n  ${x.prUrl}` : ''}${x.note ? `\n  ${x.note}` : ''}\n  Síguelo: ghosty-dev wait <n> --watch · ghosty-dev show <n>`
+      : `${x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty-dev cloud   ·   Detenlo: ghosty-dev stop ${x.number}`,
+  );
 
 // Una línea por servicio de la plataforma (vista previa, revisión, smoke) y el CI del commit del PR.
 const SERVICE_WORD = { pendiente: 'en curso', listo: 'lista', fallo: 'falló', neutral: 'neutral', 'sin-check': '—' };
@@ -201,7 +209,7 @@ try {
       if (values.cloud) {
         const next = list.find((i) => i.state !== 'esperando');
         if (!next) throw new cmd.UserError('No hay pendientes listos para mandar a la nube.');
-        printCloud(cloud.start(next.number));
+        printCloud(await cloud.start(next.number));
         process.exit(0);
       }
       const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'] });
@@ -210,13 +218,14 @@ try {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
     }
   } else if (command === 'claim' && values.cloud) {
-    printCloud(cloud.start(num(arg)));
+    const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
+    printCloud(await cloud.start(arg === undefined && pr ? undefined : num(arg), { pr }));
   } else if (command === 'cloud') {
-    print(cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+    print(await cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
   } else if (command === 'stop') {
-    print(cloud.stop(num(arg)), (r) => `#${r.number} detenido en la nube. El issue y la rama se quedan.`);
+    print(await cloud.stop(num(arg)), (r) => `#${r.number} detenido en la nube. El issue y la rama se quedan.`);
   } else if (command === 'teleport') {
-    print(cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
+    print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
@@ -262,7 +271,7 @@ try {
   } else if (command === 'close') {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);
-  } else if (command === 'login' && !values.wait && (existing = await auth.existingSession())) {
+  } else if (command === 'login' && !values.wait && !values.force && (existing = await auth.existingSession())) {
     // Ya hay credenciales (GHOSTY_DEV_TOKEN o sesión vigente/renovable): no se inicia otro login.
     print(existing, (x) => `Ya hay sesión de Ghosty Studio${x.source === 'env' ? ' (GHOSTY_DEV_TOKEN)' : x.email ? ` como ${x.email}` : ''}; no hace falta login. Para cambiar de cuenta: ghosty-dev logout.`);
   } else if (command === 'login' && values['no-wait']) {
@@ -340,6 +349,6 @@ try {
     throw new cmd.UserError(`Comando desconocido: ${command}. Usa ghosty-dev --help.`);
   }
 } catch (e) {
-  console.error(e instanceof cmd.UserError || e instanceof auth.AuthError ? e.message : `Error: ${e.message}`);
+  console.error(e instanceof cmd.UserError || e instanceof auth.AuthError || e instanceof cloud.CloudError ? e.message : `Error: ${auth.plain(e.message)}`);
   process.exit(1);
 }

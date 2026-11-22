@@ -105,13 +105,13 @@ la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba.
 previa y la revisión terminan (el CI decide el verde) y `show <n>` imprime su estado en «Servicios del PR», con la liga
 de la vista previa. Los checks de la plataforma que no cuentan como CI están en [SPEC.md §5c](SPEC.md).
 
-En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty login`): `claim <n> --cloud` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
+En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty-dev login`; no hace falta otro CLI): `claim <n> --cloud` · `claim --cloud --pr <m>` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
-### Variables de la vista previa
+### Sesión de Ghosty Studio y variables de la vista previa
 
-La vista previa de la nube necesita los secretos del repo (`DATABASE_URL`, llaves de API…). Se suben desde tu compu
-con una sesión propia de Ghosty Studio, separada de GitHub (GitHub sigue siendo `gh` y su token nunca sale de tu
-máquina):
+La nube y los secretos de la vista previa (`DATABASE_URL`, llaves de API…) usan una sesión propia de Ghosty Studio,
+separada de GitHub (GitHub sigue siendo `gh` y su token nunca sale de tu máquina). Pide `profile repo:env dev`; una
+sesión vieja sin `dev` se renueva con `ghosty-dev login --force`. Qué se guarda y dónde: [SECURITY.md](SECURITY.md).
 
 ```sh
 ghosty-dev login                       # navegador (OAuth con PKCE); por SSH, sin terminal o con --device: liga + código

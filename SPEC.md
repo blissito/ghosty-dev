@@ -201,8 +201,10 @@ issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada
   commit, rama, PR y pedidos abiertos). Es una proyección: no se edita a mano. La vista previa además sale como
   Deployment de GitHub del commit («View deployment»). `show <n>` la imprime, así un agente local ve lo mismo.
 
-La implementación de referencia es Ghosty Studio (`ghosty dev`, con sesión de `ghosty login`). Este CLI sólo
-delega en ese binario (`GHOSTY_DEV_GHOSTY` lo cambia).
+La implementación de referencia es Ghosty Studio. Este CLI habla directo con su API (`/api/v2/me/dev-runs`) con su
+propia sesión (§8, permiso `dev`); **no requiere el CLI `ghosty`**. `claim --cloud --pr <m>` adopta un PR que escribe
+tu terminal: gs responde los servicios del PR sin id (no crea pendiente). Todo dato del servidor se valida antes de
+usarlo en una URL o en git (una rama con forma de opción se descarta) y se limpia antes de imprimirlo.
 
 ## 5c. Servicios del PR
 
@@ -248,7 +250,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C9 | la puerta falla sin `Closes #n` o con un pendiente sin evidencia | `la puerta encuentra…`, `un PR que no cierra…` |
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
-| C13 | `claim --cloud` delega sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube | `claim --cloud manda…`, `stop y teleport…` |
+| C13 | `claim --cloud` va por la API con la sesión de ghosty-dev sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube; `--pr` sin id no inventa pendiente; 403 `insufficient_scope` pide `login --force`; base sin https, redirección a otro host y sesión de otro servidor no mandan el token; ninguna salida lleva tokens | `test/cloud.test.mjs` |
 | C15 | `show` imprime la ficha del comentario fijo más reciente, sin la línea de pie | `show trae la ficha…` |
 | C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
@@ -269,9 +271,15 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
 
 1. **GitHub es `gh`.** Issues, PR, checks y etiquetas van con la sesión de `gh` de la persona. El token de `gh`
    **nunca** se manda a Ghosty Studio ni a ningún otro servidor.
-2. **Ghosty Studio sólo para los secretos de la nube.** Lo único que necesita identidad de persona en Ghosty son las
-   variables (secretos) de la vista previa del repo. Para eso ghosty-dev tiene su propio login OAuth 2.0:
-   - cliente público `ghosty-dev` (sin secreto), scope `profile repo:env` y nada más;
+2. **Ghosty Studio sólo para la nube.** Lo único que necesita identidad de persona en Ghosty son los pendientes en
+   la nube (§5b) y las variables (secretos) de la vista previa. Para eso ghosty-dev tiene su propio login OAuth 2.0;
+   la identidad queda en dos piezas: `gh` para GitHub y esta sesión para Ghosty:
+   - cliente público `ghosty-dev` (sin secreto), scope `profile repo:env dev` y nada más (`repo:env` = variables,
+     `dev` = mandar, seguir y detener tus pendientes de Desarrollo). Una sesión sin el permiso que pide la ruta recibe
+     403 `insufficient_scope` y el CLI dice cuál falta y `ghosty-dev login --force` (sin reintentar);
+   - `GHOSTY_DEV_BASE_URL` sólo acepta `https://` (o `http://` hacia `127.0.0.1`/`localhost`, para pruebas), sin
+     usuario, query ni fragmento. Ningún fetch sigue redirecciones ni sale del origen de la base, tampoco los
+     endpoints que anuncie la metadata. La sesión guardada sólo se manda al servidor que la emitió;
    - endpoints por metadata [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414)
      (`/.well-known/oauth-authorization-server`); sin `device_authorization_endpoint`, `${base}/oauth2/device`.
      `GHOSTY_DEV_BASE_URL` cambia la base (por defecto `https://www.ghosty.studio`);
@@ -280,7 +288,8 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
      `state`; un regreso con otro `state` se rechaza;
    - sin navegador (`SSH_CONNECTION`, `CI`, Linux sin `DISPLAY`/`WAYLAND_DISPLAY`) o con `--device`: device flow
      [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628) (`slow_down` suma 5 s al intervalo);
-   - la sesión vive en `${XDG_CONFIG_HOME:-~/.config}/ghosty-dev/auth.json`, modo 0600 en carpeta 0700. El access
+   - la sesión vive en `${XDG_CONFIG_HOME:-~/.config}/ghosty-dev/auth.json`, modo 0600 en carpeta 0700 (si
+     alguien los abrió, se vuelven a cerrar y se avisa por stderr). El access
      se renueva con el refresh cuando le quedan menos de 60 s, y una vez tras un 401; el refresh rota y se guarda el
      nuevo. `logout` revoca el refresh ([RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)) y borra el archivo;
    - `GHOSTY_DEV_TOKEN` manda sobre el archivo (CI): se usa tal cual, sin refresh ni reintento.
@@ -307,5 +316,6 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
    confirmación (sin terminal exige `--yes`), fusiona por defecto y dice cuáles ya guardadas se quedan; `--replace`
    reemplaza todas. Sólo el dueño del espacio guarda. **Ningún valor se imprime**, tampoco en errores.
 
-La API es `GET|POST /api/v2/me/repos/:owner/:name/env` de Ghosty Studio, con `Authorization: Bearer`. Los pendientes
-en la nube (§5b) siguen delegando en el CLI `ghosty`; las variables no.
+Las APIs son `GET|POST /api/v2/me/repos/:owner/:name/env` (variables) y `/api/v2/me/dev-runs` (nube) de Ghosty
+Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
+forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.md).

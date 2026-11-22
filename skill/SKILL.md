@@ -37,7 +37,10 @@ ghosty-dev show <n>                # la ficha y los servicios del PR: vista prev
 - **La persona te pidió algo** (`ready` dice `reason: pedido`, o `wait` regresa con `asks`) → eso manda sobre lo
   demás: hazlo en la misma rama, sube y vuelve a esperar. `ghosty-dev asks <n>` los lee y los marca leídos. La
   persona te escribe en el issue o el PR con `@ghosty`, o desde Ghosty Studio (web, iOS o Teams): todo llega igual.
-- **Tools de Ghosty desde la terminal:** con `ghosty login`, el CLI `ghosty` te da lo de Ghosty Studio (imágenes,
+- **La nube** (`claim <n> --cloud`, `cloud`, `stop`, `teleport`) usa la misma sesión de `ghosty-dev login` que las
+  variables; no necesitas el CLI `ghosty`. Si dice «no tiene el permiso dev», pídele a la persona
+  `ghosty-dev login --force` (no lo repitas en bucle).
+- **Tools de Ghosty desde la terminal (opcional):** con `ghosty login`, el CLI `ghosty` te da lo de Ghosty Studio (imágenes,
   documentos, sitios, navegador, voz, datos…). `ghosty --help` lista los comandos; úsalos en vez de instalar
   librerías para eso.
 - **La vista previa no arranca por variables** (la ficha o `show` lo dicen): `ghosty-dev env ls` da los nombres que

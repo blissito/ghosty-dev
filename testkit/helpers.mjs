@@ -9,8 +9,6 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, '..', 'bin', 'ghosty-dev.mjs');
 const FAKE = join(HERE, 'fake-gh.mjs');
 chmodSync(FAKE, 0o755);
-const FAKE_GHOSTY = join(HERE, 'fake-ghosty.mjs');
-chmodSync(FAKE_GHOSTY, 0o755);
 
 export const VALID_EVIDENCE = `## Qué se hizo
 Agregué el endpoint /health.
@@ -45,10 +43,9 @@ export function setup(state = {}) {
   const stateFile = join(root, 'gh.json');
   const db = { me: 'agente-a', repo: 'acme/demo', depsApi: true, labels: [], issues: {}, prs: [], runs: [], calls: [], ...state };
   writeFileSync(stateFile, JSON.stringify(db));
-  const cloudFile = join(root, 'ghosty.json');
-  writeFileSync(cloudFile, JSON.stringify({ calls: [], runs: [], ...(state.cloud || {}) }));
-  const env = { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_GHOSTY: FAKE_GHOSTY, FAKE_GHOSTY_STATE: cloudFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0', GHOSTY_DEV_WATCH_MS: '0', XDG_CONFIG_HOME: join(root, 'config') };
+  const env = { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0', GHOSTY_DEV_WATCH_MS: '0', XDG_CONFIG_HOME: join(root, 'config') };
   delete env.GHOSTY_DEV_TOKEN;
+  delete env.GHOSTY_DEV_BASE_URL;
   const run = (...args) => {
     const r = spawnSync(process.execPath, [BIN, ...args], { cwd: repo, encoding: 'utf8', env });
     return { code: r.status, out: r.stdout, err: r.stderr };
@@ -83,8 +80,7 @@ export function setup(state = {}) {
     writeFileSync(p, text);
     return p;
   };
-  const cloud = () => JSON.parse(readFileSync(cloudFile, 'utf8'));
-  return { root, repo, run, runAsync, read, write, cloud, config: join(root, 'config') };
+  return { root, repo, run, runAsync, read, write, config: join(root, 'config') };
 }
 
 export const SHA = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';

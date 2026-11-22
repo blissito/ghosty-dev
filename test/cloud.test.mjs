@@ -1,0 +1,196 @@
+// La nube (SPEC §5b) habla directo con la API de Ghosty Studio con la sesión de ghosty-dev: sin el CLI `ghosty`.
+// Se prueba contra un gs falso, con ojo de atacante: base URL, redirecciones, permisos y nada de tokens en la salida.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setup, issue } from '../testkit/helpers.mjs';
+import { fakeGs } from '../testkit/fake-gs.mjs';
+
+const TOKENS = /at_\d|rt_\d|dc_1/;
+
+function saveSession(file, base, tok) {
+  mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 });
+  const data = { baseUrl: base, accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: Date.now() + 3_600_000, scope: tok.scope, email: null };
+  writeFileSync(file, JSON.stringify(data), { mode: 0o600 });
+}
+
+// Un repo con el pendiente #5, un gs falso y una sesión ya aprobada contra ese gs.
+async function withCloud(opts, fn) {
+  const gs = await fakeGs(opts);
+  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const authFile = join(s.config, 'ghosty-dev', 'auth.json');
+  saveSession(authFile, gs.base, gs.grant());
+  const cli = (args, extra = {}) => s.runAsync(args, { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1', ...extra } });
+  try {
+    await fn({ gs, s, cli, authFile });
+  } finally {
+    await gs.close();
+  }
+}
+
+test('claim --cloud manda el pendiente por la API con la sesión de ghosty-dev, sin tocar etiquetas ni worktree', () =>
+  withCloud({}, async ({ gs, s, cli }) => {
+    const r = await cli(['claim', '5', '--cloud', '--json']);
+    assert.equal(r.code, 0, r.err);
+    const out = JSON.parse(r.out);
+    assert.equal(out.cloud, true);
+    assert.equal(out.number, 5);
+    assert.equal(out.id, 'run1');
+    assert.deepEqual(gs.devCalls[0], { method: 'POST', path: '/api/v2/me/dev-runs', query: '', body: { repo: 'acme/demo', issue: 5 } });
+    assert.equal(gs.calls.find((c) => c.path === '/api/v2/me/dev-runs').auth, 'Bearer at_1');
+    // El estado del issue lo mueve el escritor de la nube, no esta terminal.
+    assert.deepEqual(s.read().issues[5].labels, ['ghosty-dev:por-hacer']);
+    assert.deepEqual(s.read().issues[5].assignees, []);
+    const again = await cli(['claim', '5', '--cloud']);
+    assert.match(again.out, /Ya iba en la nube: #5 Salud/);
+    assert.doesNotMatch(r.out + r.err + again.out + again.err, TOKENS);
+  }));
+
+test('cloud lista, stop y teleport sólo actúan sobre un pendiente que va en la nube', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    const none = await cli(['stop', '5']);
+    assert.equal(none.code, 1);
+    assert.match(none.err, /no va en la nube/);
+    await cli(['claim', '5', '--cloud']);
+    const ls = await cli(['cloud']);
+    assert.match(ls.out, /#5\ttrabajando\tSalud/);
+    assert.equal(gs.devCalls.find((c) => c.method === 'GET').query, '?repo=acme%2Fdemo');
+    const tp = await cli(['teleport', '5', '--json']);
+    assert.equal(tp.code, 0, tp.err);
+    assert.equal(JSON.parse(tp.out).branch, 'ghosty-dev/5-salud');
+    assert.deepEqual(gs.devCalls.at(-1), { method: 'POST', path: '/api/v2/me/dev-runs/run1', query: '', body: { op: 'stop' } });
+    assert.equal(gs.runs[0].phase, 'stopped');
+    assert.equal((await cli(['stop', '5'])).code, 1);
+  }));
+
+test('stop detiene el pendiente en la nube', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    await cli(['claim', '5', '--cloud']);
+    const r = await cli(['stop', '5']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /#5 detenido en la nube/);
+    assert.equal(gs.runs[0].phase, 'stopped');
+  }));
+
+test('claim --cloud --pr: gs responde servicios del PR sin id y no se inventa un pendiente', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    const r = await cli(['claim', '--cloud', '--pr', '9', '--json']);
+    assert.equal(r.code, 0, r.err);
+    const out = JSON.parse(r.out);
+    assert.equal(out.services, true);
+    assert.equal(out.pr, 9);
+    assert.equal(out.prUrl, 'https://github.com/acme/demo/pull/9');
+    assert.equal(out.id, undefined);
+    assert.deepEqual(gs.devCalls[0].body, { repo: 'acme/demo', pr: 9 });
+    const human = await cli(['claim', '--cloud', '--pr', '9']);
+    assert.match(human.out, /PR #9: vista previa, revisión y checks/);
+    assert.equal(gs.runs.length, 0);
+  }));
+
+test('403 insufficient_scope: dice qué permiso falta y cómo pedirlo, sin reintentar en bucle', () =>
+  withCloud({ devScope: false }, async ({ gs, cli }) => {
+    const r = await cli(['claim', '5', '--cloud']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Tu sesión no tiene el permiso dev: ghosty-dev login --force/);
+    assert.equal(gs.devCalls.length, 1);
+    // login --force pide una sesión nueva aunque ya haya una (y pide el permiso dev).
+    const again = await cli(['login', '--force', '--no-wait', '--json']);
+    assert.equal(again.code, 0, again.err);
+    assert.equal(JSON.parse(again.out).status, 'pending');
+    assert.equal(gs.calls.find((c) => c.path === '/oauth2/device').form.scope, 'profile repo:env dev');
+    assert.doesNotMatch(r.out + r.err + again.out + again.err, TOKENS);
+  }));
+
+test('GHOSTY_DEV_BASE_URL sin https se rechaza antes de mandar nada (http sólo hacia 127.0.0.1/localhost)', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    for (const bad of ['http://example.com', 'http://127.0.0.1.evil.test', 'ftp://127.0.0.1', 'https://u:p@example.com', 'no es url']) {
+      const r = await cli(['cloud'], { GHOSTY_DEV_BASE_URL: bad });
+      assert.equal(r.code, 1, bad);
+      assert.match(r.err, /GHOSTY_DEV_BASE_URL/, bad);
+      assert.doesNotMatch(r.err, /example\.com|evil/, bad);
+      const w = await cli(['whoami'], { GHOSTY_DEV_BASE_URL: bad });
+      assert.equal(w.code, 1, bad);
+    }
+    assert.equal(gs.calls.length, 0);
+  }));
+
+test('una redirección a otro host no se sigue: el token no sale del origen de gs', async () => {
+  const other = await fakeGs();
+  try {
+    await withCloud({ redirectRunsTo: other.base }, async ({ gs, cli }) => {
+      const r = await cli(['claim', '5', '--cloud']);
+      assert.equal(r.code, 1);
+      assert.match(r.err, /redirección/);
+      assert.equal(gs.devCalls.length, 1);
+      assert.equal(other.calls.length, 0);
+      assert.doesNotMatch(r.out + r.err, TOKENS);
+    });
+  } finally {
+    await other.close();
+  }
+});
+
+test('la sesión guardada no se manda a otro servidor aunque GHOSTY_DEV_BASE_URL cambie', async () => {
+  const other = await fakeGs();
+  try {
+    await withCloud({}, async ({ cli }) => {
+      const r = await cli(['cloud'], { GHOSTY_DEV_BASE_URL: other.base });
+      assert.equal(r.code, 1);
+      assert.match(r.err, /otro servidor/);
+      const lo = await cli(['logout'], { GHOSTY_DEV_BASE_URL: other.base });
+      assert.equal(lo.code, 0, lo.err);
+      assert.ok(other.calls.every((c) => !c.auth && !c.form?.token && !c.form?.refresh_token), JSON.stringify(other.calls));
+    });
+  } finally {
+    await other.close();
+  }
+});
+
+test('un error del servidor llega limpio: sin el token que se mandó ni caracteres de control', async () => {
+  await withCloud({ echoToken: true }, async ({ cli }) => {
+    const r = await cli(['claim', '5', '--cloud']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /token recibido: Bearer \[oculto\]/);
+    assert.doesNotMatch(r.out + r.err, TOKENS);
+  });
+  await withCloud({ runFail: 'Conecta tu GitHub\u001b[2J\u001b]0;pwned\u0007 a tu cuenta de Ghosty' }, async ({ cli }) => {
+    const r = await cli(['claim', '5', '--cloud']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Conecta tu GitHub/);
+    assert.doesNotMatch(r.err, /[\u0000-\u0009\u000b-\u001f]/);
+  });
+});
+
+test('con GHOSTY_DEV_TOKEN (CI) también funciona y no se imprime', () =>
+  withCloud({}, async ({ gs, cli, authFile }) => {
+    writeFileSync(authFile, '{}');
+    const tok = gs.grant().access_token;
+    const r = await cli(['cloud', '--json'], { GHOSTY_DEV_TOKEN: tok });
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(JSON.parse(r.out), []);
+    assert.doesNotMatch(r.out + r.err, TOKENS);
+  }));
+
+test('auth.json con permisos abiertos se cierra a 0600 (y su carpeta a 0700) y se avisa', { skip: process.platform === 'win32' }, () =>
+  withCloud({}, async ({ cli, authFile }) => {
+    chmodSync(authFile, 0o644);
+    chmodSync(join(authFile, '..'), 0o755);
+    const r = await cli(['cloud']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /permisos abiertos/);
+    assert.equal(statSync(authFile).mode & 0o777, 0o600);
+    assert.equal(statSync(join(authFile, '..')).mode & 0o777, 0o700);
+  }));
+
+test('una rama del servidor con forma de opción nunca llega a git', () =>
+  withCloud({ runs: [{ id: 'run9', repo: 'acme/demo', issue: 5, title: 'X', phase: 'working', estado: 'trabajando', prUrl: null, issueUrl: 'u', branch: '--upload-pack=touch /tmp/pwned' }] }, async ({ cli }) => {
+    const r = await cli(['teleport', '5', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(JSON.parse(r.out).branch, null);
+  }));
+
+test('la nube ya no depende del CLI ghosty ni ejecuta procesos con datos del servidor', () => {
+  const src = readFileSync(new URL('../src/cloud.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /child_process|execFile|GHOSTY_DEV_GHOSTY|\beval\(/);
+});

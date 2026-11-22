@@ -1,47 +1,131 @@
 // Identidad de persona en Ghosty Studio, sólo para lo que GitHub no cubre: las variables (secretos) de la vista
-// previa. GitHub sigue siendo `gh`; su token nunca viaja a Ghosty. SPEC §8.
+// previa y los pendientes en la nube. GitHub sigue siendo `gh`; su token nunca viaja a Ghosty. SPEC §8.
 //
-// OAuth2 estándar contra gs, cliente público `ghosty-dev` (sin secreto), scope `profile repo:env`:
+// OAuth2 estándar contra gs, cliente público `ghosty-dev` (sin secreto), scope `profile repo:env dev`:
 // - con navegador en esta máquina: loopback RFC 8252 (http://127.0.0.1:<puerto>/cb) + PKCE S256 + state;
 // - sin navegador (SSH, CI, Linux sin pantalla) o con --device: device flow RFC 8628.
 // Endpoints por metadata RFC 8414 (/.well-known/oauth-authorization-server). La sesión vive en
 // ${XDG_CONFIG_HOME:-~/.config}/ghosty-dev/auth.json (0600). GHOSTY_DEV_TOKEN manda sobre el archivo (CI).
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export const CLIENT_ID = 'ghosty-dev';
-export const SCOPE = 'profile repo:env';
+export const SCOPE = 'profile repo:env dev';
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 export const USER_AGENT = `ghosty-dev/${VERSION}`;
 
 export class AuthError extends Error {}
 
-export const baseUrl = () => (process.env.GHOSTY_DEV_BASE_URL || 'https://www.ghosty.studio').replace(/\/+$/, '');
+const DEFAULT_BASE = 'https://www.ghosty.studio';
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+// La base de gs. Sólo https: un GHOSTY_DEV_BASE_URL malicioso no puede hacer que la sesión viaje en claro.
+// http sólo hacia esta misma máquina (127.0.0.1 / localhost), para pruebas. El valor nunca se imprime.
+export function baseUrl() {
+  let u;
+  try {
+    u = new URL((process.env.GHOSTY_DEV_BASE_URL || DEFAULT_BASE).trim());
+  } catch {
+    throw new AuthError('GHOSTY_DEV_BASE_URL no es una URL válida.');
+  }
+  const local = u.protocol === 'http:' && LOCAL_HOSTS.has(u.hostname);
+  if (u.protocol !== 'https:' && !local)
+    throw new AuthError('GHOSTY_DEV_BASE_URL debe ser https:// (http sólo hacia 127.0.0.1 o localhost): tu sesión nunca viaja en claro.');
+  if (u.username || u.password || u.search || u.hash) throw new AuthError('GHOSTY_DEV_BASE_URL no lleva usuario, contraseña, ?query ni #.');
+  return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+}
+
+// Todo fetch hacia gs pasa por aquí: sólo al mismo origen que la base y SIN seguir redirecciones, para que el
+// Authorization (o un refresh en el cuerpo) nunca termine en otro host.
+async function call(url, init = {}) {
+  const base = baseUrl();
+  if (new URL(url).origin !== new URL(base).origin) throw new AuthError('Ghosty Studio anunció un endpoint en otro dominio; no se manda nada ahí.');
+  const res = await fetch(url, { ...init, redirect: 'manual' });
+  if ((res.status >= 300 && res.status < 400) || res.type === 'opaqueredirect')
+    throw new AuthError(`Ghosty Studio respondió con una redirección (${res.status}); por seguridad no se sigue con tu sesión. Revisa GHOSTY_DEV_BASE_URL.`);
+  return res;
+}
+
+// Texto que viene del servidor o del archivo antes de llegar a la terminal: sin caracteres de control (un
+// mensaje con escapes ANSI podría reescribir la pantalla), sin nada con forma de token y con tope de largo.
+export function plain(v, max = 2000) {
+  const s = String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ');
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+export function cleanMessage(v, secrets = []) {
+  let s = plain(v, 1000);
+  for (const t of secrets) if (t && t.length >= 4) s = s.split(t).join('[oculto]');
+  s = s.replace(/bearer\s+\S+/gi, 'Bearer [oculto]').replace(/[A-Za-z0-9_\-.~+]{32,}={0,2}/g, '[oculto]');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s.length > 300 ? `${s.slice(0, 299)}…` : s;
+}
+
+// `dueño/nombre` de GitHub, validado antes de meterlo en una URL.
+export function checkRepo(repo) {
+  const m = String(repo ?? '').match(/^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100})$/);
+  if (!m || m[2] === '.' || m[2] === '..') throw new AuthError('El repo no tiene la forma dueño/nombre de GitHub.');
+  return [m[1], m[2]];
+}
 
 // ---------- almacenamiento ----------
 
 export const authPath = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'ghosty-dev', 'auth.json');
 
-export function readAuth() {
+let warnedMode = false;
+// Si el archivo o su carpeta quedaron con permisos más abiertos (otro usuario podría leer la sesión), se cierran
+// y se avisa una vez por stderr. En Windows los modos POSIX no aplican.
+function tightenMode(path) {
+  if (process.platform === 'win32') return;
+  const fixed = [];
+  for (const [p, mode] of [[dirname(path), 0o700], [path, 0o600]]) {
+    try {
+      if ((statSync(p).mode & 0o077) !== 0) {
+        chmodSync(p, mode);
+        fixed.push(p);
+      }
+    } catch {}
+  }
+  if (fixed.length && !warnedMode) {
+    warnedMode = true;
+    process.stderr.write(`Aviso: ${fixed.join(' y ')} tenía permisos abiertos a otros usuarios; quedó sólo para ti (0700/0600).\n`);
+  }
+}
+
+function readSecret(path) {
+  let raw;
   try {
-    return JSON.parse(readFileSync(authPath(), 'utf8'));
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+  tightenMode(path);
+  try {
+    return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
+export const readAuth = () => readSecret(authPath());
+
 const writeAuth = (data) => writeSecret(authPath(), data);
 
 function writeSecret(path, data) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') chmodSync(dirname(path), 0o700); // por si la carpeta ya existía con otro modo
   writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 });
   chmodSync(path, 0o600); // por si el archivo ya existía con otro modo
 }
+
+// La sesión guardada sólo se usa contra el servidor que la emitió: si GHOSTY_DEV_BASE_URL apunta a otro, el token
+// no se manda ahí.
+const sameServer = (auth, base) => Boolean(auth?.baseUrl) && auth.baseUrl === base;
+const OTHER_SERVER = 'La sesión guardada es de otro servidor de Ghosty Studio; no se manda a éste. Siguiente paso: ghosty-dev login --no-wait';
 
 const clearAuth = () => rmSync(authPath(), { force: true });
 
@@ -50,19 +134,27 @@ const clearAuth = () => rmSync(authPath(), { force: true });
 async function endpoints(base) {
   let meta = {};
   try {
-    const res = await fetch(`${base}/.well-known/oauth-authorization-server`, { headers: { 'user-agent': USER_AGENT } });
+    const res = await call(`${base}/.well-known/oauth-authorization-server`, { headers: { 'user-agent': USER_AGENT } });
     if (res.ok) meta = await res.json();
   } catch {}
+  // Un endpoint anunciado en otro origen no se usa: el refresh y los códigos sólo van a la base.
+  const origin = new URL(base).origin;
+  const pick = (url, fallback) => {
+    try {
+      if (typeof url === 'string' && new URL(url).origin === origin) return url;
+    } catch {}
+    return fallback;
+  };
   return {
-    authorize: meta.authorization_endpoint || `${base}/oauth2/authorize`,
-    token: meta.token_endpoint || `${base}/oauth2/token`,
-    device: meta.device_authorization_endpoint || `${base}/oauth2/device`,
-    revoke: meta.revocation_endpoint || `${base}/oauth2/revoke`,
+    authorize: pick(meta.authorization_endpoint, `${base}/oauth2/authorize`),
+    token: pick(meta.token_endpoint, `${base}/oauth2/token`),
+    device: pick(meta.device_authorization_endpoint, `${base}/oauth2/device`),
+    revoke: pick(meta.revocation_endpoint, `${base}/oauth2/revoke`),
   };
 }
 
 const form = (url, fields) =>
-  fetch(url, {
+  call(url, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', 'user-agent': USER_AGENT },
     body: new URLSearchParams({ client_id: CLIENT_ID, ...fields }),
@@ -138,7 +230,7 @@ async function loginLoopback(base, ep, onPrompt) {
       clearTimeout(timer);
       server.close();
       if (got) resolve(got);
-      else reject(new AuthError(`No se completó el inicio de sesión (${u.searchParams.get('error') ?? 'sin código'}). Siguiente paso: ghosty-dev login --no-wait`));
+      else reject(new AuthError(`No se completó el inicio de sesión (${cleanMessage(u.searchParams.get('error') ?? 'sin código')}). Siguiente paso: ghosty-dev login --no-wait`));
     });
     const timer = setTimeout(() => {
       server.close();
@@ -165,7 +257,7 @@ async function loginLoopback(base, ep, onPrompt) {
   });
   const res = await form(ep.token, { grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier });
   const tok = await jsonOf(res);
-  if (!res.ok || !tok.access_token) throw new AuthError(`Falló el inicio de sesión (${tok.error ?? res.status}). Siguiente paso: ghosty-dev login --no-wait`);
+  if (!res.ok || !tok.access_token) throw new AuthError(`Falló el inicio de sesión (${cleanMessage(tok.error ?? res.status)}). Siguiente paso: ghosty-dev login --no-wait`);
   return tok;
 }
 
@@ -177,24 +269,19 @@ const AGAIN = 'Corre ghosty-dev login --no-wait otra vez.';
 export const PENDING_EXIT = 75; // EX_TEMPFAIL: sigue pendiente, vuelve a intentar
 
 export const pendingPath = () => join(dirname(authPath()), 'pending-login.json');
-function readPending() {
-  try {
-    return JSON.parse(readFileSync(pendingPath(), 'utf8'));
-  } catch {
-    return null;
-  }
-}
+const readPending = () => readSecret(pendingPath());
 const clearPending = () => rmSync(pendingPath(), { force: true });
 
 async function startDevice(ep) {
   const res = await form(ep.device, { scope: SCOPE });
   const d = await jsonOf(res);
-  if (!res.ok || !d.device_code) throw new AuthError(`No se pudo iniciar el inicio de sesión (${d.error ?? res.status}).`);
+  if (!res.ok || !d.device_code) throw new AuthError(`No se pudo iniciar el inicio de sesión (${cleanMessage(d.error ?? res.status)}).`);
   const pending = {
     deviceCode: d.device_code,
-    userCode: d.user_code,
-    verificationUri: d.verification_uri,
-    verificationUriComplete: d.verification_uri_complete || d.verification_uri,
+    // Lo que se le enseña a la persona sale limpio (sin escapes de terminal).
+    userCode: plain(d.user_code, 64),
+    verificationUri: plain(d.verification_uri, 500),
+    verificationUriComplete: plain(d.verification_uri_complete || d.verification_uri, 500),
     interval: Number(d.interval ?? 5),
     expiresAt: Date.now() + (Number(d.expires_in) || 600) * 1000,
   };
@@ -228,7 +315,7 @@ async function pollDevice(ep, pending, until = Infinity) {
     clearPending();
     if (body.error === 'expired_token') throw new AuthError(`El código caducó antes de confirmarse. ${AGAIN}`);
     if (body.error === 'access_denied') throw new AuthError(`Se rechazó el inicio de sesión. ${AGAIN}`);
-    throw new AuthError(`Falló el inicio de sesión (${body.error ?? r.status}). ${AGAIN}`);
+    throw new AuthError(`Falló el inicio de sesión (${cleanMessage(body.error ?? r.status)}). ${AGAIN}`);
   }
 }
 
@@ -240,7 +327,8 @@ async function finish(method, tok) {
   writeAuth(s);
   let email = null;
   try {
-    email = (await request('GET', '/api/v2/me'))?.email ?? null;
+    const got = (await request('GET', '/api/v2/me', undefined, { scope: 'profile' }))?.email;
+    email = got != null ? plain(got, 200) : null;
     if (email) writeAuth({ ...s, email });
   } catch {}
   return { status: 'ok', method, email, expiresAt: new Date(s.expiresAt).toISOString(), scope: s.scope, path: authPath() };
@@ -251,7 +339,7 @@ async function finish(method, tok) {
 export async function existingSession() {
   if (process.env.GHOSTY_DEV_TOKEN) return { status: 'ok', already: true, source: 'env' };
   let auth = readAuth();
-  if (!auth?.accessToken) return null;
+  if (!auth?.accessToken || !sameServer(auth, baseUrl())) return null;
   if (auth.expiresAt !== undefined && auth.expiresAt - Date.now() < 60_000) auth = await refresh(auth);
   if (!auth) return null;
   return { status: 'ok', already: true, source: 'file', path: authPath(), email: auth.email ?? null, expiresAt: new Date(auth.expiresAt).toISOString() };
@@ -296,7 +384,7 @@ export async function loginWait({ timeoutSec = 90 } = {}) {
 
 // Cambia el refresh por un par nuevo (el servidor lo ROTA: se guarda el nuevo). null si no se pudo.
 async function refresh(auth) {
-  if (!auth?.refreshToken) return null;
+  if (!auth?.refreshToken || !sameServer(auth, baseUrl())) return null;
   const ep = await endpoints(baseUrl());
   try {
     const res = await form(ep.token, { grant_type: 'refresh_token', refresh_token: auth.refreshToken });
@@ -316,6 +404,7 @@ async function currentToken() {
   if (process.env.GHOSTY_DEV_TOKEN) return { token: process.env.GHOSTY_DEV_TOKEN, fromEnv: true };
   let auth = readAuth();
   if (!auth?.accessToken) throw new AuthError(NOT_LOGGED);
+  if (!sameServer(auth, baseUrl())) throw new AuthError(OTHER_SERVER);
   if (auth.expiresAt !== undefined && auth.expiresAt - Date.now() < 60_000) {
     auth = await refresh(auth);
     if (!auth) throw new AuthError('Tu sesión de Ghosty Studio venció. Siguiente paso: ghosty-dev login --no-wait');
@@ -323,22 +412,27 @@ async function currentToken() {
   return { token: auth.accessToken, fromEnv: false };
 }
 
-// Error legible a partir de la respuesta de gs. Nunca incluye lo que se mandó (podría traer valores).
-async function toError(res) {
+// Error legible a partir de la respuesta de gs. Nunca incluye lo que se mandó (podría traer valores) ni el token:
+// el texto del servidor se limpia (sin control, sin nada con forma de token, recortado).
+async function toError(res, { scope, token, fromEnv }) {
   const body = await jsonOf(res);
-  const text = body.message || body.error_description || (typeof body.error === 'string' ? body.error : '') || res.statusText;
-  if (res.status === 401) return new AuthError('Tu sesión de Ghosty Studio ya no es válida. Siguiente paso: ghosty-dev login --no-wait');
+  const raw = body.message || body.error_description || (typeof body.error === 'string' ? body.error : '') || res.statusText;
+  const text = cleanMessage(raw, [token]);
+  if (res.status === 401) return new AuthError(fromEnv ? 'GHOSTY_DEV_TOKEN ya no es válido. Siguiente paso: renuévalo, o quítalo y usa ghosty-dev login --no-wait' : 'Tu sesión de Ghosty Studio ya no es válida. Siguiente paso: ghosty-dev login --no-wait');
+  // Sin reintento: pedir otra vez con el mismo token daría el mismo 403. El siguiente paso es un login nuevo.
   if (res.status === 403 && body.error === 'insufficient_scope')
-    return new AuthError('Tu sesión no tiene el permiso repo:env. Siguiente paso: ghosty-dev login --no-wait');
+    return new AuthError(fromEnv ? `GHOSTY_DEV_TOKEN no tiene el permiso ${scope}.` : `Tu sesión no tiene el permiso ${scope}: ghosty-dev login --force`);
   if (res.status === 403) return new AuthError(`No permitido: ${text}`);
   if (res.status === 404) return new AuthError(text || 'No se encontró.');
   return new AuthError(`Ghosty Studio respondió ${res.status}: ${text}`);
 }
 
 // Petición autenticada a gs: refresca si vence en < 60 s y reintenta UNA vez tras un 401 (no con GHOSTY_DEV_TOKEN).
-export async function request(method, path, body, retried = false) {
+// `scope` es el permiso que pide la ruta, para decir cuál falta si gs responde insufficient_scope.
+export async function request(method, path, body, { scope = 'repo:env', retried = false } = {}) {
+  if (!path.startsWith('/')) throw new AuthError('Ruta inválida.');
   const { token, fromEnv } = await currentToken();
-  const res = await fetch(`${baseUrl()}${path}`, {
+  const res = await call(`${baseUrl()}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${token}`,
@@ -349,11 +443,15 @@ export async function request(method, path, body, retried = false) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401 && !retried && !fromEnv) {
-    if (await refresh(readAuth())) return request(method, path, body, true);
+    if (await refresh(readAuth())) return request(method, path, body, { scope, retried: true });
   }
-  if (!res.ok) throw await toError(res);
+  if (!res.ok) throw await toError(res, { scope, token, fromEnv });
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new AuthError(`Ghosty Studio respondió algo que no es JSON (${res.status}).`);
+  }
 }
 
 // ---------- whoami, logout ----------
@@ -362,13 +460,14 @@ export async function whoami() {
   const fromEnv = Boolean(process.env.GHOSTY_DEV_TOKEN);
   const auth = fromEnv ? null : readAuth();
   if (!fromEnv && !auth?.accessToken) throw new AuthError(NOT_LOGGED);
+  if (!fromEnv && !sameServer(auth, baseUrl())) throw new AuthError(OTHER_SERVER);
   const out = { base: baseUrl(), source: fromEnv ? 'env' : 'file', path: fromEnv ? null : authPath(), email: auth?.email ?? null, id: null, scope: auth?.scope ?? null, expiresAt: null };
   try {
-    const me = await request('GET', '/api/v2/me');
-    Object.assign(out, { email: me.email ?? out.email, id: me.id ?? null, scope: Array.isArray(me.scopes) ? me.scopes.join(' ') : out.scope });
+    const me = await request('GET', '/api/v2/me', undefined, { scope: 'profile' });
+    Object.assign(out, { email: me.email != null ? plain(me.email, 200) : out.email, id: me.id != null ? plain(me.id, 100) : null, scope: Array.isArray(me.scopes) ? plain(me.scopes.join(' '), 300) : out.scope });
   } catch (e) {
     // Sin perfil (un token de CI sin `profile`): basta con decir que hay sesión. Un 401 sí es error.
-    if (/ya no es válida|venció/.test(e.message)) throw e;
+    if (/ya no es válid|venció|redirección|otro dominio/.test(e.message)) throw e;
   }
   const after = fromEnv ? null : readAuth();
   if (after?.expiresAt) out.expiresAt = new Date(after.expiresAt).toISOString();
@@ -378,7 +477,12 @@ export async function whoami() {
 export async function logout() {
   const auth = readAuth();
   let revoked = false;
-  if (auth?.refreshToken) {
+  // Sólo se revoca ante el servidor que la emitió: el refresh nunca se manda a otra base.
+  let base = null;
+  try {
+    base = baseUrl();
+  } catch {}
+  if (auth?.refreshToken && base && sameServer(auth, base)) {
     // Revocar el refresh tumba la familia entera en el servidor; sin red, igual se borra local.
     try {
       const ep = await endpoints(baseUrl());

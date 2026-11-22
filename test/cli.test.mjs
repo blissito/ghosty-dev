@@ -349,40 +349,6 @@ test('evidence --check y review --check validan sin gh ni red y no publican', ()
   assert.equal(s.read().issues[5].comments.length, 0);
 });
 
-test('claim --cloud manda el pendiente a la nube sin tocar etiquetas ni crear worktree', () => {
-  const s = setup({ issues: { 5: issue(5, 'Salud') } });
-  const r = s.run('claim', '5', '--cloud', '--json');
-  assert.equal(r.code, 0, r.err);
-  const out = JSON.parse(r.out);
-  assert.equal(out.cloud, true);
-  assert.equal(out.number, 5);
-  assert.deepEqual(s.cloud().calls[0], ['dev', 'run', 'acme/demo', '--issue', '5']);
-  // El estado del issue lo mueve el escritor de la nube, no esta terminal.
-  assert.deepEqual(s.read().issues[5].labels, ['ghosty-dev:por-hacer']);
-  assert.deepEqual(s.read().issues[5].assignees, []);
-});
-
-test('stop y teleport sólo actúan sobre un pendiente que va en la nube', () => {
-  const s = setup({ issues: { 5: issue(5, 'Salud') } });
-  const none = s.run('stop', '5');
-  assert.equal(none.code, 1);
-  assert.match(none.err, /no va en la nube/);
-  s.run('claim', '5', '--cloud');
-  assert.match(s.run('cloud').out, /#5\ttrabajando/);
-  const tp = s.run('teleport', '5', '--json');
-  assert.equal(tp.code, 0, tp.err);
-  assert.equal(JSON.parse(tp.out).branch, 'ghosty-dev/5-salud');
-  assert.equal(s.cloud().runs[0].phase, 'stopped');
-  assert.equal(s.run('stop', '5').code, 1);
-});
-
-test('la nube dice qué falta cuando ghosty rechaza', () => {
-  const s = setup({ issues: { 5: issue(5, 'Salud') }, cloud: { fail: 'Conecta tu GitHub a tu cuenta de Ghosty' } });
-  const r = s.run('claim', '5', '--cloud');
-  assert.equal(r.code, 1);
-  assert.match(r.err, /Conecta tu GitHub/);
-});
-
 test('un pedido de la persona despierta a su escritor: ready lo ofrece, wait lo trae y asks lo marca leído', () => {
   const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) } });
   assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);

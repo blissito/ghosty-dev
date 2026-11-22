@@ -91,10 +91,12 @@ admin (por única vez, porque es la instalación de la puerta). Después corre `
 Si `protect` falla porque la persona no es admin, o porque es un repo privado sin plan de pago de GitHub, dile
 que lo marque en *Settings → Branches*.
 
-### Opcional: variables de la vista previa
+### Opcional: sesión de Ghosty Studio (nube y variables de la vista previa)
 
-Sólo si el repo está conectado a Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles
-faltan). Es una sesión aparte de `gh`, sólo para esos secretos:
+Sólo si la persona quiere mandar pendientes a la nube (`ghosty-dev claim <n> --cloud`) o el repo está conectado a
+Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles faltan). Es una sesión aparte de
+`gh` (permisos `profile repo:env dev`); no hace falta el CLI `ghosty`. Si un comando dice «no tiene el permiso dev»,
+la sesión es vieja: `ghosty-dev login --force --no-wait --json` y el mismo segundo paso.
 
 Primero `ghosty-dev whoami --json`: si ya hay sesión, sáltate el login. Si no, **pregúntale a la persona antes de
 correrlo** (cambia la configuración de la máquina) y hazlo en dos pasos, porque tú no ves la salida hasta que el

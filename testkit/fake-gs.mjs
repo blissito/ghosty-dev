@@ -1,9 +1,11 @@
 // Ghosty Studio falso en 127.0.0.1: metadata RFC 8414, device flow, token (código + PKCE, device, refresh con
-// rotación), revocación, /api/v2/me y la API de variables del repo. Anota todo en `calls` para las pruebas.
+// rotación), revocación, /api/v2/me, la API de variables del repo y la de pendientes en la nube (/api/v2/me/dev-runs). Anota todo en `calls` para las pruebas.
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true } = {}) {
+// Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
+// `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [] } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -17,14 +19,18 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     posted: [],
     revoked: [],
     n: 0,
+    runs: [...runs],
+    devCalls: [],
   };
   const issue = () => {
     s.n += 1;
     const access = `at_${s.n}`;
     s.refresh = `rt_${s.n}`;
     s.valid.add(access);
-    return { access_token: access, refresh_token: s.refresh, expires_in: 3600, token_type: 'Bearer', scope: 'profile repo:env' };
+    return { access_token: access, refresh_token: s.refresh, expires_in: 3600, token_type: 'Bearer', scope: devScope ? 'profile repo:env dev' : 'profile repo:env' };
   };
+  s.grant = issue; // una sesión ya aprobada, para las pruebas que no prueban el login
+  const run = (over) => ({ id: `run${s.runs.length + 1}`, repo: 'acme/demo', issue: 5, title: 'Salud', phase: 'working', estado: 'trabajando', pr: null, prUrl: null, issueUrl: 'https://github.com/acme/demo/issues/5', branch: 'ghosty-dev/5-salud', ...over });
   const send = (res, status, body) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   const server = createServer(async (req, res) => {
     let raw = '';
@@ -75,6 +81,29 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       s.posted.push(body);
       const keys = body.dotenv.split('\n').filter((l) => /^\s*(export\s+)?\w+=/.test(l)).map((l) => l.replace(/^\s*export\s+/, '').split('=')[0]);
       return send(res, 200, { repo: 'acme/demo', workspace: 'acme', keys, sent: keys, kept: body.replace ? [] : s.saved.filter((k) => !keys.includes(k)), dropped: [], risks: [] });
+    }
+    if (url.pathname.startsWith('/api/v2/me/dev-runs')) {
+      const body = raw ? JSON.parse(raw) : null;
+      s.devCalls.push({ method: req.method, path: url.pathname, query: url.search, body });
+      if (redirectRunsTo) return res.writeHead(302, { location: `${redirectRunsTo}${url.pathname}${url.search}` }).end();
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      if (echoToken) return send(res, 400, { error: 'bad_request', message: `token recibido: ${req.headers.authorization}` });
+      if (runFail) return send(res, 400, { error: 'bad_request', message: runFail });
+      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'POST') {
+        // Con pr y sin writer "cloud": servicios del PR, sin pendiente y SIN id.
+        if (body.pr && !body.issue && body.writer !== 'cloud') return send(res, 200, { repo: body.repo, pr: body.pr, prUrl: `https://github.com/${body.repo}/pull/${body.pr}`, services: 'on', nota: 'tu terminal sigue escribiendo' });
+        const prev = s.runs.find((r) => r.issue === body.issue && r.phase !== 'stopped');
+        if (prev) return send(res, 200, { ...prev, yaEstaba: true });
+        s.runs.push(run({ issue: body.issue }));
+        return send(res, 200, s.runs.at(-1));
+      }
+      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
+      const id = decodeURIComponent(url.pathname.split('/')[5] ?? '');
+      const r = s.runs.find((x) => x.id === id);
+      if (!r) return send(res, 404, { error: 'not_found', message: 'No existe ese pendiente' });
+      if (req.method === 'GET') return send(res, 200, { ...r, events: [] });
+      if (body?.op === 'stop') Object.assign(r, { phase: 'stopped', estado: 'detenido' });
+      return send(res, 200, r);
     }
     return send(res, 404, { error: 'not_found' });
   });

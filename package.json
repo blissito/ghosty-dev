@@ -1,6 +1,6 @@
 {
   "name": "ghosty-dev",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "El trabajo vive en la bitácora (GitHub Issues), no en la sesión del agente; se cierra con evidencia.",
   "license": "MIT",
   "type": "module",
@@ -15,6 +15,7 @@
     "templates",
     ".github/workflows/evidence-gate.yml",
     "AGENTS.md",
+    "SECURITY.md",
     "SPEC.md"
   ],
   "engines": {

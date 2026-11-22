@@ -2,7 +2,7 @@
 // los valores salen del archivo que la persona nombra, van directo a gs y nunca se imprimen (ni en errores).
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { request } from './auth.mjs';
+import { checkRepo, plain, request } from './auth.mjs';
 import { UserError, repoFullName } from './commands.mjs';
 
 const MAX_BYTES = 32_000; // el tope de gs para el .env entero
@@ -18,25 +18,25 @@ export function dotenvKeys(text) {
 }
 
 const envPath = (repo) => {
-  const [owner, name] = repo.split('/');
+  const [owner, name] = checkRepo(repo);
   return `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/env`;
 };
 
 // Sólo los campos con nombres: si gs algún día mandara otra cosa, aquí no pasa.
-const names = (x) => (Array.isArray(x) ? x.map(String) : null);
-const risksOf = (x) => (Array.isArray(x) ? x.map((r) => ({ key: String(r.key), risk: String(r.risk) })) : []);
+const names = (x) => (Array.isArray(x) ? x.map((k) => plain(k, 200)) : null);
+const risksOf = (x) => (Array.isArray(x) ? x.map((r) => ({ key: plain(r?.key, 200), risk: plain(r?.risk, 300) })) : []);
 
 export async function ls() {
   const repo = repoFullName();
   const r = await request('GET', envPath(repo));
   return {
-    repo: r.repo ?? repo,
-    workspace: r.workspace ?? null,
+    repo: r.repo != null ? plain(r.repo, 200) : repo,
+    workspace: r.workspace != null ? plain(r.workspace, 200) : null,
     rooms: names(r.rooms) ?? [],
     saved: names(r.saved),
     missing: names(r.missing) ?? [],
     risks: risksOf(r.risks),
-    blocked: Array.isArray(r.blocked) ? r.blocked.map((b) => ({ id: b.id, keys: names(b.keys) ?? [] })) : [],
+    blocked: Array.isArray(r.blocked) ? r.blocked.map((b) => ({ id: plain(b?.id, 100), keys: names(b?.keys) ?? [] })) : [],
     canWrite: r.canWrite === true,
   };
 }
@@ -76,8 +76,8 @@ export async function push(p) {
   const dotenv = readFileSync(p.file, 'utf8');
   const r = await request('POST', envPath(p.repo), { dotenv, replace: p.replace });
   return {
-    repo: r.repo ?? p.repo,
-    workspace: r.workspace ?? p.workspace,
+    repo: r.repo != null ? plain(r.repo, 200) : p.repo,
+    workspace: r.workspace != null ? plain(r.workspace, 200) : p.workspace,
     file: p.file,
     keys: names(r.keys) ?? [],
     sent: names(r.sent),
