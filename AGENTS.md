@@ -67,7 +67,8 @@ pruebas (turnos, AG-UI, páginas, lecturas). Nunca copies `GHOSTY_PARTNER_KEY` a
 const previewToken = !process.env.GHOSTY_PARTNER_KEY && process.env.GHOSTY_PREVIEW_TOKEN;
 const auth = previewToken ? { Authorization: `Bearer ${previewToken}` } : { "X-Ghosty-Key": keyId, "X-Ghosty-Ts": ts, "X-Ghosty-Sig": signCredentialBody(secret, ts, keyId, raw) };
 ```
-`...auth` en los headers del fetch y sin el error de «falta la llave» si hay token. `ghosty-dev doctor` lo sugiere.
+`...auth` en los headers del fetch y sin el error de «falta la llave» si hay token. Si la dueña tiene varios espacios de
+partner, `.ghosty/factory.md` dice cuál con `partner: <espacio>` en el frontmatter. `ghosty-dev doctor` lo sugiere.
 
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
