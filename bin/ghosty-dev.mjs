@@ -358,6 +358,10 @@ try {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
       // Lo que vive fuera de la bitácora se avisa (stderr: no ensucia el --json), con el comando que lo liga.
       for (const p of cmd.unlinkedPrs()) console.error(`Aviso: el PR #${p.number} no está ligado a un pendiente: ${cmd.linkHint(p.number)}`);
+      for (const p of cmd.openPrs().filter((x) => !x.draft).slice(0, 20)) {
+        const c = cmd.conflictOf(p.number, { tries: 1 });
+        if (c) console.error(`Aviso: ${cmd.conflictLine(p.number, c)}`);
+      }
     }
   } else if (command === 'claim' && values.cloud) {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
@@ -409,6 +413,7 @@ try {
     print(r, (x) =>
       [
         `PR #${x.pr} ${x.title}`,
+        ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
         `  estado: ${x.state}`,
         `  rama: ${x.branch ?? '—'}`,
         `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,

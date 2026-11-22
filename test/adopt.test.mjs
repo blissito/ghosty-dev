@@ -119,6 +119,23 @@ test('next dice el siguiente paso: ligar → CI → revisión → evidencia → 
   assert.deepEqual([JSON.parse(t.run('next', '--json').out).step, JSON.parse(t.run('next', '--json').out).command], ['tomar', 'ghosty-dev claim 3']);
 });
 
+test('PR en conflicto con la base: next lo pone primero con el comando; show y ready lo dicen; reintenta si GitHub aún no sabe (C28)', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud') }, prs: [handPr({ body: 'Closes #5', mergeable: false, mergeableState: 'dirty', mergeableNull: 1, statusCheckRollup: [{ id: 1, name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })] });
+  spawnSync('git', ['checkout', '-q', '-b', 'fix/puerta'], { cwd: s.repo });
+  const n = JSON.parse(s.run('next', '--json').out);
+  assert.equal(n.step, 'conflicto');
+  assert.equal(n.command, 'git fetch origin && git switch fix/puerta && git merge origin/main');
+  assert.match(n.why, /^el PR #76 está en conflicto con main: git fetch origin .* → resuelve los archivos marcados, git add <archivo>, git commit y git push; va antes que revisión o evidencia/);
+  assert.equal(s.read().prs[0].mergeableReads, 1); // la primera lectura llegó null y se reintentó
+  assert.match(s.run('status').out, /^Siguiente paso: conflicto\n {2}git fetch origin && git switch fix\/puerta && git merge origin\/main/);
+  assert.match(s.run('show', '--pr', '76').out, /^PR #76 Arreglo a mano\n {2}CONFLICTO, primero esto: el PR #76 está en conflicto con main/);
+  assert.match(s.run('ready').err, /Aviso: el PR #76 está en conflicto con main/);
+  // Resuelto: next sigue con lo de siempre y show no lo menciona.
+  edit(s, (db) => Object.assign(db.prs[0], { mergeable: true, mergeableState: 'clean' }));
+  assert.equal(JSON.parse(s.run('next', '--json').out).step, 'revision');
+  assert.doesNotMatch(s.run('show', '--pr', '76').out, /CONFLICTO/);
+});
+
 test('claim --cloud con el repo en varios espacios pide --workspace con las opciones (409 choose_workspace) (C26)', async () => {
   const gs = await fakeGs({ capacity: { status: 409, body: { error: 'choose_workspace', message: 'varios', choices: [{ id: 'w1', slug: 'acme', name: 'Acme' }, { id: 'w2', slug: 'otro', name: 'Otro' }] } } });
   const s = setup({ issues: { 5: issue(5, 'Salud') } });

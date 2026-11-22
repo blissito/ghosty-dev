@@ -295,6 +295,15 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
 - **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia; si falla: `ghosty-dev box logs` / `ghosty-dev box exec -- <comando>` → arregla → push. `preview` acepta la sesión con
   `dev` o `repo:env`; 403 `insufficient_scope` → `ghosty-dev login --force`.
 
+## 5c-bis. Conflicto con la base
+
+Un PR en conflicto no se mezcla aunque CI, revisión y evidencia estén verdes, así que es lo primero que se dice
+(Formmy, fila 33). `next`/`status`, `show --pr` y `ready` leen `mergeable`/`mergeable_state` del PR (GitHub lo calcula
+en segundo plano: si llega `null` se reintenta) y, si está en conflicto, dan el comando exacto
+(`git fetch origin && git switch <rama> && git merge origin/<base>` → resolver, `git add`, `git commit`, `git push`) y
+los archivos cuando ya están los dos commits en local (`git merge-tree`). La puerta, antes de cargar su script, hace
+la misma pregunta y falla con esa causa y ese comando (en borrador sólo avisa).
+
 ## 5d. Compartir la vista previa con alguien sin cuenta
 
 - **`preview share [<pr>]`** → `POST /api/v2/me/repos/:owner/:name/prs/:pr/share` (idempotente) → `{repo, pr, shared,
@@ -338,6 +347,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C24 | `init` imprime repo y rama antes de escribir y, fuera de la rama principal, no escribe sin `--yes`; sin terminal y sin `--yes` no crea etiquetas y lo dice; lista los workflows que dispara un push a la rama principal; `protect --dry-run` lista los PR abiertos que quedarían bloqueados y por qué, sin escribir | `test/install.test.mjs` |
 | C25 | `evidence` re-corre la puerta del PR que cierra #n (cualquier rama, por `head_sha`); el workflow con `issue_comment` (sólo comentarios con marca) re-corre el run de la puerta del PR que cierra el issue, si ya terminó | `test/adopt.test.mjs` |
 | C27 | `preview share` imprime la liga pública (idempotente) y sólo ahí; `unshare` la revoca sin imprimirla; `requests` lista limpia; `accept/reject <id> --pr` deciden; PR cerrado o id inválido salen 1 | `test/share.test.mjs` |
+| C28 | PR en conflicto con su base (`mergeable:false`/`mergeable_state:dirty`, reintento si llega `null`): `next`/`status` lo ponen como primer paso con `git fetch origin && git switch <rama> && git merge origin/<base>` y los archivos (git merge-tree); `show --pr` y `ready` lo avisan; la puerta falla con esa causa sin correr gate.mjs (en borrador sólo avisa) | `test/adopt.test.mjs`, `test/gate-runner.test.mjs` |
 | C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 

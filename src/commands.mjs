@@ -381,6 +381,43 @@ export function prOf(n, m) {
 
 // Los PR abiertos que no cierran ningún pendiente: fuera de la bitácora, la puerta no los puede juzgar.
 export const unlinkedPrs = () => openPrs().filter((p) => !p.draft && closingRefs(p.body).length === 0);
+// ---------- conflicto con la base (Formmy, fila 33: #73 en CONFLICTING/DIRTY y nada lo dijo) ----------
+
+const sleepMs = (ms) => ms > 0 && Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// `mergeable`/`mergeable_state` del PR. GitHub los calcula en segundo plano: llegan `null` en la primera lectura
+// después de un push o de un cambio en la base, así que se reintenta (`tries`).
+export function mergeState(m, { tries = 3 } = {}) {
+  const delay = Number(process.env.GHOSTY_DEV_MERGE_RETRY_MS ?? 1500);
+  for (let i = 0; ; i++) {
+    const p = api('GET', `${REPO}/pulls/${m}`, undefined, { allowFail: true });
+    if (!p) return null;
+    if (p.mergeable !== null || i >= tries - 1) return { mergeable: p.mergeable ?? null, state: p.mergeable_state ?? null, base: p.base?.ref || 'main', head: p.head?.ref ?? null, sha: p.head?.sha ?? null };
+    sleepMs(delay);
+  }
+}
+
+// Archivos en conflicto, calculados en local sin tocar el árbol (git merge-tree, git ≥ 2.38) si ya están los dos
+// commits; si no, [] (el comando de abajo los enseña igual).
+function conflictFiles(base, sha) {
+  if (!sha) return [];
+  const r = spawnSync('git', ['merge-tree', '--write-tree', '--name-only', '--no-messages', `origin/${base}`, sha], { encoding: 'utf8' });
+  if (r.status !== 1) return [];
+  return r.stdout.split('\n').slice(1).map((l) => l.trim()).filter(Boolean).slice(0, 50);
+}
+
+// null si el PR mezcla limpio (o GitHub no lo sabe aún); si está en conflicto: base, archivos y el comando exacto.
+export function conflictOf(m, opts) {
+  const st = mergeState(m, opts);
+  if (!st || !(st.state === 'dirty' || st.mergeable === false)) return null;
+  const files = conflictFiles(st.base, st.sha);
+  const command = `git fetch origin && git switch ${st.head ?? '<rama-del-PR>'} && git merge origin/${st.base}`;
+  return { base: st.base, head: st.head, files, command, then: 'resuelve los archivos marcados, git add <archivo>, git commit y git push' };
+}
+
+export const conflictLine = (pr, c) =>
+  `el PR #${pr} está en conflicto con ${c.base}${c.files.length ? ` (${c.files.join(', ')})` : ''}: ${c.command} → ${c.then}`;
+
 export const linkHint = (m) => `ghosty-dev claim --pr ${m} --issue <n>  (sin pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim)`;
 
 // Vuelve a correr la puerta del PR del pendiente: publicar evidencia o revisión es el evento que la despierta.
@@ -557,6 +594,7 @@ export function showPr(m) {
     ficha: fichaOf(comments),
     url: pr.url,
     services: pr.headRefOid ? prServices(pr, { deep: true }) : null,
+    conflict: p.state === 'open' && !p.merged_at ? conflictOf(m) : null,
   };
 }
 
@@ -573,6 +611,9 @@ export function next() {
   const pr = branch && branch !== def ? prs.find((p) => p.headRefName === branch) : null;
   const out = (step, command, why, extra = {}) => ({ step, command, why, branch, ...extra });
   if (pr) {
+    // Un PR en conflicto no se mezcla aunque todo lo demás esté verde: es lo primero (Formmy, fila 33).
+    const conflict = conflictOf(pr.number);
+    if (conflict) return out('conflicto', conflict.command, `${conflictLine(pr.number, conflict)}; va antes que revisión o evidencia`, { pr: pr.number, conflict });
     const refs = closingRefs(pr.body);
     if (!refs.length) return out('ligar', `ghosty-dev claim --pr ${pr.number} --issue <n>`, `el PR #${pr.number} no está ligado a un pendiente; si no hay pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim`, { pr: pr.number });
     const n = refs[0];

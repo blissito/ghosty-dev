@@ -47,6 +47,8 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   `box restart` reinicia la app; `box rebuild` la rearma sin push. Lo que arregles en la caja con `exec` se pierde en
   el siguiente push: el arreglo va al código. Para esperar CI o revisión sin pendiente:
   `ghosty-dev wait --pr <m> --until ci|review|preview|any --json` (0 cumplido, 1 falló/rojo, 75 tiempo).
+- **PR en conflicto con main**: `ghosty-dev next` lo pone primero con el comando (`git fetch origin && git switch <rama>
+  && git merge origin/main`, resuelve, `git add`, `git commit`, `git push`); la puerta falla con esa causa hasta entonces.
 - **Enseñarle la vista previa a alguien sin cuenta** (clienta, revisor): `ghosty-dev preview share` da la liga
   pública (sólo ahí se imprime; dásela a esa persona, no la pegues en el PR); `preview unshare` la revoca;
   `preview requests` / `preview accept <id> --pr <m>` / `reject` deciden quién más entra.

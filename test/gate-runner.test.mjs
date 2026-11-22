@@ -14,7 +14,15 @@ const WORKFLOW = readFileSync(join(ROOT, '.github/workflows/evidence-gate.yml'),
 // El JS del paso, tal cual está en el workflow (entre `node --input-type=module -e '` y la comilla de cierre).
 const STEP = WORKFLOW.match(/node --input-type=module -e '\n([\s\S]*?)\n\s*'\n/)[1];
 
-function runStep({ gate, pr = { number: 9, draft: false, body: '', head: { sha: 'abc' } } } = {}) {
+// Un gh mínimo que contesta `gh api repos/…/pulls/N` con las respuestas dadas, una por llamada (la última se repite).
+function fakePullsGh(dir, replies) {
+  writeFileSync(join(dir, 'pulls.json'), JSON.stringify({ replies, calls: 0 }));
+  const bin = join(dir, 'gh');
+  writeFileSync(bin, `#!${process.execPath}\nconst fs = require('fs'); const f = ${JSON.stringify(join(dir, 'pulls.json'))};\nconst s = JSON.parse(fs.readFileSync(f, 'utf8')); const r = s.replies[Math.min(s.calls, s.replies.length - 1)]; s.calls++; fs.writeFileSync(f, JSON.stringify(s));\nprocess.stdout.write(JSON.stringify(r));\n`, { mode: 0o755 });
+  return bin;
+}
+
+function runStep({ gate, pr = { number: 9, draft: false, body: '', head: { sha: 'abc' } }, ghPulls } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'gate-'));
   if (gate) {
     mkdirSync(join(dir, '.github/ghosty-dev'), { recursive: true });
@@ -29,7 +37,7 @@ function runStep({ gate, pr = { number: 9, draft: false, body: '', head: { sha: 
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', STEP], {
     cwd: dir,
     encoding: 'utf8',
-    env: { ...process.env, GITHUB_BASE_REF: 'main', GITHUB_EVENT_PATH: event, GITHUB_STEP_SUMMARY: summary, GHOSTY_DEV_GH: '/nonexistent-gh' },
+    env: { ...process.env, GITHUB_BASE_REF: 'main', GITHUB_EVENT_PATH: event, GITHUB_STEP_SUMMARY: summary, GHOSTY_DEV_GH: ghPulls ? fakePullsGh(dir, ghPulls) : '/nonexistent-gh', GHOSTY_DEV_MERGE_RETRY_MS: '0' },
   });
   let sum = '';
   try {
@@ -77,4 +85,19 @@ test('un gate.mjs viejo (sin main exportado) se corre como antes, con su código
   const r = runStep({ gate: old });
   assert.equal(r.code, 1);
   assert.match(r.out, /puerta vieja/);
+});
+
+test('PR en conflicto: la puerta falla con esa causa y el comando, sin correr gate.mjs; en borrador sólo avisa (C28)', () => {
+  const pr = { number: 9, draft: false, body: 'Closes #1', head: { sha: 'abc', ref: 'ghosty-dev/1-x' }, mergeable: null };
+  const dirty = runStep({ gate: 'export function main() { throw new Error("no debió correr"); }\n', pr, ghPulls: [{ mergeable: null }, { mergeable: false, mergeable_state: 'dirty', head: { ref: 'ghosty-dev/1-x' } }] });
+  assert.equal(dirty.code, 1, dirty.out);
+  assert.match(dirty.summary, /El PR está en conflicto con main: resuélvelo antes que nada .* git fetch origin && git switch ghosty-dev\/1-x && git merge origin\/main → resuelve/);
+  assert.match(dirty.out, /::error title=ghosty-dev\/evidencia::El PR está en conflicto/);
+  assert.doesNotMatch(dirty.out + dirty.summary, /no debió correr/);
+  const draft = runStep({ pr: { ...pr, draft: true, mergeable: false, mergeable_state: 'dirty' } });
+  assert.equal(draft.code, 0, draft.out);
+  assert.match(draft.out, /::notice title=ghosty-dev\/evidencia::El PR está en conflicto/);
+  const clean = runStep({ pr, ghPulls: [{ mergeable: true, mergeable_state: 'clean' }] });
+  assert.equal(clean.code, 0, clean.out);
+  assert.match(clean.summary, /main no tiene \.github\/ghosty-dev\/gate\.mjs/);
 });

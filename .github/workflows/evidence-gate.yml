@@ -34,8 +34,8 @@ jobs:
       # `main` exportado) se corre como antes.
       - run: |
           node --input-type=module -e '
-            import { appendFileSync, existsSync } from "node:fs";
-            import { spawnSync } from "node:child_process";
+            import { appendFileSync, existsSync, readFileSync } from "node:fs";
+            import { execFileSync, spawnSync } from "node:child_process";
             const path = ".github/ghosty-dev/gate.mjs";
             const skip = (why) => {
               const text = `- La puerta no corrió: ${why} Se exige en cuanto la rama base tenga ghosty-dev (ghosty-dev init + push a la base).`;
@@ -51,6 +51,27 @@ jobs:
               if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
               process.exit(1);
             };
+            // PR en conflicto con la base: la puerta lo dice y falla con esa causa, sin correr el script (Formmy, fila 33:
+            // #73 en DIRTY daba un failure mudo). GitHub calcula mergeable en segundo plano: null → reintento.
+            const ev = (() => { try { return JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8")); } catch { return {}; } })();
+            const pr = ev.pull_request ?? {};
+            const isDirty = (p) => p?.mergeable === false || p?.mergeable_state === "dirty";
+            let dirty = isDirty(pr) ? pr : null;
+            const waitMs = Number(process.env.GHOSTY_DEV_MERGE_RETRY_MS ?? 3000);
+            for (let i = 0; !dirty && pr.number && i < 4; i++) {
+              let p;
+              try { p = JSON.parse(execFileSync(process.env.GHOSTY_DEV_GH || "gh", ["api", `repos/{owner}/{repo}/pulls/${pr.number}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })); } catch { break; }
+              if (p?.mergeable !== null && p?.mergeable !== undefined) { if (isDirty(p)) dirty = p; break; }
+              if (i < 3) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+            }
+            if (dirty) {
+              const head = String(dirty.head?.ref ?? pr.head?.ref ?? "<rama-del-PR>").replace(/[^\w./-]/g, "");
+              const text = `- El PR está en conflicto con ${base}: resuélvelo antes que nada (la puerta no juzga hasta entonces). git fetch origin && git switch ${head} && git merge origin/${base} → resuelve los archivos marcados, git add, git commit y git push. (ghosty-dev next lo dice con los archivos.)`;
+              const draft = pr.draft === true;
+              console.log(`::${draft ? "notice" : "error"} title=ghosty-dev/evidencia::${text.slice(2)}`);
+              if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
+              process.exit(draft ? 0 : 1);
+            }
             if (!existsSync(path)) skip(`${base} no tiene .github/ghosty-dev/gate.mjs.`);
             let gate;
             try { gate = await import(`${process.cwd()}/${path}`); } catch (e) { broke("no carga su script", e); }

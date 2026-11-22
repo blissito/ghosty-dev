@@ -160,7 +160,14 @@ if (group === 'label' && verb === 'create') {
       p.body = body.body;
       p.bodyEdits = (p.bodyEdits ?? 0) + 1;
     }
-    out({ base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
+    // mergeable: `mergeableNull` lecturas en null (GitHub calculándolo) y luego `mergeable`/`mergeableState`.
+    let mergeable = p.mergeable;
+    if (p.mergeableNull > 0) {
+      p.mergeableNull -= 1;
+      p.mergeableReads = (p.mergeableReads ?? 0) + 1;
+      mergeable = null;
+    }
+    out({ mergeable, mergeable_state: mergeable === null ? 'unknown' : p.mergeableState, base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
   }
   else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === 'open').map((p) => ({ number: p.number, title: p.title ?? `PR ${p.number}`, draft: Boolean(p.draft), html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
   else if ((m = path.match(/compare\/([^.]+)\.\.\.(.+)$/))) out({ status: (db.ancestors ?? []).includes(`${m[1]}...${m[2]}`) ? 'ahead' : 'diverged' });
