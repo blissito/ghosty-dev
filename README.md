@@ -61,6 +61,7 @@ ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en .
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
 ghosty-dev wait 1 --watch                # espera al CI en una sola llamada, sin sondear (tope 5 min)
 ghosty-dev show 1                        # ficha y servicios del PR: vista previa, revisión, smoke y CI
+ghosty-dev preview --wait --json         # la liga de la vista previa del PR de tu rama, cuando queda lista
 # el subagente ghosty-dev-revisor (contexto limpio) intenta romperlo y publica:
 ghosty-dev review 1 --file revision.md   # atada al commit del PR; con hallazgos, se arregla y se repite
 ghosty-dev evidence 1 --file evidencia.md
@@ -98,12 +99,16 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 ## Comandos
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
-`show <n>` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
+`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
 previa y la revisión terminan (el CI decide el verde) y `show <n>` imprime su estado en «Servicios del PR», con la liga
 de la vista previa. Los checks de la plataforma que no cuentan como CI están en [SPEC.md §5c](SPEC.md).
+
+Para un PR escrito desde la terminal no hace falta ningún run: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia.
+`preview` sale 0 lista, 75 armándose y 1 si falló; `show --pr <m>` da estado, ficha, servicios y `preview: {phase, sha}`.
+La liga lleva la llave de la vista previa: no la pegues en issues ni PRs ([SECURITY.md](SECURITY.md)).
 
 En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty-dev login`; no hace falta otro CLI): `claim <n> --cloud` · `claim --cloud --pr <m>` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 

@@ -232,6 +232,19 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
 - `wait <n> --watch` reporta en stderr cuando la vista previa o la revisión del commit actual terminan (lista,
   falló, neutral con su título, p. ej. los hallazgos), sin esperarlas: el veredicto verde/rojo es del CI. Al volver,
   `services` trae su estado.
+- `show --pr <m>` hace lo mismo por número de PR, para un PR sin pendiente (escrito desde la terminal, en cualquier
+  rama): estado, rama, `Closes #n`, ficha, servicios y CI. Nada de esto depende de un run de la nube.
+- **`preview [<pr>] [--wait] [--open] [--json]`** pregunta a la plataforma por la vista previa del PR (sin número: el
+  PR abierto de la rama actual, por REST) con `GET /api/v2/me/repos/:owner/:name/prs/:pr/preview` → `{repo, pr,
+  phase, sha, url, page, error}`, `phase` ∈ `none|queued|building|ready|failed`. `url` sólo llega con `ready` y es
+  una **liga firmada que lleva la llave de la vista previa**: es el resultado del comando y sólo sale por stdout;
+  nunca en stderr, en errores ni en `show` (que da `preview: {phase, sha}`). `--wait` sondea con backoff (3 s → 30 s,
+  tope ~10 min) hasta `ready` o `failed` **del commit HEAD del PR en GitHub**: una vista previa terminada de un
+  commit viejo no cuenta. Si la vista previa es de otro commit, o el HEAD local no está empujado, lo avisa en stderr
+  (`stale: true` en `--json`). Sale **0** lista, **75** todavía armándose (sin `--wait`, o al tope), **1** falló
+  (con `error` limpio y recortado a 300).
+- **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia. Acepta la sesión con
+  `dev` o `repo:env`; 403 `insufficient_scope` → `ghosty-dev login --force`.
 
 ## 6. Pruebas de conformidad
 
@@ -256,6 +269,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 | C17 | el CI no cuenta los checks de la lista normativa (§5c) y sí el smoke; `wait --watch` no espera a la vista previa y avisa cuando la revisión termina; `show` lee la ficha del PR antes que la del issue y los servicios del commit del PR | `el CI no cuenta…`, `wait --watch no espera…`, `show lee la ficha del PR…` |
 | C18 | identidad (§8): orden de credenciales (`GHOSTY_DEV_TOKEN` → archivo → login) y `whoami` con `source`; un agente sin TTY nunca abre el navegador; `login --no-wait` sale ya con el pendiente 0600 y `--wait` lo retoma, sale con 75 si sigue pendiente; ninguna salida lleva tokens ni `device_code`; device flow con `authorization_pending` → tokens, `slow_down` suma 5 s, `expired_token` y `access_denied` fallan; loopback `127.0.0.1/cb` con PKCE S256 rechaza otro `state`; refresh con < 60 s y reintento único tras 401; `logout` revoca y borra; `auth.json` 0600; `env push` sin archivo falla y nunca imprime valores | `test/auth.test.mjs` |
+| C19 | `preview`: lista → liga sólo en stdout y 0; armándose → 75 sin liga; `--wait` armándose→lista y no se conforma con un commit viejo; falló → 1 con el error limpio; 403 `insufficient_scope` pide `login --force`; PR deducido de la rama; la liga nunca sale en stderr, errores ni `show --pr` (que da `{phase, sha}`) | `test/preview.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
@@ -272,10 +286,10 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
 1. **GitHub es `gh`.** Issues, PR, checks y etiquetas van con la sesión de `gh` de la persona. El token de `gh`
    **nunca** se manda a Ghosty Studio ni a ningún otro servidor.
 2. **Ghosty Studio sólo para la nube.** Lo único que necesita identidad de persona en Ghosty son los pendientes en
-   la nube (§5b) y las variables (secretos) de la vista previa. Para eso ghosty-dev tiene su propio login OAuth 2.0;
+   la nube (§5b), la vista previa de un PR (§5c) y las variables (secretos) de la vista previa. Para eso ghosty-dev tiene su propio login OAuth 2.0;
    la identidad queda en dos piezas: `gh` para GitHub y esta sesión para Ghosty:
    - cliente público `ghosty-dev` (sin secreto), scope `profile repo:env dev` y nada más (`repo:env` = variables,
-     `dev` = mandar, seguir y detener tus pendientes de Desarrollo). Una sesión sin el permiso que pide la ruta recibe
+     `dev` = mandar, seguir y detener tus pendientes de Desarrollo y ver la vista previa de tus PR). Una sesión sin el permiso que pide la ruta recibe
      403 `insufficient_scope` y el CLI dice cuál falta y `ghosty-dev login --force` (sin reintentar);
    - `GHOSTY_DEV_BASE_URL` sólo acepta `https://` (o `http://` hacia `127.0.0.1`/`localhost`, para pruebas), sin
      usuario, query ni fragmento. Ningún fetch sigue redirecciones ni sale del origen de la base, tampoco los
@@ -316,6 +330,6 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
    confirmación (sin terminal exige `--yes`), fusiona por defecto y dice cuáles ya guardadas se quedan; `--replace`
    reemplaza todas. Sólo el dueño del espacio guarda. **Ningún valor se imprime**, tampoco en errores.
 
-Las APIs son `GET|POST /api/v2/me/repos/:owner/:name/env` (variables) y `/api/v2/me/dev-runs` (nube) de Ghosty
-Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
+Las APIs son `GET|POST /api/v2/me/repos/:owner/:name/env` (variables), `GET /api/v2/me/repos/:owner/:name/prs/:pr/preview`
+(vista previa del PR) y `/api/v2/me/dev-runs` (nube) de Ghosty Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
 forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.md).

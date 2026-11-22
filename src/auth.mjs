@@ -190,7 +190,7 @@ export function hasLocalBrowser(env = process.env, platform = process.platform) 
   return true;
 }
 
-function openBrowser(url) {
+export function openBrowser(url) {
   if (process.env.GHOSTY_DEV_NO_OPEN) return;
   const [bin, args] =
     process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : ['xdg-open', [url]];

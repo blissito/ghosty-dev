@@ -17,6 +17,18 @@ Si alguno quedó con permisos abiertos a otros usuarios, ghosty-dev los vuelve a
 no se escribe en disco. Nada de esto, ni los valores de tus variables, se imprime nunca: tampoco con `--json` ni en
 errores (los mensajes del servidor se limpian de caracteres de control y de cualquier cosa con forma de token).
 
+### La liga de la vista previa
+
+`ghosty-dev preview` imprime la liga de la vista previa de un PR **firmada**: lleva en la URL (`?k=…`) la llave que
+abre esa vista previa sin sesión. Por eso:
+
+- sólo sale por stdout, como resultado de `preview`, y sólo con la vista previa lista (con `--open` se abre en el
+  navegador y no se imprime);
+- nunca va a stderr, a mensajes de error, a avisos ni a `show` (que sólo da fase y commit);
+- se firma al momento en cada llamada; no se guarda en disco;
+- si se cuela en un issue, un PR, un chat o un log, quien la vea abre la vista previa: no la pegues; para la
+  evidencia, basta con decir qué probaste y el commit.
+
 **GitHub no pasa por aquí**: todo lo de GitHub va con tu `gh` y su token nunca se manda a Ghosty ni a otro servidor.
 
 ## Permisos que pide
@@ -25,7 +37,8 @@ Cliente OAuth público `ghosty-dev`, scope `profile repo:env dev`:
 
 - `profile`: tu correo, para `whoami`.
 - `repo:env`: leer los nombres y guardar las variables (secretos) de la vista previa de tus repos (`env ls|push`).
-- `dev`: mandar, seguir y detener tus pendientes de Desarrollo en la nube (`claim --cloud`, `cloud`, `stop`, `teleport`).
+- `dev`: mandar, seguir y detener tus pendientes de Desarrollo en la nube (`claim --cloud`, `cloud`, `stop`, `teleport`)
+  y ver la vista previa de tus PR (`preview`, que también acepta `repo:env`).
 
 ## Cómo se autentica
 

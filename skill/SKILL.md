@@ -26,7 +26,15 @@ cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree
 git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
 ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
 ghosty-dev show <n>                # la ficha y los servicios del PR: vista previa (con su liga), revisión, smoke y CI
+ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a la del último push y da su liga
 ```
+
+- **Probar la vista previa** (repo conectado a Ghosty Studio): push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia.
+  `preview` sale 0 lista (`url` es la liga), 75 todavía armándose (vuelve a correrlo con `--wait`; en Claude Code,
+  timeout 660000) y 1 si falló (`error` dice por qué; arréglalo y vuelve a subir). Si avisa que la vista previa es de
+  otro commit, te falta `git push`. Sin pendiente (PR escrito desde la terminal): `ghosty-dev show --pr <m>`.
+  **La liga lleva la llave de la vista previa:** úsala para probar (navegador, curl, Playwright), pero nunca la
+  pegues en la evidencia, el issue, el PR ni el chat; en «Preview» escribe qué probaste y el commit.
 
 - **Servicios del PR.** Si el repo está conectado a Ghosty Studio, todo PR recibe solo, por webhook, su vista
   previa, la revisión de Ghosty Review (hallazgos como comentarios en línea), el smoke y la ficha, lo hayas abierto

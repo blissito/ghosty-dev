@@ -37,7 +37,7 @@ const toIssue = (i) => ({
 });
 // La lista de issues de REST incluye los PR: se quitan.
 const openIssues = () => apiAll(`${REPO}/issues?state=open`).filter((i) => !i.pull_request).map(toIssue);
-const openPrs = () =>
+export const openPrs = () =>
   apiAll(`${REPO}/pulls?state=open`).map((p) => ({ number: p.number, url: p.html_url, headRefName: p.head.ref, headRefOid: p.head.sha }));
 
 export class UserError extends Error {}
@@ -504,6 +504,25 @@ export function show(n) {
     // Servicios del PR (vista previa, revisión, smoke y CI) leídos de los checks del commit HEAD del PR.
     services: pr ? prServices(pr, { deep: true }) : null,
     url: issue.url,
+  };
+}
+
+// Lo mismo que `show`, pero por número de PR: un PR escrito desde la terminal (sin pendiente ni rama
+// ghosty-dev/<n>-…) también tiene ficha, servicios y CI. No depende de ningún run de la nube.
+export function showPr(m) {
+  const p = api('GET', `${REPO}/pulls/${m}`, undefined, { allowFail: true });
+  if (!p?.number) throw new UserError(`No encontré el PR #${m} en este repo.`);
+  const pr = { number: p.number, url: p.html_url, headRefName: p.head?.ref, headRefOid: p.head?.sha };
+  const comments = apiAll(`${API_ISSUE(m)}/comments`, { allowFail: true }) ?? [];
+  return {
+    pr: p.number,
+    title: p.title ?? '',
+    state: p.merged_at ? 'mezclado' : p.state === 'open' ? (p.draft ? 'borrador' : 'abierto') : 'cerrado',
+    branch: pr.headRefName ?? null,
+    closes: [...String(p.body ?? '').matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi)].map((x) => Number(x[1])),
+    ficha: fichaOf(comments),
+    url: pr.url,
+    services: pr.headRefOid ? prServices(pr, { deep: true }) : null,
   };
 }
 

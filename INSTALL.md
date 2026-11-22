@@ -93,8 +93,8 @@ que lo marque en *Settings → Branches*.
 
 ### Opcional: sesión de Ghosty Studio (nube y variables de la vista previa)
 
-Sólo si la persona quiere mandar pendientes a la nube (`ghosty-dev claim <n> --cloud`) o el repo está conectado a
-Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles faltan). Es una sesión aparte de
+Sólo si la persona quiere mandar pendientes a la nube (`ghosty-dev claim <n> --cloud`), abrir la vista previa de sus PR
+(`ghosty-dev preview`) o el repo está conectado a Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles faltan). Es una sesión aparte de
 `gh` (permisos `profile repo:env dev`); no hace falta el CLI `ghosty`. Si un comando dice «no tiene el permiso dev»,
 la sesión es vieja: `ghosty-dev login --force --no-wait --json` y el mismo segundo paso.
 

@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [] } = {}) {
+// `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [] } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -21,6 +22,8 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     n: 0,
     runs: [...runs],
     devCalls: [],
+    previews: [...previews],
+    previewCalls: [],
   };
   const issue = () => {
     s.n += 1;
@@ -81,6 +84,14 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       s.posted.push(body);
       const keys = body.dotenv.split('\n').filter((l) => /^\s*(export\s+)?\w+=/.test(l)).map((l) => l.replace(/^\s*export\s+/, '').split('=')[0]);
       return send(res, 200, { repo: 'acme/demo', workspace: 'acme', keys, sent: keys, kept: body.replace ? [] : s.saved.filter((k) => !keys.includes(k)), dropped: [], risks: [] });
+    }
+    let pm;
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/preview$/))) {
+      s.previewCalls.push({ repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]) });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      const next = s.previews.length > 1 ? s.previews.shift() : s.previews[0] ?? { phase: 'none' };
+      const page = `https://www.ghosty.studio/c/dev/pr/${pm[1]}/${pm[2]}/${pm[3]}/preview`;
+      return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), sha: null, url: null, error: null, page, ...next });
     }
     if (url.pathname.startsWith('/api/v2/me/dev-runs')) {
       const body = raw ? JSON.parse(raw) : null;

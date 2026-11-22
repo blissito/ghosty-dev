@@ -6,6 +6,7 @@ import * as cmd from '../src/commands.mjs';
 import * as cloud from '../src/cloud.mjs';
 import * as auth from '../src/auth.mjs';
 import * as envVars from '../src/env.mjs';
+import * as previews from '../src/preview.mjs';
 import { createInterface } from 'node:readline/promises';
 
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
@@ -40,9 +41,16 @@ Uso: ghosty-dev <comando> [opciones]
   block <n> --by <m>                     #n queda bloqueado por #m
   show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
                                          (vista previa, revisión, smoke y CI del commit actual)
+  show --pr <m> [--json]                 lo mismo para un PR sin pendiente (p. ej. escrito desde la terminal)
+  preview [<pr>] [--wait] [--open]       la vista previa del PR (sin número: el de tu rama). Lista: imprime la
+                                         liga firmada (o la abre con --open); --wait espera hasta ~10 min a que
+                                         la del último push quede lista o falle. Sale 0 lista, 75 armándose, 1 falló
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
-Sesión propia en Ghosty Studio (nube y variables de la vista previa; GitHub sigue siendo gh):
+Flujo del agente de terminal: git push → ghosty-dev preview --wait --json → prueba la app en la liga → evidencia.
+La liga de preview lleva la llave de la vista previa: no la pegues en issues, PRs ni logs.
+
+Sesión propia en Ghosty Studio (nube, vista previa y variables; GitHub sigue siendo gh):
   login [--device] [--force]             entra a Ghosty Studio (navegador; --device, sin terminal o con --json:
                                          liga + código y espera); --force pide sesión nueva aunque ya haya una
                                          (permisos: profile repo:env dev)
@@ -86,6 +94,7 @@ const { values, positionals } = parseArgs({
     'no-wait': { type: 'boolean' },
     pr: { type: 'string' },
     wait: { type: 'boolean' },
+    open: { type: 'boolean' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
     yes: { type: 'boolean', short: 'y' },
@@ -156,6 +165,29 @@ function serviceLine(key, s) {
 }
 const servicesBlock = (sv) =>
   sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...['preview', 'review', 'smoke'].map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
+
+// Vista previa según Ghosty Studio, para `show`: fase y commit, NUNCA la liga (ésa sólo la da `preview`). Si no hay
+// sesión de ghosty-dev o gs no contesta, `show` sigue con lo de GitHub.
+const PHASE_WORD = { none: 'sin vista previa', queued: 'en fila', building: 'armándose', ready: 'lista', failed: 'falló' };
+async function previewSummary(pr) {
+  if (!Number.isInteger(pr) || pr <= 0) return null;
+  try {
+    if (!(await auth.existingSession())) return null;
+    return previews.publicPreview(await previews.fetchPreview(pr));
+  } catch {
+    return null;
+  }
+}
+const previewLine = (p) => (p ? [`  vista previa (Ghosty Studio): ${PHASE_WORD[p.phase] ?? p.phase}${p.sha ? ` · commit ${p.sha.slice(0, 7)}` : ''} — la liga: ghosty-dev preview`] : []);
+
+function previewText(x, { opened } = {}) {
+  const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
+  if (x.phase === 'ready')
+    return x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`;
+  if (x.phase === 'failed') return `${head}${x.error ? `\n  ${x.error}` : ''}${x.page ? `\n  Detalle: ${x.page}` : ''}`;
+  if (x.phase === 'none') return `${head}. ${x.message ?? 'Se arma sola con el siguiente push (PR no borrador).'}`;
+  return `${head}. Espérala: ghosty-dev preview ${x.pr} --wait`;
+}
 
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
@@ -253,8 +285,31 @@ try {
   } else if (command === 'block') {
     const r = cmd.block(num(arg), num(values.by, '--by <m>'));
     print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);
+  } else if (command === 'show' && values.pr !== undefined) {
+    const r = cmd.showPr(num(values.pr, '--pr <m>'));
+    r.preview = await previewSummary(r.pr);
+    print(r, (x) =>
+      [
+        `PR #${x.pr} ${x.title}`,
+        `  estado: ${x.state}`,
+        `  rama: ${x.branch ?? '—'}`,
+        `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || '—'}`,
+        `  ${x.url}`,
+        ...previewLine(x.preview),
+        ...servicesBlock(x.services),
+        ...(x.ficha ? ['', x.ficha] : []),
+      ].join('\n'),
+    );
+  } else if (command === 'preview') {
+    const pr = arg === undefined ? undefined : num(arg, '<pr>');
+    // Los avisos (commit viejo, falta push) van a stderr y nunca llevan la liga.
+    const r = await previews.preview(pr, { wait: values.wait, onNote: (n) => console.error(n) });
+    if (r.url && values.open) auth.openBrowser(r.url);
+    print(r, (x) => previewText(x, { opened: values.open }));
+    process.exitCode = previews.exitCodeOf(r);
   } else if (command === 'show') {
     const r = cmd.show(num(arg));
+    r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
     print(r, (x) =>
       [
         `#${x.number} ${x.title}`,
@@ -264,6 +319,7 @@ try {
         `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
         `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
         ...(x.pr ? [`  PR: ${x.pr}`] : []),
+        ...previewLine(x.preview),
         ...servicesBlock(x.services),
         ...(x.ficha ? ['', x.ficha] : []),
       ].join('\n'),

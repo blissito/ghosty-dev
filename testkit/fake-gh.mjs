@@ -153,6 +153,10 @@ if (group === 'label' && verb === 'create') {
       out(rest(db.issues[number]));
     } else out(page(Object.values(db.issues).filter((i) => i.state === 'open').map(rest)));
   }
+  else if ((m = path.match(/pulls\/(\d+)$/))) {
+    const p = db.prs.find((x) => String(x.number) === m[1]) ?? fail('HTTP 404: Not Found');
+    out({ number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
+  }
   else if (path.endsWith('/pulls')) out(page(db.prs.map((p) => ({ number: p.number, html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } }))));
   else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {
     const p = prBySha(m[1]);
