@@ -158,7 +158,10 @@ export function parsePreviewOAuth(o) {
 export function diagnose(dir, opts = {}) {
   const r = diagnoseOAuth(dir, opts);
   const id = identityCheck(dir);
-  if (id) r.checks.push(id);
+  // Con proveedores OAuth en el repo, el camino sin OAuth (X-Ghosty-Identity) va ANTES de pedir llaves (Formmy, fila 47).
+  const first = r.checks.findIndex((c) => c.name.startsWith('oauth-') && c.name !== 'oauth-callback');
+  if (first !== -1) r.checks.splice(first, 0, identityFirst(id));
+  else if (id) r.checks.push(id);
   const smoke = smokeCheck(dir);
   if (smoke) r.checks.push(smoke);
   return r;
@@ -214,6 +217,20 @@ export function smokeCheck(dir) {
   };
 }
 
+// La recomendación que abre la sección de OAuth: entrar en la vista previa no exige OAuth ni llaves.
+function identityFirst(id) {
+  if (id?.ok === true) return { ...id, name: 'login-sin-oauth', detail: `${id.detail}: la vista previa no necesita OAuth para probar con sesión` };
+  return {
+    name: 'login-sin-oauth',
+    ok: null,
+    detail: 'primero el camino sin OAuth: quien abre la vista previa desde Ghosty llega con el header X-Ghosty-Identity; si la app lo lee para crear la sesión, no hacen falta llaves ni registrar callbacks',
+    fix: id?.fix ?? 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL) y súbela a main',
+  };
+}
+
+// Aviso de texto (sin detección): las llaves que se piden salen del código, y un repo con clientes reales las tiene de producción.
+const PROD_WARNING = 'cuidado: si estas llaves son las de tu cliente OAuth de PRODUCCIÓN, no las copies a la vista previa ni edites ese cliente para registrar el callback; usa un cliente aparte para previews o el login por X-Ghosty-Identity';
+
 function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null } = {}) {
   const checks = [];
   const lock = checkLock(dir);
@@ -234,7 +251,7 @@ function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null 
   }
   for (const p of providers) {
     if (p.missingEnv === null) checks.push({ name: `oauth-${p.id}-llaves`, ok: null, detail: `${p.name}: no pude leer las variables de la vista previa (ghosty-dev login)`, fix: 'ghosty-dev env ls' });
-    else if (p.missingEnv.length) checks.push({ name: `oauth-${p.id}-llaves`, ok: false, detail: `${p.name}: a la vista previa le faltan ${p.missingEnv.join(', ')}`, fix: 'ghosty-dev env push <archivo con esas variables>' });
+    else if (p.missingEnv.length) checks.push({ name: `oauth-${p.id}-llaves`, ok: false, detail: `${p.name}: a la vista previa le faltan ${p.missingEnv.join(', ')}`, fix: 'sólo si no adoptas el login por X-Ghosty-Identity: ghosty-dev env push <archivo con esas variables>', warning: PROD_WARNING });
     else checks.push({ name: `oauth-${p.id}-llaves`, ok: true, detail: `${p.name}: la vista previa tiene sus llaves`, fix: null });
     if (p.registered === true) checks.push({ name: `oauth-${p.id}-registro`, ok: true, detail: `${p.name}: ya regresó un login por el callback de Ghosty`, fix: null });
     else
@@ -245,7 +262,8 @@ function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null 
         copy: redirectUri,
         consoleUrl: p.consoleUrl,
         steps: p.steps,
-        fix: `o pídeselo a Ghosty con ghosty-browser: «${oauth.agentPrompt ?? `registra ${redirectUri ?? 'la URL de callback de Ghosty'} como redirect URI de ${p.name} en ${p.consoleUrl ?? 'su consola'}`}»`,
+        warning: PROD_WARNING,
+        fix: `si no adoptas el login por X-Ghosty-Identity, pídeselo a Ghosty con ghosty-browser: «${oauth.agentPrompt ?? `registra ${redirectUri ?? 'la URL de callback de Ghosty'} como redirect URI de ${p.name} en ${p.consoleUrl ?? 'su consola'}`}»`,
       });
   }
   checks.push(
@@ -270,6 +288,7 @@ export function doctorText(x) {
     if (c.copy) lines.push('', `      ${c.copy}`, '');
     if (c.consoleUrl) lines.push(`      consola: ${c.consoleUrl}`);
     (c.steps ?? []).forEach((step, i) => lines.push(`      ${i + 1}. ${step}`));
+    if (c.warning) lines.push(`      ⚠ ${c.warning}`);
     if (c.fix) lines.push(`      → ${c.fix}`);
   }
   return lines.join('\n');

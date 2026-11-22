@@ -55,8 +55,8 @@ test('diagnose: llaves faltantes, registro con URL para copiar + consola + 3 pas
     'node_modules/x/i.js': 'admin/oauth/authorize SHOPIFY_API_KEY',
   });
   const r = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT });
-  assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['oauth-google-llaves', false], ['oauth-google-registro', null], ['oauth-callback', false]]);
-  const reg = r.checks[2];
+  assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['login-sin-oauth', null], ['oauth-google-llaves', false], ['oauth-google-registro', null], ['oauth-callback', false]]);
+  const reg = r.checks[3];
   assert.equal(reg.detail, 'Para entrar con Google en tus vistas previas falta un paso único: registrar esta URL en tu proyecto de Google');
   assert.deepEqual([reg.copy, reg.consoleUrl, reg.steps.length], [URI, 'https://console.cloud.google.com/apis/credentials', 3]);
   assert.match(reg.fix, /pídeselo a Ghosty con ghosty-browser/);
@@ -112,4 +112,17 @@ test('smoke-principal: avisa cuando smoke: sólo tiene login u home, calla con u
   assert.equal(pick(repo(f('smoke:\n  - /dashboard'))).ok, true);
   assert.equal(pick(repo(f('# sin smoke'))), undefined);
   assert.equal(pick(repo({ 'package.json': {} })), undefined);
+});
+
+test('doctor recomienda primero el login por X-Ghosty-Identity y avisa del cliente OAuth de producción (fila 47)', () => {
+  const d = repo({ 'package.json': { dependencies: { 'remix-auth-google': '^2' } }, 'app/auth.server.ts': 'new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID })' });
+  const r = diagnose(d, { saved: [], catalog: CAT });
+  const names = r.checks.map((c) => c.name);
+  assert.ok(names.indexOf('login-sin-oauth') < names.indexOf('oauth-google-llaves'));
+  assert.match(r.checks[names.indexOf('login-sin-oauth')].detail, /sin OAuth.*X-Ghosty-Identity/);
+  const text = doctorText({ repo: 'acme/demo', ...r });
+  assert.match(text, /⚠ cuidado: si estas llaves son las de tu cliente OAuth de PRODUCCIÓN/);
+  assert.match(text, /sólo si no adoptas el login por X-Ghosty-Identity: ghosty-dev env push/);
+  // Sin OAuth en el repo no se agrega nada.
+  assert.ok(!diagnose(repo({ 'package.json': {} }), { saved: [], catalog: CAT }).checks.some((c) => c.name === 'login-sin-oauth'));
 });
