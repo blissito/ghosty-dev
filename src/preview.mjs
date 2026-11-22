@@ -61,9 +61,12 @@ export function currentPr() {
 }
 
 // El commit HEAD del PR según GitHub (lo empujado) y el HEAD local, para avisar si la vista previa es de otro commit.
+// El HEAD local sólo cuenta si estás en la rama del PR (desde main u otra rama no hay nada que empujar).
 function heads(pr) {
-  const remote = sha(api('GET', `repos/{owner}/{repo}/pulls/${pr}`, undefined, { allowFail: true })?.head?.sha);
-  const local = sha(git(['rev-parse', 'HEAD'], { allowFail: true })?.trim());
+  const p = api('GET', `repos/{owner}/{repo}/pulls/${pr}`, undefined, { allowFail: true });
+  const remote = sha(p?.head?.sha);
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim();
+  const local = p?.head?.ref && branch === p.head.ref ? sha(git(['rev-parse', 'HEAD'], { allowFail: true })?.trim()) : null;
   return { remote, local };
 }
 

@@ -91,6 +91,21 @@ test('preview avisa en stderr si la vista previa es de otro commit; el aviso no 
     assert.doesNotMatch(r.err, SECRET);
   }));
 
+test('preview avisa si falta git push sólo en la rama del PR (C19)', () =>
+  withPreview([{ phase: 'ready', url: LINK }], async ({ gs, s, cli, head }) => {
+    gs.previews[0].sha = head;
+    const db = s.read();
+    db.prs[0].headRefOid = OLD; // GitHub tiene otro commit: el HEAD local no está empujado
+    gs.previews[0].sha = OLD;
+    writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db));
+    const r = await cli(['preview', '73']);
+    assert.match(r.err, /Tu HEAD local \(.{7}\) no es el del PR en GitHub \(0000000\): ¿falta git push\?/);
+    execFileSync('git', ['checkout', '-q', 'main'], { cwd: s.repo });
+    const fromMain = await cli(['preview', '73', '--json']);
+    assert.equal(fromMain.err, '');
+    assert.equal(JSON.parse(fromMain.out).stale, false);
+  }));
+
 test('preview --wait con tope: sigue armándose → 75 (C19)', () =>
   withPreview([{ phase: 'building' }], async ({ cli }) => {
     const r = await cli(['preview', '73', '--wait'], { GHOSTY_DEV_PREVIEW_MAX_MS: '20' });
