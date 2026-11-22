@@ -29,6 +29,13 @@ abre esa vista previa sin sesión. Por eso:
 - si se cuela en un issue, un PR, un chat o un log, quien la vea abre la vista previa: no la pegues; para la
   evidencia, basta con decir qué probaste y el commit.
 
+### La puerta falla cerrada
+
+El check `ghosty-dev/evidencia` lee su script sólo de la rama base: un PR no puede aflojar su propia puerta. Si ese
+script existe pero no carga o truena, la puerta sale en **rojo** (nunca deja pasar por estar rota) con el error limpio
+y el remedio: arreglar `.github/ghosty-dev/gate.mjs` en la base; una persona puede mezclar a mano el PR que lo arregla.
+Sólo un repo que todavía no instala ghosty-dev (sin script en la base) pasa, con aviso.
+
 ### La caja de la vista previa (`box`)
 
 `ghosty-dev box exec -- <comando>` corre ese comando **en la caja de la vista previa de tu PR** (no en tu compu):

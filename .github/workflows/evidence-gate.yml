@@ -23,8 +23,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: .github/ghosty-dev
-      # Si la base todavía no trae el script (PR abierto antes de instalar ghosty-dev) o no carga, la puerta no truena
-      # en rojo: sale en verde con la explicación. El script se sigue leyendo SÓLO de la base. Un gate.mjs viejo (sin
+      # Sin script en la base (repo sin ghosty-dev instalado todavía): pasa con aviso. Con script que no carga o truena:
+      # ROJO con el error limpio y el remedio (falla cerrada). El script se lee SÓLO de la base. Un gate.mjs viejo (sin
       # `main` exportado) se corre como antes.
       - run: |
           node --input-type=module -e '
@@ -37,11 +37,19 @@ jobs:
               if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
               process.exit(0);
             };
-            if (!existsSync(path)) skip("la rama base no tiene .github/ghosty-dev/gate.mjs.");
+            const base = process.env.GITHUB_BASE_REF || "la rama base";
+            const broke = (what, e) => {
+              const why = String(e?.code ?? e?.message ?? e).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200);
+              const text = `- La puerta ${what} (${why}). Arregla .github/ghosty-dev/gate.mjs en ${base}; una persona puede mezclar a mano el PR que lo arregla.`;
+              console.log(`::error title=ghosty-dev/evidencia::${text.slice(2)}`);
+              if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
+              process.exit(1);
+            };
+            if (!existsSync(path)) skip(`${base} no tiene .github/ghosty-dev/gate.mjs.`);
             let gate;
-            try { gate = await import(`${process.cwd()}/${path}`); } catch (e) { skip(`el script de la base no carga (${String(e?.code ?? e?.message ?? e).slice(0, 120)}).`); }
-            if (typeof gate.main === "function") gate.main();
-            else process.exit(spawnSync(process.execPath, [path], { stdio: "inherit" }).status ?? 1);
+            try { gate = await import(`${process.cwd()}/${path}`); } catch (e) { broke("no carga su script", e); }
+            if (typeof gate.main !== "function") process.exit(spawnSync(process.execPath, [path], { stdio: "inherit" }).status ?? 1);
+            try { gate.main(); } catch (e) { broke("tronó", e); }
           '
         env:
           GH_TOKEN: ${{ github.token }}
