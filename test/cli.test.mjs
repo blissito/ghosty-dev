@@ -382,3 +382,22 @@ test('la nube dice qué falta cuando ghosty rechaza', () => {
   assert.equal(r.code, 1);
   assert.match(r.err, /Conecta tu GitHub/);
 });
+
+test('un pedido de la persona despierta a su escritor: ready lo ofrece, wait lo trae y asks lo marca leído', () => {
+  const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) } });
+  assert.deepEqual(JSON.parse(s.run('ready', '--json').out), []);
+  const db = s.read();
+  db.issues[5].comments.push(
+    { body: '<!-- ghosty-dev:evidencia v0.1 -->\n@ghosty esto es evidencia' },
+    { body: '<!-- ghosty-dev:pedido -->\nusa la opción más barata\n\n<sub>Desde Teams, vía Ghosty</sub>', author: { login: 'bliss' } },
+  );
+  writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db));
+  assert.deepEqual(JSON.parse(s.run('ready', '--json').out).map((i) => [i.number, i.reason]), [[5, 'pedido']]);
+  const shown = JSON.parse(s.run('show', '5', '--json').out);
+  assert.equal(shown.asks.length, 1);
+  const w = JSON.parse(s.run('wait', '5', '--watch', '--json').out);
+  assert.match(w.asks[0].text, /^usa la opción más barata/);
+  assert.deepEqual(JSON.parse(s.run('asks', '5', '--json').out).asks, []);
+  // Ya leído: deja de ofrecerse como pedido (sin PR, sigue la regla de siempre: ci-sin-pr).
+  assert.ok(!JSON.parse(s.run('ready', '--json').out).some((i) => i.reason === 'pedido'));
+});

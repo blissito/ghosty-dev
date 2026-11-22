@@ -171,7 +171,12 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
    `ghosty-dev evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
 7. **close.** El Clerk lee la evidencia y mergea; `Closes #n` cierra el pendiente. Sin PR: `ghosty-dev close <n>`,
    que se niega si no hay evidencia válida.
-8. **block.** `ghosty-dev block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
+8. **pedidos.** Lo que la persona le pide al escritor vive en la bitácora: un comentario del issue o del PR que
+   menciona a `@ghosty` o lleva la marca `<!-- ghosty-dev:pedido -->` (así publica Ghosty Studio lo que se escribe
+   en su web, iOS o Teams). Es un evento (Ley 3): `ready` vuelve a ofrecer el pendiente a su escritor con
+   `reason: pedido`, `wait --watch` despierta con él antes que con el CI, y `asks <n>` lo lee y lo marca leído
+   (lo leído se guarda en el clon, `.git/ghosty-dev/`). La evidencia y la revisión nunca cuentan como pedido.
+9. **block.** `ghosty-dev block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
    `## Bloqueado por` en el cuerpo. El pendiente queda `bloqueado`.
 
 **La puerta** (`.github/workflows/evidence-gate.yml`, check `ghosty-dev/evidencia`): falla si el PR no cierra ningún
@@ -213,6 +218,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
 | C13 | `claim --cloud` delega sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube | `claim --cloud manda…`, `stop y teleport…` |
+| C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 
 ## 7. Fuera de v0.1

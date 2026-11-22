@@ -27,6 +27,12 @@ git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
 ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
 ```
 
+- **La persona te pidió algo** (`ready` dice `reason: pedido`, o `wait` regresa con `asks`) → eso manda sobre lo
+  demás: hazlo en la misma rama, sube y vuelve a esperar. `ghosty-dev asks <n>` los lee y los marca leídos. La
+  persona te escribe en el issue o el PR con `@ghosty`, o desde Ghosty Studio (web, iOS o Teams): todo llega igual.
+- **Tools de Ghosty desde la terminal:** con `ghosty login`, el CLI `ghosty` te da lo de Ghosty Studio (imágenes,
+  documentos, sitios, navegador, voz, datos…). `ghosty --help` lista los comandos; úsalos en vez de instalar
+  librerías para eso.
 - **CI verde** → pide la revisión (abajo) y, cuando no tenga hallazgos abiertos, publica la evidencia.
 - **CI rojo** → arréglalo, sube y vuelve a esperar.
 - **Se acabaron los 5 min** → el pendiente queda en `esperando-ci`: toma otro independiente o termina.

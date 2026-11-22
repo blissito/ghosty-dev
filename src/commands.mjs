@@ -102,6 +102,15 @@ export function ready() {
   for (const issue of open.sort((a, b) => a.number - b.number)) {
     const state = stateOf(issue);
     const base = { number: issue.number, title: issue.title, url: issue.url, state };
+    if (state === 'tomado' || state === 'esperando') {
+      login ??= me();
+      const mine = issue.assignees.length === 0 || issue.assignees.some((a) => a.login === login);
+      // Ley 3: un pedido nuevo de la persona lo vuelve a ofrecer a su escritor, esté donde esté.
+      if (mine && unseenAsks(issue.number).length) {
+        out.push({ ...base, reason: 'pedido' });
+        continue;
+      }
+    }
     if (state === 'listo' || state === 'bloqueado') {
       if (openBlockers(issue, openNumbers).length === 0) out.push({ ...base, reason: state === 'listo' ? 'por-hacer' : 'desbloqueado' });
     } else if (state === 'esperando') {
@@ -158,6 +167,59 @@ export function claim(n, { worktree = true } = {}) {
   return { number: n, title: issue.title, branch, worktree: path };
 }
 
+// ---------- pedidos de la persona (Ley 1 y Ley 3: el comentario es la bitácora y el evento) ----------
+
+// Un pedido = comentario del issue o del PR que menciona a @ghosty o lleva la marca (lo que la persona escribió
+// en Ghosty Studio, iOS o Teams se publica así). La evidencia y la revisión no cuentan aunque mencionen.
+export const ASK_MARK = '<!-- ghosty-dev:pedido -->';
+const MENTION = /(^|[\s(])@ghosty(?![\w-])/i;
+export const isAsk = (body = '') =>
+  !body.includes('<!-- ghosty-dev:evidencia') && !body.includes('<!-- ghosty-dev:revision') && (body.includes(ASK_MARK) || MENTION.test(body));
+const askText = (body) => body.replace(ASK_MARK, '').replace(/(^|[\s(])@ghosty(?![\w-])/gi, '$1').trim();
+
+// Lo ya leído vive en el clon (`.git/ghosty-dev/`), no en GitHub: es de este escritor, no de la bitácora.
+function seenFile(n) {
+  const dir = join(git(['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(), 'ghosty-dev');
+  return { dir, file: join(dir, `pedidos-${n}.json`) };
+}
+function readSeen(n) {
+  try {
+    return JSON.parse(readFileSync(seenFile(n).file, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function markSeen(n, list) {
+  if (!list.length) return;
+  const seen = readSeen(n);
+  for (const a of list) seen[a.from] = Math.max(seen[a.from] ?? 0, a.index + 1);
+  const { dir, file } = seenFile(n);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file, JSON.stringify(seen));
+}
+function unseenAsks(n) {
+  const seen = readSeen(n);
+  const sources = [['issue', n]];
+  const pr = prOf(n);
+  if (pr) sources.push(['pr', pr.number]);
+  const out = [];
+  for (const [from, number] of sources) {
+    const comments = apiAll(`${API_ISSUE(number)}/comments`, { allowFail: true }) ?? [];
+    comments.forEach((c, index) => {
+      if (index >= (seen[from] ?? 0) && isAsk(c.body || '')) out.push({ from, index, by: c.user?.login ?? null, text: askText(c.body || ''), url: c.html_url ?? null });
+    });
+  }
+  return out;
+}
+const publicAsk = ({ from, by, text, url }) => ({ from, by, text, url });
+
+// Los pedidos nuevos de la persona; al leerlos quedan vistos (con peek, no).
+export function asks(n, { peek = false } = {}) {
+  const fresh = unseenAsks(n);
+  if (!peek) markSeen(n, fresh);
+  return { number: n, asks: fresh.map(publicAsk) };
+}
+
 // ---------- wait (Ley 3; Beads gates «so agents never need to poll») ----------
 
 // Ley 3: esperar no es sondear. Con --watch, una sola llamada bloqueante del CLI espera al CI (el CLI mira cada
@@ -168,6 +230,14 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
   if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
   if (state === 'tomado') setState(issue, 'esperando');
   if (!watch) return { number: n, state: 'esperando' };
+  // Un pedido de la persona también es el evento: despierta antes que el CI.
+  const news = () => {
+    const fresh = unseenAsks(n);
+    markSeen(n, fresh);
+    return fresh.map(publicAsk);
+  };
+  let got = news();
+  if (got.length) return { number: n, state: 'esperando', asks: got };
   let before = ciOf(n);
   if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr' };
   // Tras un push, los checks tardan unos segundos en aparecer: se espera a que existan (tope ~90 s).
@@ -180,6 +250,8 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
   const every = Number(process.env.GHOSTY_DEV_WATCH_MS ?? 10_000);
   for (const until = Date.now() + minutes * 60_000; ci.status === 'pendiente' && Date.now() < until; ) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, every);
+    got = news();
+    if (got.length) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, asks: got };
     ci = ciOf(n);
   }
   return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente' };
@@ -333,6 +405,7 @@ export function show(n) {
     assignees: issue.assignees.map((a) => a.login),
     blockedBy: openBlockers(issue, new Set(open.map((i) => i.number))),
     evidence: Boolean(findValidEvidence(issue.comments, issue.body)),
+    asks: unseenAsks(n).map(publicAsk),
     url: issue.url,
   };
 }

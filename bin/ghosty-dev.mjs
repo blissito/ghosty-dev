@@ -25,7 +25,8 @@ Uso: ghosty-dev <comando> [opciones]
   cloud                                  los pendientes de este repo que van en la nube
   stop <n>                               detiene #n en la nube y libera su lugar
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
-  wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI en una sola llamada
+  wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI o a un pedido de la persona
+  asks <n> [--peek]                      los pedidos nuevos de la persona (@ghosty o desde Ghosty); los marca leídos
                                          (tope 5 min) y dice si quedó verde o rojo
   evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
   evidence --check --file e.md [--issue-file pendiente.md]
@@ -54,6 +55,7 @@ const { values, positionals } = parseArgs({
     'issue-file': { type: 'string' },
     by: { type: 'string' },
     watch: { type: 'boolean' },
+    peek: { type: 'boolean' },
     minutes: { type: 'string' },
     goal: { type: 'string' },
     criteria: { type: 'string', multiple: true },
@@ -178,7 +180,9 @@ try {
   } else if (command === 'wait') {
     const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined });
     print(r, (x) =>
-      !values.watch || x.timedOut
+      x.asks?.length
+        ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
+        : !values.watch || x.timedOut
         ? `#${x.number} esperando el CI. Toma otro pendiente o termina: ghosty-dev ready te lo ofrece cuando resuelva.`
         : x.ci === 'sin-pr'
           ? `#${x.number} no tiene PR abierto todavía.`
@@ -186,6 +190,9 @@ try {
             ? `#${x.number}: el commit actual del PR no tiene checks (¿el repo tiene CI en pull_request?). No es verde.`
             : `#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Pide la revisión (subagente ghosty-dev-revisor).' : ' Arréglalo y vuelve a subir.'}`,
     );
+  } else if (command === 'asks') {
+    const r = cmd.asks(num(arg), { peek: values.peek });
+    print(r, (x) => (x.asks.length ? x.asks.map((a) => `- ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n') : `#${x.number}: sin pedidos nuevos.`));
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file);
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
@@ -201,6 +208,7 @@ try {
         `  escritor: ${x.assignees.join(', ') || '—'}`,
         `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
         `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
+        `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
       ].join('\n'),
     );
   } else if (command === 'close') {
