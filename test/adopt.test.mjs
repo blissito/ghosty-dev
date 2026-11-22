@@ -224,3 +224,24 @@ test('asks y next ignoran avisos del bot de otro commit o de un check que ya no 
   assert.deepEqual(closed.asks.map((x) => x.by), ['bliss']);
   assert.ok(closed.stale.every((x) => x.reason === 'el PR #76 ya está cerrado'));
 });
+
+test('claim desde una rama ajena parte de origin/<principal> aunque main local esté atrasada y la cabeza traiga otro PR (fila 34)', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const g = (cwd, ...a) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd, encoding: 'utf8' }).stdout.trim();
+  const remote = join(s.root, 'remote.git');
+  spawnSync('git', ['init', '-q', '--bare', '-b', 'main', remote]);
+  g(s.repo, 'remote', 'add', 'origin', remote);
+  g(s.repo, 'push', '-q', 'origin', 'main');
+  // Otro clon adelanta origin/main; el local queda atrasado y parado en la rama de otro PR.
+  const other = join(s.root, 'otro');
+  spawnSync('git', ['clone', '-q', remote, other]);
+  g(other, 'commit', '-q', '--allow-empty', '-m', 'avanza main');
+  g(other, 'push', '-q', 'origin', 'main');
+  const remoteMain = g(other, 'rev-parse', 'HEAD');
+  g(s.repo, 'checkout', '-q', '-b', 'feat/otro-pr');
+  g(s.repo, 'commit', '-q', '--allow-empty', '-m', 'PR ajeno');
+  const r = s.run('claim', '5');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /Estás en feat\/otro-pr; la rama nueva parte de origin\/main/);
+  assert.equal(g(s.repo, 'rev-parse', 'ghosty-dev/5-salud'), remoteMain);
+});
