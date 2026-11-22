@@ -31,7 +31,8 @@ gh pr diff <pr>                                     # qué se cambió
 Lo demás (otros métodos o rutas, despliegues raros, mensajes más bonitos, «estaría bien que…») **no es hallazgo**:
 va como «Pendiente nuevo sugerido». Si dudas, no es hallazgo. El objetivo es que el pendiente cierre bien, no que
 el código sea perfecto.
-4. Corre también la suite completa del repo.
+4. Corre también la suite completa del repo. Si el pendiente toca un producto con sesión, ejerce la función principal
+   con sesión (un mensaje o acción real y su respuesta), no sólo leas el diff: un smoke que abre `/login` no la prueba.
 5. Borra tu worktree al terminar: `git worktree remove ../rev-<n> --force`.
 
 ## Qué publicas

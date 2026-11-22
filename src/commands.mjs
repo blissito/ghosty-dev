@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
-import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems, mainFlowWarnings } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
@@ -512,7 +512,7 @@ export function checkEvidence(file, issueFile) {
   if (issueFile && !existsSync(issueFile)) throw new UserError(`No existe ${issueFile}.`);
   const { ok, errors } = validateEvidence(readFileSync(file, 'utf8'), issueFile ? readFileSync(issueFile, 'utf8') : '');
   if (!ok) throw new UserError(`Evidencia inválida:\n- ${errors.join('\n- ')}`);
-  return { ok: true, criteriaChecked: Boolean(issueFile) };
+  return { ok: true, criteriaChecked: Boolean(issueFile), warnings: mainFlowWarnings(readFileSync(file, 'utf8')) };
 }
 
 export function checkReview(file) {
@@ -541,7 +541,7 @@ export function evidence(n, file, { pr: m } = {}) {
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR (y el workflow también lo hace
   // solo con issue_comment, para la evidencia que se publique por otro lado).
   const rerun = rerunGate(n, pr);
-  return { number: n, posted: true, url: url || null, rerun };
+  return { number: n, posted: true, url: url || null, rerun, warnings: mainFlowWarnings(md) };
 }
 
 // ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------

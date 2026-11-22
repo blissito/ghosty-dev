@@ -162,6 +162,12 @@ $ npm test
 Reglas: la salida es la real (si la recortas, dilo); un criterio que no se cumple se queda `[ ]` y no publicas;
 CI rojo no se publica como evidencia.
 
+**El flujo principal se ejerce, no sólo se abre.** «Preview» y «Verificación» dicen qué acción real hiciste con
+sesión sobre el producto (qué mensaje enviaste, qué botón, qué respondió); abrir `/login` o la home no cuenta.
+La plantilla del pendiente ya trae ese criterio. `ghosty-dev evidence --check` avisa (no bloquea) si la evidencia
+no menciona ninguna acción real, y `ghosty-dev doctor` avisa si el `smoke:` de `.ghosty/factory.md` sólo tiene
+rutas de login u home.
+
 ## Abrir pendientes desde la plática
 
 Cuando la persona te diga qué hay que hacer («hay que paginar /pedidos»), tú abres el pendiente. Escribe un

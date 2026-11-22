@@ -497,3 +497,10 @@ test('show lee la ficha del PR (antes que la del issue) y los servicios del comm
   writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db2));
   assert.match(JSON.parse(s.run('show', '5', '--json').out).ficha, /Del issue/);
 });
+
+test('evidence --check imprime el aviso de flujo principal sin bloquear (filas 44/46)', () => {
+  const s = setup();
+  const r = spawnSync(process.execPath, [join(import.meta.dirname, '..', 'bin', 'ghosty-dev.mjs'), 'evidence', '--check', '--file', s.write('p.md', VALID_EVIDENCE.replace('Agregué el endpoint /health.', 'Cambié un archivo.').replace('ok 3 - health responde 200', 'ok 3'))], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Aviso: La evidencia no menciona ninguna acción real/);
+});

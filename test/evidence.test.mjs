@@ -159,3 +159,14 @@ test('«probado en la preview del PR #N» sólo vale si #N contiene el mismo com
   const ok = evaluatePullRequest({ number: 81, body: 'Closes #3', head: { sha: SHA } }, () => ({ body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, ev.body) }] }), null, { prCommits: () => [SHA] });
   assert.equal(ok.ok, true, ok.failures.join('; '));
 });
+
+test('mainFlowWarnings avisa (sin bloquear) cuando la evidencia no cita ninguna acción real sobre el producto (filas 44/46)', async () => {
+  const { mainFlowWarnings, validateEvidence } = await import('../src/evidence.mjs');
+  const { VALID_EVIDENCE } = await import('../testkit/helpers.mjs');
+  const pasiva = VALID_EVIDENCE.replace('Agregué el endpoint /health.', 'Cambié un archivo.').replace('ok 3 - health responde 200', 'ok 3');
+  assert.equal(mainFlowWarnings(pasiva).length, 1);
+  assert.equal(validateEvidence(pasiva, '').ok, true); // aviso, no bloqueo
+  const real = pasiva.replace('no aplica', 'Con sesión envié «hola» en Crear y respondió con el saludo del agente.');
+  assert.deepEqual(mainFlowWarnings(real), []);
+  assert.deepEqual(mainFlowWarnings(pasiva.replace('$ npm test', '$ curl -s -X POST /api/chat')), []);
+});

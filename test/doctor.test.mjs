@@ -99,3 +99,17 @@ test('doctor sugiere la identidad de Ghosty en previews si la app tiene login y 
   assert.equal(con.checks.find((x) => x.name === 'login-en-previews').ok, true);
   assert.equal(diagnose(repo({ 'package.json': {} }), { catalog: null }).checks.find((x) => x.name === 'login-en-previews'), undefined);
 });
+
+test('smoke-principal: avisa cuando smoke: sólo tiene login u home, calla con una ruta de la función principal (filas 44/46)', () => {
+  const f = (fm) => ({ 'package.json': {}, '.ghosty/factory.md': `---\nmemory: 4gb\n${fm}\n---\ncuerpo /login\n` });
+  const pick = (d) => diagnose(d, {}).checks.find((c) => c.name === 'smoke-principal');
+  const w = pick(repo(f('smoke: [/login]')));
+  assert.equal(w.ok, null);
+  assert.match(w.detail, /sólo prueba \/login/);
+  assert.match(doctorText({ repo: 'a/b', checks: [w] }), /función principal/);
+  assert.equal(pick(repo(f('smoke:\n  - /\n  - /login\nmemory2: x'))).ok, null);
+  assert.equal(pick(repo(f('smoke: [/login, /api/chatbots]'))).ok, true);
+  assert.equal(pick(repo(f('smoke:\n  - /dashboard'))).ok, true);
+  assert.equal(pick(repo(f('# sin smoke'))), undefined);
+  assert.equal(pick(repo({ 'package.json': {} })), undefined);
+});

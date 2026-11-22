@@ -363,7 +363,7 @@ try {
     print(cmd.checkReview(values.file), (x) => `Revisión válida: ${x.open} hallazgo(s) abierto(s). No se publicó nada.`);
   } else if (command === 'evidence' && values.check) {
     print(cmd.checkEvidence(values.file, values['issue-file']), (x) =>
-      `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}. No se publicó nada.`,
+      [`Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}. No se publicó nada.`, ...x.warnings.map((w) => `Aviso: ${w}`)].join('\n'),
     );
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
@@ -457,7 +457,7 @@ try {
     );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
-    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
+    print(r, (x) => [`Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`, ...x.warnings.map((w) => `Aviso: ${w}`)].join('\n'));
   } else if (command === 'block') {
     const r = cmd.block(num(arg), num(values.by, '--by <m>'));
     print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);

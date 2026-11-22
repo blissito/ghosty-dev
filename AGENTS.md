@@ -18,7 +18,8 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
    (subagente `ghosty-dev-revisor`, o `ghosty-dev review <n>` en otra sesión); tú no te calificas. Con la revisión
    en 0 hallazgos abiertos: `ghosty-dev evidence <n> --file evidencia.md`
    (secciones «Qué se hizo», «Verificación» con comandos `$ …` y su salida real, «CI» con resultado y liga,
-   «Preview», «Criterios de aceptación» marcados). El PR lleva `Closes #<n>`; sin revisión del commit actual y sin
+   «Preview», «Criterios de aceptación» marcados). Un smoke que sólo abre `/login` no prueba nada: la evidencia dice qué acción real ejerciste con sesión (qué
+   mensaje, qué respuesta); `evidence --check` avisa si no la encuentra. El PR lleva `Closes #<n>`; sin revisión del commit actual y sin
    evidencia, el check `ghosty-dev/evidencia` no deja mergear. Nunca cierres un issue sin evidencia.
 3. **Se espera por evento, no se sondea.** Con el PR abierto: `ghosty-dev wait <n> --watch` espera al CI en una sola llamada (tope 5 min); si tarda más, toma otro pendiente o termina. Si el repo está conectado a Ghosty Studio, `wait --watch` también avisa cuando la vista previa y la revisión de Ghosty terminan, y `ghosty-dev show <n>` da la ficha y los servicios del PR (vista previa con su liga, revisión, smoke, CI): no hace falta otro CLI.
    Para probar la app: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia (0 lista, 75 armándose, 1 falló; sin pendiente: `show --pr <m>`);

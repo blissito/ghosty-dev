@@ -10,6 +10,7 @@ labels: ["ghosty-dev:por-hacer"]
 ## Criterios de aceptación
 <!-- Cada uno se marca en el comentario de evidencia con el mismo texto. -->
 - [ ] 
+- [ ] El flujo principal se ejerció con sesión (qué mensaje/acción real, qué respuesta)
 
 ## Contexto
 <!-- Ligas, archivos, decisiones previas. -->

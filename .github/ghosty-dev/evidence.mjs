@@ -84,6 +84,19 @@ export function validateEvidence(md, issueBody = '') {
   return { ok: errors.length === 0, errors };
 }
 
+// ---------- el flujo principal se ejerció (Formmy, filas 44/46) ----------
+// Avisos, nunca bloqueo: la evidencia debería mencionar al menos una acción real sobre el producto (un mensaje enviado,
+// un POST, un clic con sesión, una respuesta). Heurística deliberadamente laxa: sólo detecta la ausencia total.
+const REAL_ACTION =
+  /\b(curl|POST|PUT|PATCH|DELETE)\b|\b(envi[eé]|envio|mand[eé]|escrib[ií]|puls[eé]|hice\s+clic|clic|click|inici[eé]\s+sesi[oó]n|con\s+sesi[oó]n|logueado|respondi[oó]|respuesta|response|submit)\b/i;
+
+export function mainFlowWarnings(md = '') {
+  const s = parseSections(md);
+  const text = ['verificacion', 'preview', 'que se hizo'].map((k) => section(s, k) ?? '').join('\n');
+  if (REAL_ACTION.test(text)) return [];
+  return ['La evidencia no menciona ninguna acción real sobre el producto: di qué mensaje o acción ejerciste con sesión y qué respondió (abrir /login o la home no prueba la función principal).'];
+}
+
 // ---------- «probado en la preview del PR #N» (Formmy, fila 40) ----------
 // Un PR basado en main a veces no puede probar logueado en su propia preview y la prueba se hace en la de otro PR.
 // Esa referencia vale SÓLO si el otro PR contiene el mismo commit que se va a mergear: si no, lo probado es otro código.

@@ -159,6 +159,8 @@ export function diagnose(dir, opts = {}) {
   const r = diagnoseOAuth(dir, opts);
   const id = identityCheck(dir);
   if (id) r.checks.push(id);
+  const smoke = smokeCheck(dir);
+  if (smoke) r.checks.push(smoke);
   return r;
 }
 
@@ -175,6 +177,40 @@ export function identityCheck(dir) {
     ok: null,
     detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa',
     fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL) y súbela a main',
+  };
+}
+
+// Smoke de la función principal (Formmy, filas 44/46): `smoke:` en .ghosty/factory.md con sólo rutas de login u home
+// da verde aunque la función principal esté rota. Avisa (ok: null), nunca falla.
+const TRIVIAL_SMOKE = /^\/?(?:login|log-in|signin|sign-in|signup|auth(?:\/[\w-]*)*|home|index(?:\.html)?|health|healthz|status|ping)?\/?(?:[?#].*)?$/i;
+export function smokePaths(text) {
+  const front = String(text).match(/^---\n([\s\S]*?)\n---/)?.[1];
+  if (!front) return null;
+  const lines = front.split('\n');
+  const i = lines.findIndex((l) => /^smoke\s*:/.test(l));
+  if (i === -1) return null;
+  const block = [lines[i].replace(/^smoke\s*:/, '')];
+  for (const l of lines.slice(i + 1)) {
+    if (/^\S/.test(l) && !l.startsWith('-')) break; // otra clave del frontmatter
+    block.push(l);
+  }
+  return [...block.join('\n').replace(/#.*$/gm, '').matchAll(/(?:^|[\s\[,'"-])(\/[^\s,\]'"]*)/g)].map((m) => m[1]);
+}
+export function smokeCheck(dir) {
+  let text;
+  try {
+    text = readFileSync(join(dir, '.ghosty', 'factory.md'), 'utf8');
+  } catch {
+    return null;
+  }
+  const paths = smokePaths(text);
+  if (!paths?.length) return null;
+  if (!paths.every((p) => TRIVIAL_SMOKE.test(p))) return { name: 'smoke-principal', ok: true, detail: `el smoke recorre algo más que login u home (${paths.join(', ')})`, fix: null };
+  return {
+    name: 'smoke-principal',
+    ok: null,
+    detail: `smoke: sólo prueba ${paths.join(', ')}: la página abre, pero la función principal puede estar rota y el smoke seguiría en verde`,
+    fix: 'agrega a smoke: una ruta que ejerza la función principal (la que usa tu cliente: un listado con datos, un endpoint que responda) y, en la evidencia del pendiente, qué mensaje o acción real ejerciste con sesión',
   };
 }
 
