@@ -75,11 +75,12 @@ test('protect --dry-run lista los PR abiertos que quedarían bloqueados y por qu
   const r = s.run('protect', '--dry-run', '--json');
   assert.equal(r.code, 0, r.err);
   const out = JSON.parse(r.out);
-  assert.deepEqual(out.blocked.map((b) => b.pr), [10]);
-  assert.deepEqual(out.informative.map((b) => b.pr), [11]);
+  assert.deepEqual(out.blocked.map((b) => b.pr), [10, 11]);
+  assert.match(out.blocked[1].reasons[0], /ghosty-dev claim --pr 11 --issue <n>/);
+  assert.deepEqual(out.informative, []);
   assert.ok(out.blocked[0].reasons.some((l) => /#6: sin comentario de evidencia válido/.test(l)));
   assert.deepEqual(out.drafts.map((d) => d.pr), [12]);
   assert.equal(s.read().protection, undefined);
   assert.ok(s.read().calls.every((c) => c[0] === 'api' && c[2] === 'GET'));
-  assert.match(s.run('protect', '--dry-run').out, /Quedarían bloqueados 1 PR abierto\(s\):\n {2}#10 Le falta\n {4}- #6: falta la revisión/);
+  assert.match(s.run('protect', '--dry-run').out, /Quedarían bloqueados 2 PR abierto\(s\):\n {2}#10 Le falta\n {4}- #6: falta la revisión/);
 });

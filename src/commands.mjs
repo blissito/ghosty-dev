@@ -692,14 +692,14 @@ export function protectPreview(dir) {
       drafts.push({ ...row, reason: 'borrador: la puerta no lo bloquea hasta marcarlo listo' });
       continue;
     }
-    let unlinked = 'inform';
+    let unlinked = 'block';
     try {
       unlinked = unlinkedPolicy(readFileSync(join(dir, '.github/ghosty-dev/config.json'), 'utf8'));
     } catch {}
     const r = evaluatePullRequest(p, fetchIssue, null, { unlinked });
     if (r.informative) informative.push({ ...row, reason: r.lines[0] });
     else if (r.ok) passing.push(row);
-    else blocked.push({ ...row, reasons: r.lines.filter((l) => !/válida\.$|sin hallazgos abiertos\.$|sin hallazgos\.$/.test(l)) });
+    else blocked.push({ ...row, reasons: r.lines.filter((l) => !/válida\.$|sin hallazgos abiertos\.$|sin hallazgos\.$|^Informativo:/.test(l)) });
   }
   return { repo, branch, gateOnBase, already, blocked, drafts, informative, passing };
 }

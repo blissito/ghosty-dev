@@ -38,28 +38,31 @@ export function externalReview(config, checkRuns = [], sha = '') {
   return { state: last.conclusion === 'success' ? 'passed' : 'findings', ...config };
 }
 
-// Un PR fuera de la bitácora (no cierra ningún pendiente): por defecto la puerta lo marca INFORMATIVO, en verde con
-// el comando que lo regulariza (Formmy, fila 32: el trabajo real casi nunca nace con claim). Con
-// `"unlinked": "block"` en .github/ghosty-dev/config.json de la base, vuelve a ser rojo.
+// Un PR fuera de la bitácora (no cierra ningún pendiente) BLOQUEA por defecto (falla cerrada), con el comando exacto
+// que lo liga. Sólo con `"unlinked": "warn"` en .github/ghosty-dev/config.json de la base pasa con aviso.
 export function unlinkedPolicy(raw) {
   try {
-    return JSON.parse(raw || '{}').unlinked === 'block' ? 'block' : 'inform';
+    return JSON.parse(raw || '{}').unlinked === 'warn' ? 'inform' : 'block';
   } catch {
-    return 'inform';
+    return 'block';
   }
 }
 
 // Puro: recibe el PR y una función que trae cada issue ({ body, comments }). `external` = externalReview(…) o null.
-export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'inform' } = {}) {
+export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block' } = {}) {
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
     const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
     if (unlinked === 'block') return { ok: false, lines: [`El PR no cierra ningún pendiente: ${fix}.`] };
+    // Sólo con "unlinked": "warn".
     return { ok: true, informative: true, lines: [`El PR no está ligado a un pendiente: la puerta no tiene qué juzgar (informativo). Regularízalo: ${fix}.`] };
   }
   const sha = pr.head?.sha || '';
   const short = sha.slice(0, 7);
   const lines = [];
+  // Rama fuera del patrón ghosty-dev/<n>-…: informativo, no cambia el veredicto (lo que juzga es el pendiente).
+  const ref = pr.head?.ref;
+  if (ref && !/^ghosty-dev\/\d+-/.test(ref)) lines.push(`Informativo: la rama ${ref} no sigue el patrón ghosty-dev/<n>-…; la puerta juzga ${refs.map((r) => '#' + r).join(', ')} igual.`);
   let ok = true;
   for (const n of refs) {
     const issue = fetchIssue(n);
@@ -119,7 +122,7 @@ export function main() {
   });
   // La configuración sale de la rama base (el checkout de la Action), igual que este script.
   let config = null;
-  let unlinked = 'inform';
+  let unlinked = 'block';
   try {
     const raw = readFileSync(new URL('./config.json', import.meta.url), 'utf8');
     config = reviewCheckConfig(raw);

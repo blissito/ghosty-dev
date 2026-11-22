@@ -300,7 +300,7 @@ try {
         x.blocked.length ? `Quedarían bloqueados ${x.blocked.length} PR abierto(s):` : 'Ningún PR abierto quedaría bloqueado.',
         ...x.blocked.map((b) => `  #${b.pr} ${b.title}\n${b.reasons.map((l) => `    - ${l}`).join('\n')}`),
         ...(x.drafts.length ? ['Borradores (no se bloquean hasta marcarlos listos):', ...x.drafts.map((d) => `  #${d.pr} ${d.title}`)] : []),
-        ...(x.informative.length ? ['Fuera de la bitácora (pasan con aviso; ligarlos: ghosty-dev claim --pr <m> --issue <n>):', ...x.informative.map((d) => `  #${d.pr} ${d.title}`)] : []),
+        ...(x.informative.length ? ['Fuera de la bitácora (pasan con aviso por "unlinked": "warn"; ligarlos: ghosty-dev claim --pr <m> --issue <n>):', ...x.informative.map((d) => `  #${d.pr} ${d.title}`)] : []),
         ...(x.passing.length ? [`Pasan ya: ${x.passing.map((p) => '#' + p.pr).join(', ')}`] : []),
         'No se cambió nada.',
       ].join('\n'),

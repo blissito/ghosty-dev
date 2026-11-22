@@ -59,12 +59,21 @@ test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 
-test('un PR que no cierra ningún pendiente pasa informativo con el comando que lo liga; con unlinked: block, rojo (C9)', () => {
+test('un PR que no cierra ningún pendiente bloquea con el comando que lo liga; con unlinked: warn, pasa con aviso (C9)', () => {
   const r = evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null);
-  assert.equal(r.ok, true);
-  assert.equal(r.informative, true);
-  assert.match(r.lines[0], /no está ligado a un pendiente.*ghosty-dev claim --pr 76 --issue <n>/);
-  assert.equal(evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null, null, { unlinked: unlinkedPolicy('{"unlinked":"block"}') }).ok, false);
+  assert.equal(r.ok, false);
+  assert.match(r.lines[0], /no cierra ningún pendiente: ghosty-dev claim --pr 76 --issue <n> \(o agrega «Closes #n» a la descripción\)/);
+  assert.equal(unlinkedPolicy('{}'), 'block');
+  assert.equal(unlinkedPolicy('no es json'), 'block');
+  const warn = evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null, null, { unlinked: unlinkedPolicy('{"unlinked":"warn"}') });
+  assert.equal(warn.ok, true);
+  assert.equal(warn.informative, true);
+});
+
+test('rama fuera del patrón: línea informativa, el veredicto lo da el pendiente (C9)', () => {
+  const r = evaluatePullRequest({ number: 76, body: 'Closes #5', head: { ref: 'fix/puerta', sha: 'abc1234' } }, () => ({ body: '', comments: [] }));
+  assert.equal(r.ok, false);
+  assert.match(r.lines[0], /^Informativo: la rama fix\/puerta no sigue el patrón/);
 });
 
 test('revisión válida: comandos con salida, ataques y hallazgos que cuadran', () => {

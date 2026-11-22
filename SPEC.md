@@ -195,9 +195,10 @@ arregla»). Una puerta rota nunca deja pasar.
 **Lo que ya existe se adopta, no se rehace.** El PR de un pendiente es el de su rama `ghosty-dev/<n>-…` o cualquier PR
 abierto que lo cierre (`Closes #n`). `claim --pr <m> --issue <n>` adopta un PR abierto a mano (asigna, pone `tomado`,
 agrega `Closes #n` si falta; sin rama ni worktree nuevos); `review <n> --pr <m>` y `evidence <n> --pr <m>` lo nombran.
-Un PR sin `Closes #n` (fuera de la bitácora) la puerta lo marca **informativo**: verde con `::warning` y el comando que
-lo liga; `ready` y `show` también lo avisan. Con `"unlinked": "block"` en `.github/ghosty-dev/config.json` de la base,
-vuelve a ser rojo.
+Un PR sin `Closes #n` (fuera de la bitácora) **bloquea** (falla cerrada) con el comando exacto que lo liga
+(`ghosty-dev claim --pr <m> --issue <n>` o agregar «Closes #n»); `ready` y `show` también lo avisan. Sólo con
+`"unlinked": "warn"` en `.github/ghosty-dev/config.json` de la base pasa con aviso (`::warning`). Una rama fuera del
+patrón `ghosty-dev/<n>-…` que sí cierra un pendiente es sólo informativa: la puerta juzga el pendiente igual.
 
 **Publicar evidencia re-dispara la puerta.** `evidence` (y `review --file`) re-corren el último run de la puerta del
 commit HEAD del PR. Para lo que se publique por otro lado, el workflow escucha `issue_comment` (`created`, `edited`):
@@ -305,7 +306,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C6 | `evidence` rechaza lo inválido sin publicar y publica lo válido con la marca | `evidence rechaza lo inválido…` |
 | C7 | `close` se niega sin evidencia válida | `close sin evidencia se niega…` |
 | C8 | la evidencia exige comandos con salida, CI en verde y todos los criterios marcados | `evidence.test.mjs` |
-| C9 | la puerta falla con un pendiente sin evidencia; un PR sin `Closes #n` pasa informativo con el comando que lo liga (`"unlinked": "block"` lo vuelve rojo) | `la puerta encuentra…`, `un PR que no cierra…` |
+| C9 | la puerta falla con un pendiente sin evidencia y con un PR sin `Closes #n` (con el comando que lo liga; `"unlinked": "warn"` lo deja pasar con aviso); una rama fuera del patrón es sólo informativa | `la puerta encuentra…`, `un PR que no cierra…` |
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
 | C13 | `claim --cloud` va por la API con la sesión de ghosty-dev sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube; `--pr` sin id no inventa pendiente; 403 `insufficient_scope` pide `login --force`; base sin https, redirección a otro host y sesión de otro servidor no mandan el token; ninguna salida lleva tokens | `test/cloud.test.mjs` |
