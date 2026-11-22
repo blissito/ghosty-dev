@@ -204,6 +204,33 @@ issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada
 La implementación de referencia es Ghosty Studio (`ghosty dev`, con sesión de `ghosty login`). Este CLI sólo
 delega en ese binario (`GHOSTY_DEV_GHOSTY` lo cambia).
 
+## 5c. Servicios del PR
+
+Los servicios cuelgan del PR, no del agente que escribe: en un repo conectado a la plataforma, todo PR no borrador
+recibe por webhook la vista previa, la revisión, el smoke y la ficha, lo abra un agente de la nube o uno en
+terminal. Un agente de terminal se entera de todo con este CLI, sin otro. La plataforma publica, sobre el commit HEAD
+del PR:
+
+| Servicio | Dónde | Cuenta como CI |
+|---|---|---|
+| Vista previa | check run `Ghosty · Preview` + Deployment del commit (`environment_url` = la liga) | no |
+| Revisión | check run `Ghosty Review`; los hallazgos, como comentarios en línea del PR | no |
+| Smoke contra la vista previa | check run `Ghosty · Smoke` | **sí** |
+| Revisiones del push | check run `Ghosty · Revisiones del push` | no |
+| Ficha | comentario fijo `<!-- ghosty-dev:ficha -->` en el PR (y en el issue) | — |
+
+**Lista normativa de checks que NO son CI** (`NOT_CI_CHECKS` en `src/commands.mjs`, la misma que usa la
+plataforma): `Ghosty Review`, `ghosty-dev/evidencia`, `Ghosty · Preview`, `Ghosty · Revisiones del push`. Además,
+nada que empiece con `ghosty-dev` cuenta. Todo lo demás (Actions, statuses, `Ghosty · Smoke`) es CI: cero checks
+de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
+
+- `show <n>` imprime la ficha del PR (si no hay, la del issue) y una sección «Servicios del PR» con la vista previa
+  (y la liga de su Deployment), la revisión (y cuántos comentarios en línea dejó un bot sobre ese commit), el smoke
+  y el CI. Con varios checks del mismo nombre manda el más reciente.
+- `wait <n> --watch` reporta en stderr cuando la vista previa o la revisión del commit actual terminan (lista,
+  falló, neutral con su título, p. ej. los hallazgos), sin esperarlas: el veredicto verde/rojo es del CI. Al volver,
+  `services` trae su estado.
+
 ## 6. Pruebas de conformidad
 
 Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con un `gh` falso y sin red):
@@ -214,7 +241,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C2 | `block` sin API nativa escribe `## Bloqueado por` y el bloqueo se respeta | `block sin API de dependencias…` |
 | C3 | `claim` asigna, pone `tomado` y crea rama + worktree | `claim asigna…` |
 | C4 | un solo escritor: no se toma lo asignado a otro; en una carrera, uno se retira | `un solo escritor…`, `si dos se asignan…` |
-| C5 | `esperando` no se ofrece mientras el CI corre; sí cuando resolvió (sin contar la propia puerta) | `wait deja el pendiente esperando…` |
+| C5 | `esperando` no se ofrece mientras el CI corre; sí cuando resolvió (sin contar los checks de la plataforma, §5c) | `wait deja el pendiente esperando…` |
 | C6 | `evidence` rechaza lo inválido sin publicar y publica lo válido con la marca | `evidence rechaza lo inválido…` |
 | C7 | `close` se niega sin evidencia válida | `close sin evidencia se niega…` |
 | C8 | la evidencia exige comandos con salida, CI en verde y todos los criterios marcados | `evidence.test.mjs` |
@@ -225,6 +252,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C15 | `show` imprime la ficha del comentario fijo más reciente, sin la línea de pie | `show trae la ficha…` |
 | C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
+| C17 | el CI no cuenta los checks de la lista normativa (§5c) y sí el smoke; `wait --watch` no espera a la vista previa y avisa cuando la revisión termina; `show` lee la ficha del PR antes que la del issue y los servicios del commit del PR | `el CI no cuenta…`, `wait --watch no espera…`, `show lee la ficha del PR…` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1

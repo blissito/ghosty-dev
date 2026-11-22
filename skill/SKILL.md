@@ -25,7 +25,14 @@ cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree
 # … código y tests …
 git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
 ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
+ghosty-dev show <n>                # la ficha y los servicios del PR: vista previa (con su liga), revisión, smoke y CI
 ```
+
+- **Servicios del PR.** Si el repo está conectado a Ghosty Studio, todo PR recibe solo, por webhook, su vista
+  previa, la revisión de Ghosty Review (hallazgos como comentarios en línea), el smoke y la ficha, lo hayas abierto
+  tú o un agente de la nube. No necesitas otro CLI: `wait --watch` avisa cuando la vista previa y la revisión
+  terminan (sin esperarlas: el veredicto verde/rojo es del CI, y el smoke cuenta como CI) y `show <n>` te da su
+  estado y la liga de la vista previa. Con hallazgos, arréglalos en la misma rama y vuelve a subir.
 
 - **La persona te pidió algo** (`ready` dice `reason: pedido`, o `wait` regresa con `asks`) → eso manda sobre lo
   demás: hazlo en la misma rama, sube y vuelve a esperar. `ghosty-dev asks <n>` los lee y los marca leídos. La

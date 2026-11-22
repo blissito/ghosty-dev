@@ -60,6 +60,7 @@ ghosty-dev ready                         # #1  listo  Agregar /health
 ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en ../tu-repo-1
 # … el agente trabaja en ../tu-repo-1, abre el PR con «Closes #1» …
 ghosty-dev wait 1 --watch                # espera al CI en una sola llamada, sin sondear (tope 5 min)
+ghosty-dev show 1                        # ficha y servicios del PR: vista previa, revisión, smoke y CI
 # el subagente ghosty-dev-revisor (contexto limpio) intenta romperlo y publica:
 ghosty-dev review 1 --file revision.md   # atada al commit del PR; con hallazgos, se arregla y se repite
 ghosty-dev evidence 1 --file evidencia.md
@@ -98,6 +99,11 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 `show <n>` · `close <n>`.
+
+Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
+la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
+previa y la revisión terminan (el CI decide el verde) y `show <n>` imprime su estado en «Servicios del PR», con la liga
+de la vista previa. Los checks de la plataforma que no cuentan como CI están en [SPEC.md §5c](SPEC.md).
 
 En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty login`): `claim <n> --cloud` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 

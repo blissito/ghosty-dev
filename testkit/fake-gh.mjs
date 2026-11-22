@@ -127,6 +127,13 @@ if (group === 'label' && verb === 'create') {
     if (method === 'DELETE') i.assignees = i.assignees.filter((a) => !body.assignees.includes(a));
     out(rest(i));
   }
+  else if ((m = path.match(/issues\/(\d+)\/comments$/)) && !db.issues[m[1]] && db.prs.some((p) => String(p.number) === m[1])) {
+    // Comentarios de la conversación de un PR (ahí también vive la ficha).
+    out(page((db.prs.find((p) => String(p.number) === m[1]).comments ?? []).map((c) => ({ body: c.body, user: { login: c.author?.login } }))));
+  }
+  else if ((m = path.match(/pulls\/(\d+)\/comments$/))) out(page(db.prs.find((p) => String(p.number) === m[1])?.reviewComments ?? []));
+  else if (path.endsWith('/deployments')) out((db.deployments ?? []).filter((d) => d.sha === q.get('sha')).map((d) => ({ id: d.id, sha: d.sha })));
+  else if ((m = path.match(/deployments\/(\d+)\/statuses$/))) out((db.deployments ?? []).filter((d) => String(d.id) === m[1]).map((d) => ({ state: 'success', environment_url: d.url })));
   else if ((m = path.match(/issues\/(\d+)\/comments$/))) {
     const i = issue(m[1]);
     if (method === 'POST') {
@@ -151,8 +158,10 @@ if (group === 'label' && verb === 'create') {
     const p = prBySha(m[1]);
     // Simula que el CI termina mientras se espera: la segunda lectura de un check corriendo ya lo ve terminado.
     const runs = (p?.statusCheckRollup || []).map((c) => {
-      const seen = { name: c.name, status: c.status === 'COMPLETED' ? 'completed' : 'in_progress', conclusion: c.conclusion ? c.conclusion.toLowerCase() : null };
-      if (c.status !== 'COMPLETED' && db.ciResult !== undefined) Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult });
+      const seen = { id: c.id, name: c.name, status: c.status === 'COMPLETED' ? 'completed' : 'in_progress', conclusion: c.conclusion ? c.conclusion.toLowerCase() : null, details_url: c.detailsUrl, output: c.title ? { title: c.title } : undefined };
+      // `then` simula un servicio de la plataforma que termina con otra conclusión (y título) que el CI.
+      if (c.status !== 'COMPLETED' && c.then) Object.assign(c, { status: 'COMPLETED', ...c.then });
+      else if (c.status !== 'COMPLETED' && db.ciResult !== undefined) Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult });
       return seen;
     });
     out({ check_runs: page(runs) });

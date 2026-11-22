@@ -26,13 +26,15 @@ Uso: ghosty-dev <comando> [opciones]
   stop <n>                               detiene #n en la nube y libera su lugar
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI o a un pedido de la persona
+                                         (tope 5 min), dice si quedó verde o rojo y avisa cuando la vista previa y la
+                                         revisión de Ghosty terminan (no las espera: el CI manda)
   asks <n> [--peek]                      los pedidos nuevos de la persona (@ghosty o desde Ghosty); los marca leídos
-                                         (tope 5 min) y dice si quedó verde o rojo
   evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
   evidence --check --file e.md [--issue-file pendiente.md]
   review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
   block <n> --by <m>                     #n queda bloqueado por #m
-  show <n> [--json]                      estado, bloqueos y si ya tiene evidencia
+  show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
+                                         (vista previa, revisión, smoke y CI del commit actual)
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
 Opciones globales: --json (salida en JSON), -h/--help
@@ -106,6 +108,18 @@ async function showBanner(data) {
 const printCloud = (r) =>
   print(r, (x) => `${x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty dev watch ${x.id}   ·   Detenlo: ghosty-dev stop ${x.number}`);
 
+// Una línea por servicio de la plataforma (vista previa, revisión, smoke) y el CI del commit del PR.
+const SERVICE_WORD = { pendiente: 'en curso', listo: 'lista', fallo: 'falló', neutral: 'neutral', 'sin-check': '—' };
+function serviceLine(key, s) {
+  const label = { preview: 'Vista previa', review: 'Revisión', smoke: 'Smoke' }[key];
+  const word = key === 'review' && s.status === 'listo' ? 'terminada' : SERVICE_WORD[s.status];
+  const extra = [s.title, key === 'review' && s.comments ? `${s.comments} comentario(s) de hallazgos` : null].filter(Boolean).join(' · ');
+  const url = key === 'preview' ? s.deployment ?? s.url : s.url;
+  return `  ${label}: ${word}${extra ? ` (${extra})` : ''}${url ? `\n    ${url}` : ''}`;
+}
+const servicesBlock = (sv) =>
+  sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...['preview', 'review', 'smoke'].map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
+
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
   else console.log(human(data));
@@ -178,7 +192,9 @@ try {
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait') {
-    const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined });
+    // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
+    const onService = (key, s) => console.error(serviceLine(key, s).trim());
+    const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
     print(r, (x) =>
       x.asks?.length
         ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
@@ -188,7 +204,7 @@ try {
           ? `#${x.number} no tiene PR abierto todavía.`
           : x.ci === 'sin-checks'
             ? `#${x.number}: el commit actual del PR no tiene checks (¿el repo tiene CI en pull_request?). No es verde.`
-            : `#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Pide la revisión (subagente ghosty-dev-revisor).' : ' Arréglalo y vuelve a subir.'}`,
+            : [`#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Pide la revisión (subagente ghosty-dev-revisor).' : ' Arréglalo y vuelve a subir.'}`, ...servicesBlock(x.services)].join('\n'),
     );
   } else if (command === 'asks') {
     const r = cmd.asks(num(arg), { peek: values.peek });
@@ -209,6 +225,8 @@ try {
         `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
         `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
         `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
+        ...(x.pr ? [`  PR: ${x.pr}`] : []),
+        ...servicesBlock(x.services),
         ...(x.ficha ? ['', x.ficha] : []),
       ].join('\n'),
     );

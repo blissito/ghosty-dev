@@ -448,3 +448,85 @@ test('init pide 8gb en un monorepo o con --max-old-space-size, y nunca pisa el m
     assert.equal(readFileSync(join(heavy.repo, '.ghosty/factory.md'), 'utf8'), own);
   }
 });
+
+test('el CI no cuenta Review, Preview, Revisiones del push ni la puerta; el Smoke sí (C17)', async () => {
+  const { ciVerdict, NOT_CI_CHECKS } = await import('../src/commands.mjs');
+  assert.deepEqual([...NOT_CI_CHECKS], ['Ghosty Review', 'ghosty-dev/evidencia', 'Ghosty · Preview', 'Ghosty · Revisiones del push']);
+  const done = (name, conclusion = 'success') => ({ name, status: 'completed', conclusion });
+  const running = (name) => ({ name, status: 'in_progress', conclusion: null });
+  // Un Preview o una revisión en curso no dejan el CI en pendiente.
+  assert.equal(ciVerdict({ runs: [done('test'), running('Ghosty · Preview'), running('Ghosty Review'), running('Ghosty · Revisiones del push')] }), 'verde');
+  assert.equal(ciVerdict({ runs: [done('test'), done('Ghosty · Preview', 'failure')] }), 'verde');
+  // Sólo checks de la plataforma: cero CI, no es verde.
+  assert.equal(ciVerdict({ runs: [done('Ghosty Review'), done('ghosty-dev/evidencia', 'failure')] }), 'sin-checks');
+  // El smoke contra la vista previa sí frena.
+  assert.equal(ciVerdict({ runs: [done('test'), running('Ghosty · Smoke')] }), 'pendiente');
+  assert.equal(ciVerdict({ runs: [done('test'), done('Ghosty · Smoke', 'failure')] }), 'rojo');
+});
+
+test('wait --watch no espera a la vista previa: el CI manda, y avisa cuando la revisión termina (C17)', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-a'] }) },
+    prs: [{
+      number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', headRefOid: SHA,
+      statusCheckRollup: [
+        { id: 1, name: 'test', status: 'IN_PROGRESS' },
+        { id: 2, name: 'Ghosty · Preview', status: 'IN_PROGRESS', title: 'La vista previa se está construyendo', then: { status: 'IN_PROGRESS' } },
+        { id: 3, name: 'Ghosty Review', status: 'IN_PROGRESS', then: { conclusion: 'NEUTRAL', title: '2 hallazgos' } },
+      ],
+    }],
+    ciResult: 'SUCCESS',
+  });
+  const r = s.run('wait', '5', '--watch', '--json');
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.ci, 'verde');
+  assert.equal(out.services.preview.status, 'pendiente');
+  assert.equal(out.services.review.status, 'neutral');
+  assert.equal(out.services.review.title, '2 hallazgos');
+  assert.match(r.err, /Revisión: neutral \(2 hallazgos\)/);
+  assert.doesNotMatch(r.err, /Vista previa/);
+});
+
+test('show lee la ficha del PR (antes que la del issue) y los servicios del commit del PR (C17)', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:esperando-ci'], assignees: ['agente-a'] }) },
+    prs: [{
+      number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', headRefOid: SHA,
+      comments: [{ body: '<!-- ghosty-dev:ficha -->\n**👻 Ficha del pendiente**\n\n| Estado | Del PR |' }],
+      reviewComments: [
+        { commit_id: SHA, user: { login: 'ghosty-studio[bot]', type: 'Bot' } },
+        { commit_id: 'viejo', user: { login: 'ghosty-studio[bot]', type: 'Bot' } },
+        { commit_id: SHA, user: { login: 'persona', type: 'User' } },
+      ],
+      statusCheckRollup: [
+        { id: 1, name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { id: 2, name: 'Ghosty · Preview', status: 'IN_PROGRESS', title: 'La vista previa se está construyendo' },
+        { id: 4, name: 'Ghosty · Preview', status: 'COMPLETED', conclusion: 'SUCCESS', title: 'Vista previa lista', detailsUrl: 'https://ghosty.studio/app/dev/r1' },
+        { id: 3, name: 'Ghosty Review', status: 'COMPLETED', conclusion: 'NEUTRAL', title: '1 hallazgo' },
+        { id: 5, name: 'Ghosty · Smoke', status: 'COMPLETED', conclusion: 'FAILURE', title: '/login responde 500' },
+      ],
+    }],
+    deployments: [{ id: 77, sha: SHA, url: 'https://pr-9.preview.ghosty.studio' }],
+  });
+  const db = s.read();
+  db.issues[5].comments.push({ body: '<!-- ghosty-dev:ficha -->\n| Estado | Del issue |' });
+  writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db));
+  const r = JSON.parse(s.run('show', '5', '--json').out);
+  assert.match(r.ficha, /Del PR/);
+  assert.equal(r.services.preview.status, 'listo');
+  assert.equal(r.services.preview.deployment, 'https://pr-9.preview.ghosty.studio');
+  assert.equal(r.services.review.comments, 1);
+  assert.equal(r.services.smoke.status, 'fallo');
+  assert.equal(r.services.ci, 'rojo');
+  const human = s.run('show', '5').out;
+  assert.match(human, /Servicios del PR \(commit a1b2c3d\):/);
+  assert.match(human, /Vista previa: lista \(Vista previa lista\)\n {4}https:\/\/pr-9\.preview\.ghosty\.studio/);
+  assert.match(human, /Revisión: neutral \(1 hallazgo · 1 comentario\(s\) de hallazgos\)/);
+  assert.match(human, /Smoke: falló/);
+  // Sin ficha en el PR, cae a la del issue.
+  const db2 = s.read();
+  db2.prs[0].comments = [];
+  writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db2));
+  assert.match(JSON.parse(s.run('show', '5', '--json').out).ficha, /Del issue/);
+});

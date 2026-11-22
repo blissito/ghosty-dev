@@ -72,22 +72,82 @@ function openBlockers(issue, openNumbers) {
   return [...all].filter((n) => openNumbers.has(n));
 }
 
-// CI del PR del pendiente (rama ghosty-dev/<n>-…), sin contar la propia puerta de evidencia.
-function ciOf(n) {
-  const pr = openPrs().find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`));
-  if (!pr) return { status: 'sin-pr' };
-  // Check-runs (Actions y apps) + statuses clásicos del commit del PR.
-  const runs = apiAll(`${REPO}/commits/${pr.headRefOid}/check-runs`, { pick: (r) => r.check_runs, allowFail: true }) ?? [];
-  const statuses = api('GET', `${REPO}/commits/${pr.headRefOid}/status`, undefined, { allowFail: true })?.statuses ?? [];
+// Checks que publica la plataforma (Ghosty Studio) y que NO son el CI del repo: la revisión, la puerta de evidencia,
+// la vista previa y las revisiones del push. Lista normativa (SPEC §5c), la misma que el CI_IGNORE de gs. El
+// «Ghosty · Smoke» NO va aquí: una ruta que truena contra la vista previa sí frena el merge, así que cuenta como CI.
+export const REVIEW_CHECK = 'Ghosty Review';
+export const PREVIEW_CHECK = 'Ghosty · Preview';
+export const PUSH_CHECK = 'Ghosty · Revisiones del push';
+export const SMOKE_CHECK = 'Ghosty · Smoke';
+export const NOT_CI_CHECKS = Object.freeze([REVIEW_CHECK, 'ghosty-dev/evidencia', PREVIEW_CHECK, PUSH_CHECK]);
+// Además de la lista, todo lo que empiece con `ghosty-dev` es de la propia bitácora (la puerta y sus variantes).
+export const isCiCheck = (name = '') => !NOT_CI_CHECKS.includes(name) && !name.startsWith('ghosty-dev');
+
+const RED = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'error'];
+
+// Check-runs (Actions y apps) + statuses clásicos del commit del PR, en una sola lectura.
+function commitChecks(sha) {
+  const runs = apiAll(`${REPO}/commits/${sha}/check-runs`, { pick: (r) => r.check_runs, allowFail: true }) ?? [];
+  const statuses = api('GET', `${REPO}/commits/${sha}/status`, undefined, { allowFail: true })?.statuses ?? [];
+  return { runs, statuses };
+}
+
+// Veredicto del CI con lo ya leído: sólo los checks que cuentan como CI.
+export function ciVerdict({ runs = [], statuses = [] }) {
   const checks = [
     ...runs.map((c) => ({ name: c.name, done: c.status === 'completed', result: c.conclusion })),
     ...statuses.map((c) => ({ name: c.context, done: c.state !== 'pending', result: c.state })),
-  ].filter((c) => !(c.name || '').startsWith('ghosty-dev'));
+  ].filter((c) => isCiCheck(c.name || ''));
   // Justo después de un push GitHub aún no registra los checks del commit nuevo: cero checks NO es verde.
-  if (checks.length === 0) return { status: 'sin-checks', pr };
-  if (checks.some((c) => !c.done)) return { status: 'pendiente', pr };
-  const red = checks.some((c) => ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'error'].includes(c.result));
-  return { status: red ? 'rojo' : 'verde', pr };
+  if (checks.length === 0) return 'sin-checks';
+  if (checks.some((c) => !c.done)) return 'pendiente';
+  return checks.some((c) => RED.includes(c.result)) ? 'rojo' : 'verde';
+}
+
+// El check más reciente con ese nombre (al volver a «en curso» la plataforma crea uno nuevo; GitHub enseña el último).
+function latestRun(runs, name) {
+  const same = runs.filter((r) => r.name === name);
+  return same.sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0] ?? null;
+}
+
+// Estado de un servicio de la plataforma a partir de su check: pendiente | listo | fallo | neutral | sin-check.
+export function serviceOf(run) {
+  if (!run) return { status: 'sin-check', title: null, url: null };
+  const status = run.status !== 'completed' ? 'pendiente' : run.conclusion === 'success' ? 'listo' : RED.includes(run.conclusion) ? 'fallo' : 'neutral';
+  return { status, title: run.output?.title ?? null, url: run.details_url ?? run.html_url ?? null };
+}
+
+// Servicios del PR leídos de los checks del commit HEAD. Con `deep`, además la liga del Deployment de la vista
+// previa y cuántos comentarios en línea dejó Ghosty Review sobre ese commit (dos llamadas más, sólo cuando se piden).
+export function prServices(pr, { deep = false, checks } = {}) {
+  const got = checks ?? commitChecks(pr.headRefOid);
+  const out = {
+    sha: pr.headRefOid,
+    preview: serviceOf(latestRun(got.runs, PREVIEW_CHECK)),
+    review: serviceOf(latestRun(got.runs, REVIEW_CHECK)),
+    smoke: serviceOf(latestRun(got.runs, SMOKE_CHECK)),
+    ci: ciVerdict(got),
+  };
+  if (deep) {
+    const dep = (api('GET', `${REPO}/deployments?sha=${pr.headRefOid}&per_page=5`, undefined, { allowFail: true }) ?? [])[0];
+    if (dep) {
+      const st = (api('GET', `${REPO}/deployments/${dep.id}/statuses?per_page=1`, undefined, { allowFail: true }) ?? [])[0];
+      if (st?.environment_url) out.preview.deployment = st.environment_url;
+    }
+    if (out.review.status !== 'sin-check') {
+      const comments = apiAll(`${REPO}/pulls/${pr.number}/comments`, { allowFail: true });
+      if (comments) out.review.comments = comments.filter((c) => c.commit_id === pr.headRefOid && c.user?.type === 'Bot').length;
+    }
+  }
+  return out;
+}
+
+// CI del PR del pendiente (rama ghosty-dev/<n>-…), sin contar los checks de la plataforma (NOT_CI_CHECKS).
+function ciOf(n) {
+  const pr = prOf(n);
+  if (!pr) return { status: 'sin-pr' };
+  const checks = commitChecks(pr.headRefOid);
+  return { status: ciVerdict(checks), pr, checks };
 }
 
 const me = () => api('GET', 'user').login;
@@ -224,7 +284,10 @@ export function asks(n, { peek = false } = {}) {
 
 // Ley 3: esperar no es sondear. Con --watch, una sola llamada bloqueante del CLI espera al CI (el CLI mira cada
 // 10 s; el agente no gasta tokens); si tarda más que el tope, el pendiente queda en esperando-ci y el agente sigue con otro.
-export function wait(n, { watch = false, minutes = 5 } = {}) {
+// La vista previa y la revisión del commit actual se reportan cuando terminan (`onService`), pero no detienen la
+// espera ni deciden el veredicto: el CI manda. Al volver, `services` trae su estado final.
+const DONE = (s) => s !== 'pendiente' && s !== 'sin-check';
+export function wait(n, { watch = false, minutes = 5, onService = () => {} } = {}) {
   const issue = viewIssue(n);
   const state = stateOf(issue);
   if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
@@ -240,11 +303,25 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
   if (got.length) return { number: n, state: 'esperando', asks: got };
   let before = ciOf(n);
   if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr' };
+  // Lo que ya terminó al empezar no se vuelve a anunciar; sólo los cambios mientras se espera.
+  const reported = {};
+  const track = (ci) => {
+    if (!ci.pr) return;
+    const sv = prServices(ci.pr, { checks: ci.checks });
+    for (const key of ['preview', 'review']) {
+      const sig = `${ci.pr.headRefOid}|${sv[key].status}`;
+      if (DONE(sv[key].status) && reported[key] !== sig) onService(key, sv[key]);
+      reported[key] = sig;
+    }
+  };
+  const first = prServices(before.pr, { checks: before.checks });
+  for (const key of ['preview', 'review']) reported[key] = `${before.pr.headRefOid}|${first[key].status}`;
   // Tras un push, los checks tardan unos segundos en aparecer: se espera a que existan (tope ~90 s).
   const step = Number(process.env.GHOSTY_DEV_REGISTER_WAIT_MS ?? 10_000);
   for (let i = 0; before.status === 'sin-checks' && i < 9; i++) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, step);
     before = ciOf(n);
+    track(before);
   }
   let ci = before;
   const every = Number(process.env.GHOSTY_DEV_WATCH_MS ?? 10_000);
@@ -253,9 +330,12 @@ export function wait(n, { watch = false, minutes = 5 } = {}) {
     got = news();
     if (got.length) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, asks: got };
     ci = ciOf(n);
+    track(ci);
   }
-  return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente' };
+  const services = ci.pr ? (prServices(ci.pr, { deep: true, checks: ci.checks })) : null;
+  return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente', services };
 }
+
 
 // PR abierto del pendiente (rama ghosty-dev/<n>-…).
 function prOf(n) {
@@ -405,6 +485,9 @@ export function fichaOf(comments) {
 export function show(n) {
   const issue = viewIssue(n, { comments: true });
   const open = openIssues();
+  // La ficha vive en el PR (y hoy también en el issue): primero la del PR, si no hay, la del issue.
+  const pr = issue.state === 'OPEN' ? prOf(n) : null;
+  const prComments = pr ? apiAll(`${API_ISSUE(pr.number)}/comments`, { allowFail: true }) ?? [] : [];
   return {
     number: issue.number,
     title: issue.title,
@@ -413,7 +496,10 @@ export function show(n) {
     blockedBy: openBlockers(issue, new Set(open.map((i) => i.number))),
     evidence: Boolean(findValidEvidence(issue.comments, issue.body)),
     asks: unseenAsks(n).map(publicAsk),
-    ficha: fichaOf(issue.comments),
+    ficha: fichaOf(prComments) ?? fichaOf(issue.comments),
+    pr: pr?.url ?? null,
+    // Servicios del PR (vista previa, revisión, smoke y CI) leídos de los checks del commit HEAD del PR.
+    services: pr ? prServices(pr, { deep: true }) : null,
     url: issue.url,
   };
 }
