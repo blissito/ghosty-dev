@@ -37,6 +37,22 @@ async function readState(pr, useGs) {
     ci: sv.ci,
     review: { status: sv.review.status, title: sv.review.title == null ? null : plain(sv.review.title, 200) },
     smoke: { status: sv.smoke.status, title: sv.smoke.title == null ? null : plain(sv.smoke.title, 200) },
+    previewCheck: sv.preview.status,
+  };
+}
+
+// Checks de la plataforma que se quedaron «en curso» con la vista previa ya lista (Formmy #81, fricción 19): el CI no
+// resuelve por ellos y `wait --until ci` se acababa el tiempo sin decir por qué. Ghosty Studio los cierra o los corre
+// solo (reconciliador de huérfanos, ≤ ~15 min); para no esperar, se rearma la caja.
+export function stuckChecks(s) {
+  if (s.preview.phase !== 'ready') return null;
+  const names = [];
+  if (s.previewCheck === 'pendiente') names.push('Ghosty · Preview');
+  if (s.smoke.status === 'pendiente') names.push('Ghosty · Smoke');
+  if (!names.length) return null;
+  return {
+    checks: names,
+    hint: `${names.map((n) => `«${n}»`).join(' y ')} sigue${names.length > 1 ? 'n' : ''} en curso con la vista previa lista: Ghosty Studio lo${names.length > 1 ? 's' : ''} termina solo en unos minutos; para no esperar, pulsa «Reintentar» en el check o corre ghosty-dev box rebuild ${s.pr}.`,
   };
 }
 
@@ -65,7 +81,7 @@ export async function waitPr(pr, { until = 'any', minutes = 10, onChange = () =>
   let last = first;
   for (let i = 0; !met(s); i++) {
     const delay = steps[Math.min(i, steps.length - 1)] * unit;
-    if (Date.now() + delay > deadline) return { ...s, until, met: false, timedOut: true, exitCode: WAIT_PENDING_EXIT };
+    if (Date.now() + delay > deadline) return { ...s, until, met: false, timedOut: true, exitCode: WAIT_PENDING_EXIT, stuck: stuckChecks(s) };
     await new Promise((r) => setTimeout(r, delay));
     s = await readState(pr, useGs);
     if (sig(s) !== last) {

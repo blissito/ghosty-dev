@@ -122,3 +122,15 @@ test('wait --pr --until any: regresa con el primer cambio; una vista previa de u
     assert.equal(ev.at(-1).preview.phase, 'failed');
     assert.equal(ev.at(-1).until, 'any');
   }));
+
+test('wait: checks de la plataforma en curso con la vista previa lista se dicen al acabarse el tiempo (C21, Formmy #81)', async () => {
+  const { stuckChecks } = await import('../src/watch.mjs');
+  const base = { pr: 81, preview: { phase: 'ready' }, previewCheck: 'pendiente', smoke: { status: 'pendiente' } };
+  const s = stuckChecks(base);
+  assert.deepEqual(s.checks, ['Ghosty · Preview', 'Ghosty · Smoke']);
+  assert.match(s.hint, /Reintentar/);
+  assert.match(s.hint, /box rebuild 81/);
+  assert.equal(stuckChecks({ ...base, preview: { phase: 'building' } }), null);
+  assert.equal(stuckChecks({ ...base, previewCheck: 'listo', smoke: { status: 'listo' } }), null);
+  assert.deepEqual(stuckChecks({ ...base, previewCheck: 'listo' }).checks, ['Ghosty · Smoke']);
+});

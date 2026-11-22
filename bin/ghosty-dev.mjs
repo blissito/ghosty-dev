@@ -517,7 +517,7 @@ try {
       values.json
         ? JSON.stringify({ event: 'done', ...r })
         : r.timedOut
-          ? `Se acabó el tiempo y no ha pasado (${r.until}). Vuelve a correr: ghosty-dev wait --pr ${r.pr} --until ${r.until}`
+          ? `Se acabó el tiempo y no ha pasado (${r.until}).${r.stuck ? ` ${r.stuck.hint}` : ''} Vuelve a correr: ghosty-dev wait --pr ${r.pr} --until ${r.until}`
           : r.exitCode
             ? `Listo (${r.until}): ${r.preview.phase === 'failed' ? 'la vista previa falló → ghosty-dev box logs ' + r.pr : 'el CI salió rojo'}.`
             : `Listo (${r.until}).`,
