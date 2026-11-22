@@ -15,10 +15,12 @@ jobs:
     name: ghosty-dev/evidencia
     runs-on: ubuntu-latest
     steps:
-      # El script sale de la rama base: un PR no puede aflojar su propia puerta.
+      # El script sale de la rama base: un PR no puede aflojar su propia puerta. Por NOMBRE (la punta actual de
+      # la rama base), no por `base.sha`: ése es el commit base de cuando se abrió el PR y, en un PR abierto antes
+      # de instalar ghosty-dev, todavía no trae gate.mjs (Formmy #73, 22-nov: MODULE_NOT_FOUND).
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: .github/ghosty-dev
       - run: node .github/ghosty-dev/gate.mjs
         env:
