@@ -218,10 +218,13 @@ abiertos que quedarían bloqueados al volver obligatorio el check, y por qué (l
 El mismo pendiente lo puede construir un agente en una caja de trabajo en vez de tu compu. El contrato no cambia:
 issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada al commit y la misma puerta.
 
-- **Antes de gastar:** `claim <n> --cloud` (y `--pr`) sin `--yes` dice qué va ya en la nube del repo, sus vistas previas
-  vivas y, si la plataforma responde `GET /api/v2/me/dev-runs/capacity?repo=` → `{slots, used, evicts:[{repo, pr}],
-  estimate}`, cuántos lugares quedan, qué vista previa desalojaría y el costo estimado; con terminal pregunta, sin
-  terminal sale con **75** y el comando exacto con `--yes`. Sin esa ruta lo dice, sin inventar números.
+- **Antes de gastar:** `claim <n> --cloud` (y `--pr`) sin `--yes` dice qué va ya en la nube del repo y lo que pasaría
+  al mandarlo ahora, sin hacerlo: `GET /api/v2/me/dev-runs/capacity?repo=o/r[&workspace=slug]` → `{repo, owner,
+  slots, used, fits, evicts:[{repo, pr}], queued, estimate:{minutes, tokens, basedOn}|null, buyUrl}`. Lo imprime como
+  «Ocupa 1 de N lugares · desaloja la preview del #M / queda en fila · suele tardar ~X min y ~T tokens» y, si no cabe,
+  «Comprar más lugares: <buyUrl>». Con terminal pregunta; sin terminal sale con **75** y el comando exacto con
+  `--yes`. Con el repo en varios espacios, gs responde 409 `choose_workspace` y el CLI pide `--workspace <slug>` con
+  las opciones (el mismo `--workspace` va al mandarlo). Si la ruta no responde, lo dice sin inventar números.
 - `claim <n> --cloud` entrega el pendiente a la nube; `cloud` lista los del repo; `stop <n>` lo detiene;
   `teleport <n>` lo detiene y trae su rama para seguir en tu compu (un solo escritor: nunca los dos a la vez).
 - La nube trabaja sobre lo que está en GitHub, nunca sobre cambios locales sin subir.

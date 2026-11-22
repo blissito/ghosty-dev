@@ -35,7 +35,8 @@ Uso: ghosty-dev <comando> [opciones]
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
   claim --pr <m> --issue <n>             adopta un PR que ya existe como el trabajo de #n (sin rama ni worktree
                                          nuevos; agrega «Closes #n» si falta)
-  claim <n> --cloud [--yes]              lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
+  claim <n> --cloud [--yes] [--workspace S]
+                                         lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
                                          construye ahí, abre el PR, espera el CI y la revisión, y te avisa
                                          (sin --yes dice antes qué ocupa la nube, qué desalojaría y el costo si
                                          Ghosty lo sabe; sin terminal sale 75 con el comando para repetir)
@@ -124,6 +125,7 @@ const { values, positionals } = parseArgs({
     open: { type: 'boolean' },
     lines: { type: 'string' },
     issue: { type: 'string' },
+    workspace: { type: 'string' },
     until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
@@ -181,7 +183,7 @@ async function showBanner(data) {
 // sin terminal imprime el resumen y sale con 75 y el comando exacto para repetir con --yes.
 async function confirmCloud({ n, pr }, retry) {
   if (values.yes) return true;
-  const p = await cloud.preflight({ n, pr });
+  const p = await cloud.preflight({ n, pr, workspace: values.workspace });
   if (process.stdin.isTTY && !values.json) {
     console.error(cloud.preflightText(p));
     const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -341,7 +343,7 @@ try {
       if (values.cloud) {
         const next = list.find((i) => i.state !== 'esperando');
         if (!next) throw new cmd.UserError('No hay pendientes listos para mandar a la nube.');
-        if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud --yes`)) printCloud(await cloud.start(next.number));
+        if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`)) printCloud(await cloud.start(next.number, { workspace: values.workspace }));
         process.exit(process.exitCode ?? 0);
       }
       const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'] });
@@ -354,8 +356,8 @@ try {
   } else if (command === 'claim' && values.cloud) {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
     const n = arg === undefined && pr ? undefined : num(arg);
-    const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''} --yes`;
-    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr }));
+    const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''}${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`;
+    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr, workspace: values.workspace }));
   } else if (command === 'claim' && values.pr !== undefined) {
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
     const n = num(values.issue ?? arg, '--issue <n>');

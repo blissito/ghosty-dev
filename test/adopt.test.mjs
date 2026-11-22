@@ -119,8 +119,26 @@ test('next dice el siguiente paso: ligar → CI → revisión → evidencia → 
   assert.deepEqual([JSON.parse(t.run('next', '--json').out).step, JSON.parse(t.run('next', '--json').out).command], ['tomar', 'ghosty-dev claim 3']);
 });
 
+test('claim --cloud con el repo en varios espacios pide --workspace con las opciones (409 choose_workspace) (C26)', async () => {
+  const gs = await fakeGs({ capacity: { status: 409, body: { error: 'choose_workspace', message: 'varios', choices: [{ id: 'w1', slug: 'acme', name: 'Acme' }, { id: 'w2', slug: 'otro', name: 'Otro' }] } } });
+  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const tok = gs.grant();
+  mkdirSync(join(s.config, 'ghosty-dev'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(s.config, 'ghosty-dev', 'auth.json'), JSON.stringify({ baseUrl: gs.base, accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: Date.now() + 3_600_000, scope: tok.scope }), { mode: 0o600 });
+  try {
+    const r = await s.runAsync(['claim', '5', '--cloud'], { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' } });
+    assert.equal(r.code, 1);
+    assert.match(r.err, /varios espacios: di con cuál va con --workspace <slug> \(acme «Acme», otro «Otro»\)/);
+    const w = await s.runAsync(['claim', '5', '--cloud', '--workspace', 'acme', '--yes'], { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' } });
+    assert.equal(w.code, 0, w.err);
+    assert.equal(gs.devCalls.find((c) => c.method === 'POST').body.workspace, 'acme');
+  } finally {
+    await gs.close();
+  }
+});
+
 test('claim --cloud sin --yes dice antes qué ocupa la nube y qué desalojaría, y no manda nada (C26)', async () => {
-  for (const capacity of [null, { slots: 1, used: 1, evicts: [{ repo: 'acme/demo', pr: 73 }], estimate: '~1–3 USD por pendiente' }]) {
+  for (const capacity of [null, { repo: 'acme/demo', owner: 'espacio acme', slots: 2, used: 2, fits: false, evicts: [{ repo: 'acme/demo', pr: 73 }], queued: false, estimate: { minutes: 18, tokens: 2400000, basedOn: 5 }, buyUrl: 'https://www.ghosty.studio/app/workspaces/acme/plan?lugar=1' }]) {
     const gs = await fakeGs({ capacity, boardPrs: [{ pr: 73, repo: 'acme/demo' }] });
     const s = setup({ issues: { 5: issue(5, 'Salud') } });
     const tok = gs.grant();
@@ -130,9 +148,8 @@ test('claim --cloud sin --yes dice antes qué ocupa la nube y qué desalojaría,
       const r = await s.runAsync(['claim', '5', '--cloud'], { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' } });
       assert.equal(r.code, 75, r.err);
       assert.match(r.out, /Vas a mandar #5 a la nube .*gasta tokens/);
-      assert.match(r.out, /vistas previas vivas de PR: #73/);
       assert.match(r.out, /Si la persona está de acuerdo: ghosty-dev claim 5 --cloud --yes/);
-      if (capacity) assert.match(r.out, /lugares del espacio: 1 de 1 ocupados\n {2}desalojaría: la vista previa de acme\/demo#73\n {2}costo estimado: ~1–3 USD/);
+      if (capacity) assert.match(r.out, /Ocupa 1 de 2 lugares \(2 en uso, de espacio acme\) · desaloja la preview del #73 · suele tardar ~18 min y ~2\.4M tokens \(mediana de 5\)\n {2}Comprar más lugares: https:\/\/www\.ghosty\.studio\/app\/workspaces\/acme\/plan\?lugar=1/);
       else assert.match(r.out, /no dijo cuántos lugares quedan/);
       assert.ok(!gs.devCalls.some((c) => c.method === 'POST'));
       assert.doesNotMatch(r.out + r.err, /at_\d|rt_\d/);

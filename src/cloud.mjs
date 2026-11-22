@@ -52,9 +52,10 @@ const view = (r) => ({
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.
 // Con `pr` y sin pendiente: gs adopta el PR (vista previa, revisión y checks) y responde SIN id: no crea pendiente.
-export async function start(n, { pr } = {}) {
+export async function start(n, { pr, workspace } = {}) {
   const repo = repoName();
   const body = { repo };
+  if (workspace) body.workspace = workspace;
   if (n) body.issue = n;
   if (pr) body.pr = pr;
   const r = await call('POST', RUNS, body);
@@ -65,39 +66,63 @@ export async function start(n, { pr } = {}) {
   return view(r);
 }
 
-// Antes de gastar (Formmy, fila 32: «miedo a los costos ocultos»): qué ocupa ya la nube en este repo y, si gs lo
-// sabe, cuántos lugares tiene el espacio, qué vista previa desalojaría y el costo estimado
-// (GET /api/v2/me/dev-runs/capacity?repo=…). Si gs no tiene esa ruta, se dice con lo que hay y sin inventar números.
-export async function preflight({ n, pr } = {}) {
+// Antes de gastar (Formmy, fila 32: «miedo a los costos ocultos»): lo que pasaría al mandarlo AHORA, sin hacerlo
+// (GET /api/v2/me/dev-runs/capacity?repo=…[&workspace=…]): lugares, si cabe, qué vista previa se desalojaría o si
+// queda en fila, la mediana de tiempo y tokens de los últimos pendientes del repo, y dónde comprar más lugares.
+// Si el repo está en varios espacios, gs responde 409 choose_workspace con las opciones: se piden con --workspace.
+const slugOf = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v) ? v : null);
+const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
+
+export async function preflight({ n, pr, workspace } = {}) {
   const repo = repoName();
-  const q = `?repo=${encodeURIComponent(repo)}`;
-  const board = await call('GET', `${RUNS}${q}`);
+  const ws = workspace ? slugOf(workspace) : null;
+  if (workspace && !ws) throw new CloudError('--workspace va con el slug o el id del espacio.');
+  const q = `?repo=${encodeURIComponent(repo)}${ws ? `&workspace=${encodeURIComponent(ws)}` : ''}`;
+  const board = await call('GET', `${RUNS}?repo=${encodeURIComponent(repo)}`);
   const live = (Array.isArray(board?.runs) ? board.runs : []).map(view).filter((r) => LIVE.has(r.phase));
-  const previews = (Array.isArray(board?.prs) ? board.prs : []).map((c) => number(c.pr)).filter(Boolean);
   let capacity = null;
   try {
     const c = await call('GET', `${RUNS}/capacity${q}`);
-    const slots = number(c?.slots);
+    const est = c?.estimate && typeof c.estimate === 'object' ? c.estimate : null;
     capacity = {
-      slots,
-      used: Number.isInteger(c?.used) && c.used >= 0 ? c.used : null,
+      owner: c?.owner != null ? text(c.owner, 200) : null,
+      slots: count(c?.slots),
+      used: count(c?.used),
+      fits: c?.fits === true,
+      queued: c?.queued === true,
       evicts: Array.isArray(c?.evicts) ? c.evicts.map((e) => ({ repo: text(e?.repo, 200), pr: number(e?.pr) })).filter((e) => e.pr) : [],
-      estimate: c?.estimate != null ? text(c.estimate, 200) : null,
+      estimate: est ? { minutes: count(est.minutes), tokens: count(est.tokens), basedOn: count(est.basedOn) } : null,
+      buyUrl: typeof c?.buyUrl === 'string' && /^https:\/\/[^\s]+$/.test(c.buyUrl) ? text(c.buyUrl, 300) : null,
     };
-  } catch {}
-  return { repo, issue: n ?? null, pr: pr ?? null, live: live.map((r) => ({ number: r.number, state: r.state })), previews, capacity };
+  } catch (e) {
+    if (e?.code === 'choose_workspace') {
+      const choices = (Array.isArray(e.data?.choices) ? e.data.choices : []).map((c) => ({ slug: slugOf(c?.slug) ?? slugOf(c?.id), name: text(c?.name, 100) })).filter((c) => c.slug);
+      throw new CloudError(`${repo} está conectado en varios espacios: di con cuál va con --workspace <slug>${choices.length ? ` (${choices.map((c) => `${c.slug}${c.name ? ` «${c.name}»` : ''}`).join(', ')})` : ''}.`);
+    }
+    // Sin sesión o sin permiso es error; si gs no tiene la ruta o falla, se sigue sin esos datos (y se dice).
+    if (!(e instanceof AuthError) || e.status === 401 || e.status === 403 || e.status === undefined) throw e;
+  }
+  return { repo, workspace: ws, issue: n ?? null, pr: pr ?? null, live: live.map((r) => ({ number: r.number, state: r.state })), capacity };
 }
+
+const fmtTokens = (t) => (t >= 1_000_000 ? `${(t / 1_000_000).toFixed(1)}M` : t >= 1000 ? `${Math.round(t / 1000)}k` : String(t));
 
 export function preflightText(p) {
   const what = p.issue ? `mandar #${p.issue} a la nube (un agente de tu plan lo construye y gasta tokens mientras trabaja)` : `darle servicios al PR #${p.pr} (vista previa, revisión y smoke en cada push)`;
   const lines = [`Vas a ${what} en ${p.repo}.`];
   lines.push(`  en la nube ahora: ${p.live.length ? p.live.map((r) => `#${r.number} (${r.state})`).join(', ') : 'nada'}`);
-  lines.push(`  vistas previas vivas de PR: ${p.previews.length ? p.previews.map((x) => '#' + x).join(', ') : 'ninguna'}`);
-  if (p.capacity) {
-    if (p.capacity.slots) lines.push(`  lugares del espacio: ${p.capacity.used ?? '?'} de ${p.capacity.slots} ocupados`);
-    lines.push(`  desalojaría: ${p.capacity.evicts.length ? p.capacity.evicts.map((e) => `la vista previa de ${e.repo ? `${e.repo}#` : '#'}${e.pr}`).join(', ') : 'nada'}`);
-    if (p.capacity.estimate) lines.push(`  costo estimado: ${p.capacity.estimate}`);
-  } else lines.push('  Ghosty Studio no dijo cuántos lugares quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
+  const c = p.capacity;
+  if (!c) {
+    lines.push('  Ghosty Studio no dijo cuántos lugares quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
+    return lines.join('\n');
+  }
+  const parts = [`Ocupa 1 de ${c.slots ?? '?'} lugares${c.used != null ? ` (${c.used} en uso${c.owner ? `, de ${c.owner}` : ''})` : ''}`];
+  if (c.evicts.length) parts.push(`desaloja la preview del ${c.evicts.map((e) => `${e.repo && e.repo !== p.repo ? e.repo : ''}#${e.pr}`).join(', ')}`);
+  else if (c.queued) parts.push('queda en fila hasta que se libere un lugar');
+  else if (c.fits) parts.push('cabe sin desalojar nada');
+  if (c.estimate?.minutes != null) parts.push(`suele tardar ~${c.estimate.minutes} min${c.estimate.tokens ? ` y ~${fmtTokens(c.estimate.tokens)} tokens` : ''}${c.estimate.basedOn ? ` (mediana de ${c.estimate.basedOn})` : ''}`);
+  lines.push(`  ${parts.join(' · ')}`);
+  if (!c.fits && c.buyUrl) lines.push(`  Comprar más lugares: ${c.buyUrl}`);
   return lines.join('\n');
 }
 

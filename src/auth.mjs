@@ -414,7 +414,14 @@ async function currentToken() {
 
 // Error legible a partir de la respuesta de gs. Nunca incluye lo que se mandó (podría traer valores) ni el token:
 // el texto del servidor se limpia (sin control, sin nada con forma de token, recortado).
-async function toError(res, { scope, token, fromEnv }) {
+async function toError(res, ctx) {
+  const err = await toErrorText(res, ctx);
+  // El código del servidor viaja en el objeto (no en el texto), para que quien llama decida.
+  if (err.status === undefined) err.status = res.status;
+  return err;
+}
+
+async function toErrorText(res, { scope, token, fromEnv }) {
   const body = await jsonOf(res);
   const raw = body.message || body.error_description || (typeof body.error === 'string' ? body.error : '') || res.statusText;
   const text = cleanMessage(raw, [token]);
@@ -424,7 +431,10 @@ async function toError(res, { scope, token, fromEnv }) {
     return new AuthError(fromEnv ? `GHOSTY_DEV_TOKEN no tiene el permiso ${scope}.` : `Tu sesión no tiene el permiso ${scope}: ghosty-dev login --force`);
   if (res.status === 403) return new AuthError(`No permitido: ${text}`);
   if (res.status === 404) return new AuthError(text || 'No se encontró.');
-  return new AuthError(`Ghosty Studio respondió ${res.status}: ${text}`);
+  // El 409 choose_workspace trae las opciones en `data`.
+  const err = new AuthError(`Ghosty Studio respondió ${res.status}: ${text}`);
+  Object.assign(err, { status: res.status, code: typeof body.error === 'string' ? body.error : null, data: body });
+  return err;
 }
 
 // Petición autenticada a gs: refresca si vence en < 60 s y reintenta UNA vez tras un 401 (no con GHOSTY_DEV_TOKEN).
