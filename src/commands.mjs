@@ -872,7 +872,7 @@ memory: ${memory}
 Configuración de la fábrica de Ghosty Studio para este repo.
 
 - \`memory:\` es la memoria de la caja donde los agentes instalan, construyen y prueban este repo (y la de su
-  preview). Va de 4gb (la de siempre) a 8gb (el tope), en múltiplos de 1 GB; una caja de 8gb ocupa dos lugares
+  preview). Va de 4gb (la de siempre) a 8gb (el tope), en múltiplos de 1 GB; la de 8gb cuenta como dos cajas
   del plan. \`ghosty-dev init\` eligió ${memory} porque ${why}.
 - Si el build revienta por memoria («JavaScript heap out of memory», «Killed», código 137), mide el pico con
   \`/usr/bin/time -v npm run build\` en Linux («Maximum resident set size») o \`/usr/bin/time -l npm run build\`

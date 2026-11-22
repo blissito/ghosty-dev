@@ -221,8 +221,8 @@ issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada
 - **Antes de gastar:** `claim <n> --cloud` (y `--pr`) sin `--yes` dice qué va ya en la nube del repo y lo que pasaría
   al mandarlo ahora, sin hacerlo: `GET /api/v2/me/dev-runs/capacity?repo=o/r[&workspace=slug]` → `{repo, owner,
   slots, used, fits, evicts:[{repo, pr}], queued, estimate:{minutes, tokens, basedOn}|null, buyUrl}`. Lo imprime como
-  «Ocupa 1 de N lugares · desaloja la preview del #M / queda en fila · suele tardar ~X min y ~T tokens» y, si no cabe,
-  «Comprar más lugares: <buyUrl>». Con terminal pregunta; sin terminal sale con **75** y el comando exacto con
+  «Ocupa 1 de N cajas · desaloja la preview del #M / queda en fila · suele tardar ~X min y ~T tokens» y, si no cabe,
+  «Comprar más cajas: <buyUrl>». Con terminal pregunta; sin terminal sale con **75** y el comando exacto con
   `--yes`. Con el repo en varios espacios, gs responde 409 `choose_workspace` y el CLI pide `--workspace <slug>` con
   las opciones (el mismo `--workspace` va al mandarlo). Si la ruta no responde, lo dice sin inventar números.
 - `claim <n> --cloud` entrega el pendiente a la nube; `cloud` lista los del repo; `stop <n>` lo detiene;

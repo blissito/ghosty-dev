@@ -44,7 +44,7 @@ Uso: ghosty-dev <comando> [opciones]
   claim --cloud --pr <m> [--yes]         sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
                                          y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
-  stop <n>                               detiene #n en la nube y libera su lugar
+  stop <n>                               detiene #n en la nube y libera su caja
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI o a un pedido de la persona
                                          (tope 5 min), dice si quedó verde o rojo y avisa cuando la vista previa y la

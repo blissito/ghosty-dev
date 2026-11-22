@@ -67,8 +67,8 @@ export async function start(n, { pr, workspace } = {}) {
 }
 
 // Antes de gastar (Formmy, fila 32: «miedo a los costos ocultos»): lo que pasaría al mandarlo AHORA, sin hacerlo
-// (GET /api/v2/me/dev-runs/capacity?repo=…[&workspace=…]): lugares, si cabe, qué vista previa se desalojaría o si
-// queda en fila, la mediana de tiempo y tokens de los últimos pendientes del repo, y dónde comprar más lugares.
+// (GET /api/v2/me/dev-runs/capacity?repo=…[&workspace=…]): cajas, si cabe, qué vista previa se desalojaría o si
+// queda en fila, la mediana de tiempo y tokens de los últimos pendientes del repo, y dónde comprar más cajas.
 // Si el repo está en varios espacios, gs responde 409 choose_workspace con las opciones: se piden con --workspace.
 const slugOf = (v) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(v) ? v : null);
 const count = (v) => (Number.isInteger(v) && v >= 0 ? v : null);
@@ -113,16 +113,16 @@ export function preflightText(p) {
   lines.push(`  en la nube ahora: ${p.live.length ? p.live.map((r) => `#${r.number} (${r.state})`).join(', ') : 'nada'}`);
   const c = p.capacity;
   if (!c) {
-    lines.push('  Ghosty Studio no dijo cuántos lugares quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
+    lines.push('  Ghosty Studio no dijo cuántas cajas quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
     return lines.join('\n');
   }
-  const parts = [`Ocupa 1 de ${c.slots ?? '?'} lugares${c.used != null ? ` (${c.used} en uso${c.owner ? ` en ${c.owner}` : ''})` : ''}`];
+  const parts = [`Ocupa 1 de ${c.slots ?? '?'} cajas${c.used != null ? ` (${c.used} en uso${c.owner ? ` en ${c.owner}` : ''})` : ''}`];
   if (c.evicts.length) parts.push(`desaloja la preview del ${c.evicts.map((e) => `${e.repo && e.repo !== p.repo ? e.repo : ''}#${e.pr}`).join(', ')}`);
-  else if (c.queued) parts.push('queda en fila hasta que se libere un lugar');
+  else if (c.queued) parts.push('queda en fila hasta que se libere una caja');
   else if (c.fits) parts.push('cabe sin desalojar nada');
   if (c.estimate?.minutes != null) parts.push(`suele tardar ~${c.estimate.minutes} min${c.estimate.tokens ? ` y ~${fmtTokens(c.estimate.tokens)} tokens` : ''}${c.estimate.basedOn ? ` (mediana de ${c.estimate.basedOn})` : ''}`);
   lines.push(`  ${parts.join(' · ')}`);
-  if (!c.fits && c.buyUrl) lines.push(`  Comprar más lugares: ${c.buyUrl}`);
+  if (!c.fits && c.buyUrl) lines.push(`  Comprar más cajas: ${c.buyUrl}`);
   return lines.join('\n');
 }
 
@@ -140,7 +140,7 @@ async function liveRun(n) {
 
 const stopRun = async (id) => view(await call('POST', `${RUNS}/${encodeURIComponent(runId(id))}`, { op: 'stop' }));
 
-// Detiene el pendiente #n en la nube y libera su lugar. El issue y la rama se quedan.
+// Detiene el pendiente #n en la nube y libera su caja. El issue y la rama se quedan.
 export async function stop(n) {
   return stopRun((await liveRun(n)).id);
 }

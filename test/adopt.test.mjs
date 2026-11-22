@@ -166,8 +166,8 @@ test('claim --cloud sin --yes dice antes qué ocupa la nube y qué desalojaría,
       assert.equal(r.code, 75, r.err);
       assert.match(r.out, /Vas a mandar #5 a la nube .*gasta tokens/);
       assert.match(r.out, /Si la persona está de acuerdo: ghosty-dev claim 5 --cloud --yes/);
-      if (capacity) assert.match(r.out, /Ocupa 1 de 2 lugares \(2 en uso en el espacio acme\) · desaloja la preview del #73 · suele tardar ~18 min y ~2\.4M tokens \(mediana de 5\)\n {2}Comprar más lugares: https:\/\/www\.ghosty\.studio\/app\/workspaces\/acme\/plan\?lugar=1/);
-      else assert.match(r.out, /no dijo cuántos lugares quedan/);
+      if (capacity) assert.match(r.out, /Ocupa 1 de 2 cajas \(2 en uso en el espacio acme\) · desaloja la preview del #73 · suele tardar ~18 min y ~2\.4M tokens \(mediana de 5\)\n {2}Comprar más cajas: https:\/\/www\.ghosty\.studio\/app\/workspaces\/acme\/plan\?lugar=1/);
+      else assert.match(r.out, /no dijo cuántas cajas quedan/);
       assert.ok(!gs.devCalls.some((c) => c.method === 'POST'));
       assert.doesNotMatch(r.out + r.err, /at_\d|rt_\d/);
     } finally {
