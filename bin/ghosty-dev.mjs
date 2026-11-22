@@ -56,6 +56,9 @@ Uso: ghosty-dev <comando> [opciones]
   evidence --check --file e.md [--issue-file pendiente.md]
   review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
   block <n> --by <m>                     #n queda bloqueado por #m
+  block <n> --reason "…"                 #n queda bloqueado con su motivo (comentario en el issue y su PR; el tablero
+                                         lo enseña). Úsalo si la verificación real falla y no lo puedes arreglar ahora
+  add … --flow "qué y cómo"              el flujo principal que se probará con sesión (va en la evidencia)
   show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
                                          (vista previa, revisión, smoke y CI del commit actual)
   show --pr <m> [--json]                 lo mismo para un PR sin pendiente (p. ej. escrito desde la terminal)
@@ -81,6 +84,12 @@ Uso: ghosty-dev <comando> [opciones]
                                          del último commit terminen (any: el primer cambio). Un renglón (JSON con
                                          --json) por cambio; sale 0 cumplido, 1 falló/rojo, 75 se acabó el tiempo
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
+  merge [<pr>] [--wait] [--minutes 10] [--method squash|merge|rebase] [--no-deploy]
+                                         merge SÓLO con todos los checks del último commit resueltos en verde (o
+                                         neutral), la puerta de evidencia en verde, sin borrador ni conflicto; si no,
+                                         dice qué falta (--wait espera a que resuelva). Después espera el deploy de
+                                         producción (workflow en push a la rama base) y dice cómo salió. Usa esto,
+                                         no gh pr merge. Sale 0 hecho, 1 falta algo o el deploy falló, 75 en curso
 
 Flujo del agente de terminal: git push → ghosty-dev preview --wait --json → prueba la app en la liga → evidencia.
 Si la vista previa falla: ghosty-dev box logs → ghosty-dev box exec -- <comando> → arregla → git push.
@@ -139,6 +148,10 @@ const { values, positionals } = parseArgs({
     until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
+    method: { type: 'string' },
+    'no-deploy': { type: 'boolean' },
+    flow: { type: 'string' },
+    reason: { type: 'string' },
     yes: { type: 'boolean', short: 'y' },
   },
 });
@@ -291,6 +304,7 @@ async function printPr(r, note) {
         `PR #${x.pr} ${x.title}`,
         ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
         `  estado: ${x.state}`,
+        ...(x.closed ? [`  ${cmd.closedLine(x.closed)}`] : []),
         `  rama: ${x.branch ?? '—'}`,
         `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
         `  ${x.url}`,
@@ -369,7 +383,7 @@ try {
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     if (r.brief) print(r, (x) => x.brief);
-    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}`);
+    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
   } else if (command === 'board') {
     const r = cmd.board();
     print(r, (x) => `Pendientes abiertos en el navegador: ${x.url}`);
@@ -380,6 +394,7 @@ try {
       context: values.context,
       blockedBy: values.by ? num(values.by, '--by <m>') : undefined,
       discoveredIn: values.from ? num(values.from, '--from <n>') : undefined,
+      flow: values.flow,
     });
     print(r, (x) => `Pendiente #${x.number} abierto: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
   } else if (command === 'ready') {
@@ -437,7 +452,9 @@ try {
     if (r.asks?.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
     else if (values.watch && !r.timedOut && r.ci && !['verde', 'sin-pr', 'sin-checks'].includes(r.ci)) await writer.beat(num(arg), 'working', `CI ${r.ci}`);
     print(r, (x) =>
-      x.asks?.length
+      x.closed
+        ? `#${x.number}: primero esto: ${cmd.closedLine(x.closed)}\n  Mientras siga cerrado, un push a su rama no corre CI, vista previa ni revisión.`
+        : x.asks?.length
         ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
         : !values.watch || x.timedOut
         ? `#${x.number} esperando el CI. Toma otro pendiente o termina: ghosty-dev ready te lo ofrece cuando resuelva.`
@@ -460,8 +477,12 @@ try {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
   } else if (command === 'block') {
-    const r = cmd.block(num(arg), num(values.by, '--by <m>'));
-    print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);
+    const r = cmd.block(num(arg), values.by === undefined ? undefined : num(values.by, '--by <m>'), { reason: values.reason });
+    print(r, (x) =>
+      x.via === 'motivo'
+        ? `#${x.number} bloqueado: ${x.reason}${x.pr ? ` (también en el PR #${x.pr})` : ''}. El tablero lo enseña como «Bloqueado».`
+        : `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? ` Motivo: ${x.reason}` : ''}`,
+    );
   } else if (command === 'show' && values.pr !== undefined) {
     await printPr(cmd.showPr(num(values.pr, '--pr <m>')));
   } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
@@ -509,6 +530,9 @@ try {
   } else if (command === 'check-lock') {
     // Lo corre el hook pre-push (ghosty-dev init): bloquea el push si el lock no coincide con package.json.
     const r = cmd.repoLock() ?? { ok: true, problems: [] };
+    // Push a la rama de un PR cerrado sin merge: no habrá run (Formmy, fila 42). Sólo avisa: el push sigue.
+    const closed = process.env.GHOSTY_DEV_NO_NET ? null : cmd.closedPrOfBranch();
+    if (closed) console.error(`Aviso: ${cmd.closedLine(closed)}. Este push no corre CI, vista previa ni revisión mientras siga cerrado.`);
     print(r, (x) => (x.ok ? (x.lock ? `${x.lock} coincide con package.json.` : 'Sin lock que comparar.') : x.message));
     if (!r.ok) process.exitCode = 1;
   } else if (command === 'next' || command === 'status') {
@@ -547,6 +571,13 @@ try {
     const onChange = (s) => console.log(values.json ? JSON.stringify({ event: 'state', ...s }) : prStateLine(s));
     autoDeps(num(values.pr, '--pr <m>'));
     const r = await waitPr(num(values.pr, '--pr <m>'), { until: values.until ?? 'any', minutes, onChange });
+    // Cerrado sin merge: no hay nada que esperar; se dice quién y cómo reabrirlo (Formmy, fila 42).
+    if (r.state === 'cerrado') {
+      const c = cmd.closedInfo(r.pr);
+      if (c) r.closed = c;
+      console.log(values.json ? JSON.stringify({ event: 'done', ...r }) : c ? cmd.closedLine(c) : `El PR #${r.pr} está cerrado sin merge: ¿reabrir? gh pr reopen ${r.pr}`);
+      process.exitCode = 1;
+    } else {
     console.log(
       values.json
         ? JSON.stringify({ event: 'done', ...r })
@@ -557,12 +588,13 @@ try {
             : `Listo (${r.until}).`,
     );
     process.exitCode = r.exitCode;
+    }
   } else if (command === 'show') {
     const r = cmd.show(num(arg));
     if (r.kind === 'pr') {
       await printPr(r, `#${r.pr} es un PR, no un pendiente${r.closes.length ? `: cierra ${r.closes.map((c) => '#' + c).join(', ')} (ghosty-dev show ${r.closes[0]})` : ''}.`);
     } else {
-      if (!r.pr && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
+      if (!r.pr && !r.closed && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
       r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
       print(r, (x) =>
         [
@@ -572,13 +604,21 @@ try {
           `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
           `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
           `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
-          ...(x.pr ? [`  PR: ${x.pr}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
+          ...(x.pr ? [`  PR: ${x.pr}`] : x.closed ? [`  PR: ${cmd.closedLine(x.closed)}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
           ...previewLine(x.preview),
           ...servicesBlock(x.services),
           ...(x.ficha ? ['', x.ficha] : []),
         ].join('\n'),
       );
     }
+  } else if (command === 'merge') {
+    const { merge, mergeText } = await import('../src/merge.mjs');
+    const pr = arg === undefined ? (values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr()) : num(arg, '<pr>');
+    const minutes = values.minutes === undefined ? 10 : Number(values.minutes);
+    if (!Number.isFinite(minutes) || minutes < 0) throw new cmd.UserError('--minutes va en minutos (default 10).');
+    const r = await merge(pr, { wait: values.wait, minutes, method: values.method, deploy: !values['no-deploy'], onNote: (n) => console.error(n) });
+    print(r, mergeText);
+    process.exitCode = r.exitCode;
   } else if (command === 'close') {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);

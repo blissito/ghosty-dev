@@ -25,6 +25,13 @@ ok 3 - health responde 200
 ## Preview
 no aplica
 
+## Flujo principal probado con sesión
+Entré con la identidad de Ghosty y pedí /health con la cookie de sesión:
+\`\`\`
+$ curl -s -b sesion.txt https://preview.example/health
+{"ok":true}
+\`\`\`
+
 ## Criterios de aceptación
 - [x] /health responde 200
 `;

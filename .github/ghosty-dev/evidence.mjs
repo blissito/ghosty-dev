@@ -71,6 +71,11 @@ export function validateEvidence(md, issueBody = '') {
   else if (CI_RED.test(ci)) errors.push('El CI está en rojo: no se cierra un pendiente con CI rojo.');
   else if (!CI_GREEN.test(ci)) errors.push('«CI» debe decir el resultado (✅ / verde / passed).');
 
+  // El flujo principal ejercido con sesión (Formmy, filas 44 y 46): smoke, revisión y evidencia pasaron con el chat
+  // roto porque nadie lo usó. Se exige el renglón con su prueba (captura o salida), o «no aplica» con el motivo.
+  const flow = mainFlowProblem(mainFlowOf(md));
+  if (flow) errors.push(flow);
+
   // Cada criterio de aceptación del pendiente debe venir marcado en la evidencia.
   const wanted = acceptanceCriteria(issueBody);
   if (wanted.length) {
@@ -82,6 +87,40 @@ export function validateEvidence(md, issueBody = '') {
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+// ---------- «Flujo principal probado con sesión» (Formmy, filas 44 y 46) ----------
+
+export const MAIN_FLOW_LABEL = 'Flujo principal probado con sesión';
+const MAIN_FLOW_KEY = 'flujo principal';
+
+// El texto del renglón: la sección «## Flujo principal probado con sesión» o el renglón «Flujo principal probado con
+// sesión: …» con lo que lo sigue hasta el siguiente encabezado. null si no está.
+export function mainFlowOf(md = '') {
+  const sec = section(parseSections(md), MAIN_FLOW_KEY);
+  if (sec !== null) return sec;
+  const lines = String(md).split('\n');
+  const i = lines.findIndex((l) => norm(l.replace(/[*_`>-]/g, ' ')).startsWith('flujo principal probado con sesion') && l.includes(':'));
+  if (i === -1) return null;
+  const rest = [lines[i].slice(lines[i].indexOf(':') + 1)];
+  for (let j = i + 1; j < lines.length && !/^#{1,6}\s/.test(lines[j]); j++) rest.push(lines[j]);
+  return rest.join('\n').trim();
+}
+
+const IMAGE = /!\[[^\]]*\]\(\s*\S+?\s*\)|<img\s[^>]*src=|https:\/\/\S+\.(?:png|jpe?g|gif|webp|mp4|webm|mov)\b|https:\/\/github\.com\/user-attachments\/\S+/i;
+
+// Puro: null si el renglón vale; si no, el error. Vale con una captura (imagen o video) o con un bloque de código con
+// un comando «$ …» y su salida; «no aplica: <motivo>» sólo con motivo (una biblioteca sin interfaz, por ejemplo).
+export function mainFlowProblem(text) {
+  const how = `«${MAIN_FLOW_LABEL}: <qué hiciste y cómo>» con una captura o un bloque «$ …» con su salida`;
+  if (text == null || !text.replace(/<!--[\s\S]*?-->/g, '').trim()) return `Falta ${how} (entra con sesión a la vista previa y usa la función principal, no sólo abras la página).`;
+  const clean = text.replace(/<!--[\s\S]*?-->/g, '').trim();
+  const na = clean.match(/^no aplica\b[\s:—-]*(.*)$/is);
+  if (na) return na[1].trim().length >= 15 ? null : `«${MAIN_FLOW_LABEL}: no aplica» necesita el motivo (p. ej. «no aplica: es una biblioteca sin interfaz ni login»).`;
+  if (IMAGE.test(clean)) return null;
+  const blocks = [...clean.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map((m) => m[1].split('\n').filter((l) => l.trim()));
+  if (blocks.some((b) => b.some((l) => l.trimStart().startsWith('$ ')) && b.some((l) => !l.trimStart().startsWith('$ ')))) return null;
+  return `«${MAIN_FLOW_LABEL}» necesita la prueba: una captura (imagen) o un bloque con el comando «$ …» y su salida.`;
 }
 
 // ---------- «probado en la preview del PR #N» (Formmy, fila 40) ----------

@@ -386,7 +386,12 @@ export async function wait(n, { watch = false, minutes = 5, onService = () => {}
   const state = stateOf(issue);
   if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
   if (state === 'tomado') setState(issue, 'esperando');
-  if (!watch) return { number: n, state: 'esperando' };
+  // Un PR cerrado sin merge es lo primero que se dice (Formmy, fila 42): nadie corre CI ni vista previa sobre él.
+  const closedFirst = () => (prOf(n) ? null : closedPrOf({ n }));
+  if (!watch) {
+    const closed = closedFirst();
+    return closed ? { number: n, state: 'esperando', ci: 'sin-pr', closed } : { number: n, state: 'esperando' };
+  }
   // Un pedido de la persona también es el evento: despierta antes que el CI.
   const news = () => {
     const fresh = unseenAsks(n);
@@ -396,7 +401,7 @@ export async function wait(n, { watch = false, minutes = 5, onService = () => {}
   let got = news();
   if (got.length) return { number: n, state: 'esperando', asks: got };
   let before = ciOf(n);
-  if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr' };
+  if (!before.pr) return { number: n, state: 'esperando', ci: 'sin-pr', closed: closedFirst() };
   // Lo que ya terminó al empezar no se vuelve a anunciar; sólo los cambios mientras se espera.
   const reported = {};
   const track = (ci) => {
@@ -454,6 +459,60 @@ export function prOf(n, m) {
 
 // Los PR abiertos que no cierran ningún pendiente: fuera de la bitácora, la puerta no los puede juzgar.
 export const unlinkedPrs = () => openPrs().filter((p) => !p.draft && closingRefs(p.body).length === 0);
+// Tras el merge: GitHub cierra los issues de «Closes #n», pero las etiquetas de la bitácora se quedaban («en curso»
+// en un issue cerrado, #78 de Formmy). Se quitan.
+export function closingIssueLabels(numbers = []) {
+  for (const n of numbers) {
+    const issue = api('GET', API_ISSUE(n), undefined, { allowFail: true });
+    for (const l of issue?.labels ?? []) {
+      const name = typeof l === 'string' ? l : l.name;
+      if (name?.startsWith('ghosty-dev:')) api('DELETE', `${API_ISSUE(n)}/labels/${encodeURIComponent(name)}`, undefined, { allowFail: true });
+    }
+  }
+}
+
+// ---------- PR cerrado sin merge (Formmy, fila 42: #73 apareció CLOSED sin decir quién ni por qué) ----------
+
+// Quién lo cerró y cuándo (el evento `closed` del PR) y el motivo: el comentario de una persona más cercano al cierre
+// (±15 min). null si el PR está abierto o ya tiene merge.
+export function closedInfo(m, p) {
+  p ??= api('GET', `${REPO}/pulls/${m}`, undefined, { allowFail: true });
+  if (!p?.number || p.state === 'open' || p.merged_at) return null;
+  const events = apiAll(`${API_ISSUE(m)}/events`, { allowFail: true }) ?? [];
+  const ev = [...events].reverse().find((e) => e.event === 'closed');
+  const at = ev?.created_at ?? p.closed_at ?? null;
+  const t = Date.parse(at ?? '');
+  const comments = Number.isFinite(t) ? apiAll(`${API_ISSUE(m)}/comments`, { allowFail: true }) ?? [] : [];
+  const near = comments.filter((c) => !isBot(c.user) && Math.abs(Date.parse(c.created_at ?? '') - t) <= 15 * 60_000).pop();
+  const reason = near ? String(near.body ?? '').replace(/<!--[\s\S]*?-->/g, '').split('\n').map((l) => l.replace(/[\u0000-\u001f]/g, '').trim()).find(Boolean)?.slice(0, 160) ?? null : null;
+  return { pr: p.number, by: ev?.actor?.login ?? null, at, reason, branch: p.head?.ref ?? null, url: p.html_url ?? null };
+}
+
+const whenText = (at) => (Number.isFinite(Date.parse(at ?? '')) ? ` el ${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC` : '');
+export const closedLine = (c) =>
+  `PR #${c.pr} cerrado sin merge${c.by ? ` por @${c.by}` : ''}${whenText(c.at)} (${c.reason ? `motivo: «${c.reason}»` : 'sin comentario de motivo'}): ¿reabrir? gh pr reopen ${c.pr}`;
+
+// El PR cerrado sin merge más reciente de un pendiente (`n`: rama ghosty-dev/<n>-… o «Closes #n») o de una rama.
+export function closedPrOf({ n, branch }) {
+  const list = api('GET', `${REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=50`, undefined, { allowFail: true }) ?? [];
+  const p = list.find((x) => !x.merged_at && (branch ? x.head?.ref === branch : (x.head?.ref ?? '').startsWith(`ghosty-dev/${n}-`) || closingRefs(x.body ?? '').includes(n)));
+  return p ? closedInfo(p.number, p) : null;
+}
+
+// Para el pre-push y `preview`: la rama actual no tiene PR abierto pero sí uno cerrado sin merge (un push ahí no corre
+// CI, vista previa ni revisión). null si no aplica o no hay red.
+export function closedPrOfBranch() {
+  try {
+    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim();
+    if (!branch || branch === 'HEAD') return null;
+    const open = api('GET', `${REPO}/pulls?state=open&per_page=100`, undefined, { allowFail: true });
+    if (!open || open.some((p) => p.head?.ref === branch)) return null;
+    return closedPrOf({ branch });
+  } catch {
+    return null;
+  }
+}
+
 // ---------- conflicto con la base (Formmy, fila 33: #73 en CONFLICTING/DIRTY y nada lo dijo) ----------
 
 const sleepMs = (ms) => ms > 0 && Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -531,7 +590,7 @@ export function evidence(n, file, { pr: m } = {}) {
   if (lock && !lock.ok) throw new UserError(lock.message);
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
-  if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
+  if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}\n${blockHint(n)}`);
   const pr = prOf(n, m);
   // «Probado en la preview del PR #N» sólo vale si #N trae este mismo commit (Formmy, fila 40).
   const sha = pr?.headRefOid || git(['rev-parse', 'HEAD'], { allowFail: true })?.trim() || '';
@@ -546,18 +605,20 @@ export function evidence(n, file, { pr: m } = {}) {
 
 // ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------
 
-export function pendienteBody({ goal, criteria = [], context, discoveredIn }) {
+export function pendienteBody({ goal, criteria = [], context, discoveredIn, flow }) {
   if (!goal?.trim()) throw new UserError('Falta el objetivo: --goal "qué debe quedar cierto".');
   if (!criteria.length) throw new UserError('Falta al menos un criterio: --criteria "…" (se puede repetir).');
   const parts = ['## Objetivo', goal.trim(), '', '## Criterios de aceptación', ...criteria.map((x) => `- [ ] ${x.trim()}`)];
+  // Obligatorio en la evidencia (Formmy, filas 44 y 46): el pendiente dice desde el inicio qué se va a ejercer.
+  parts.push('', '## Flujo principal probado con sesión', flow?.trim() || '<!-- Qué función principal se usa con sesión en la vista previa y cómo (abrir la página no cuenta); la evidencia lo trae con captura o salida. Sin interfaz ni login: «no aplica: <motivo>». -->');
   const ctx = [discoveredIn ? `Descubierto en #${discoveredIn}.` : '', context?.trim() ?? ''].filter(Boolean).join(' ');
   if (ctx) parts.push('', '## Contexto', ctx);
   return parts.join('\n') + '\n';
 }
 
-export function add(title, { goal, criteria, context, blockedBy, discoveredIn } = {}) {
-  if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--by <m>].');
-  const body = pendienteBody({ goal, criteria, context, discoveredIn });
+export function add(title, { goal, criteria, context, blockedBy, discoveredIn, flow } = {}) {
+  if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--flow "…"] [--by <m>].');
+  const body = pendienteBody({ goal, criteria, context, discoveredIn, flow });
   const created = api('POST', `${REPO}/issues`, { title: title.trim(), body, labels: [label('listo')] });
   const { number, html_url: url } = created;
   if (!number) throw new Error('GitHub no devolvió el número del pendiente.');
@@ -614,8 +675,27 @@ export function board(repoUrl) {
 
 // ---------- block (dependencias nativas de GitHub; Beads: bd dep add) ----------
 
-export function block(n, by) {
-  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n).');
+// Bloqueo con motivo (Formmy, fila 45): el PR pasó a borrador porque el chat no funcionaba y el tablero no decía nada.
+// Etiqueta «bloqueado» + comentario con la marca en el issue y en su PR abierto (el tablero de Ghosty lo enseña).
+export const BLOCK_MARK = '<!-- ghosty-dev:bloqueo -->';
+export const blockHint = (n) => `Si la función principal no funciona y no lo puedes arreglar ahora, no lo marques listo: ghosty-dev block ${n} --reason "qué falla y qué falta" (queda «Bloqueado» con su motivo en el tablero) y avísale a la persona.`;
+
+export function block(n, by, { reason } = {}) {
+  const why = typeof reason === 'string' ? reason.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim() : '';
+  if (reason !== undefined && !why) throw new UserError('--reason va con el motivo: qué falla y qué falta.');
+  if (why.length > 1000) throw new UserError('--reason: máximo 1000 caracteres.');
+  if (!by && why) {
+    const issue = viewIssue(n);
+    if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
+    setState(issue, 'bloqueado');
+    const body = `${BLOCK_MARK}\n**Bloqueado:** ${why}`;
+    api('POST', `${API_ISSUE(n)}/comments`, { body });
+    const pr = prOf(n);
+    if (pr) api('POST', `${API_ISSUE(pr.number)}/comments`, { body: `${body}\n\n(#${n})` }, { allowFail: true });
+    return { number: n, blockedBy: null, reason: why, pr: pr?.number ?? null, via: 'motivo' };
+  }
+  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n) o ghosty-dev block <n> --reason "…".');
+  if (why) api('POST', `${API_ISSUE(n)}/comments`, { body: `${BLOCK_MARK}\n**Bloqueado por #${by}:** ${why}` });
   const issue = viewIssue(n);
   const blocker = api('GET', API_ISSUE(by));
   const native = api('POST', `${API_ISSUE(n)}/dependencies/blocked_by`, { issue_id: blocker.id }, { allowFail: true });
@@ -625,7 +705,7 @@ export function block(n, by) {
   } else if (stateOf(issue) !== 'listo') {
     setState(issue, 'listo'); // GitHub ya lo marca «Blocked»: la etiqueta sigue en «por hacer»
   }
-  return { number: n, blockedBy: by, via: native === null ? 'cuerpo' : 'github' };
+  return { number: n, blockedBy: by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
 }
 
 // ---------- show (Beads: bd show) ----------
@@ -661,6 +741,7 @@ export function show(n) {
     asks: unseenAsks(n).map(publicAsk),
     ficha: fichaOf(prComments) ?? fichaOf(issue.comments),
     pr: pr?.url ?? null,
+    closed: !pr && issue.state === 'OPEN' ? closedPrOf({ n }) : null,
     // Servicios del PR (vista previa, revisión, smoke y CI) leídos de los checks del commit HEAD del PR.
     services: pr ? prServices(pr, { deep: true }) : null,
     url: issue.url,
@@ -684,6 +765,7 @@ export function showPr(m) {
     url: pr.url,
     services: pr.headRefOid ? prServices(pr, { deep: true }) : null,
     conflict: p.state === 'open' && !p.merged_at ? conflictOf(m) : null,
+    closed: closedInfo(m, p),
   };
 }
 
@@ -719,7 +801,13 @@ export function next() {
     if (!refs.length) return out('ligar', `ghosty-dev claim --pr ${pr.number} --issue <n>`, `el PR #${pr.number} no está ligado a un pendiente; si no hay pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim`, { pr: pr.number });
     const n = refs[0];
     const extra = { pr: pr.number, issue: n };
-    if (pr.draft) return out('iterar', `gh pr ready ${pr.number}`, 'el PR es borrador: la puerta no exige nada hasta marcarlo listo; termina y márcalo', extra);
+    if (pr.draft) {
+      // Un borrador sin motivo no dice nada en el tablero (Formmy, fila 45): si es porque algo no funciona, se dice.
+      const said = (apiAll(`${API_ISSUE(n)}/comments`, { allowFail: true }) ?? []).some((c) => (c.body ?? '').startsWith(BLOCK_MARK));
+      return said
+        ? out('iterar', `gh pr ready ${pr.number}`, `el PR es borrador y #${n} está bloqueado con motivo: arréglalo y márcalo listo (o pide ayuda a la persona)`, extra)
+        : out('iterar', `gh pr ready ${pr.number}`, `el PR es borrador: la puerta no exige nada hasta marcarlo listo; termina y márcalo. Si lo pasaste a borrador porque algo no funciona, di el motivo: ghosty-dev block ${n} --reason "…"`, extra);
+    }
     const checks = commitChecks(pr.headRefOid);
     const ci = ciVerdict(checks);
     if (ci === 'pendiente' || ci === 'sin-checks') return out('esperar-ci', `ghosty-dev wait --pr ${pr.number} --until ci`, `el CI del commit ${pr.headRefOid.slice(0, 7)} no ha resuelto`, extra);
@@ -730,7 +818,12 @@ export function next() {
     if (rev.open > 0) return out('hallazgos', `ghosty-dev review ${n} --pr ${pr.number}`, `la revisión tiene ${rev.open} hallazgo(s) abierto(s): arréglalos, sube y pide revisión otra vez`, extra);
     if (!findValidEvidence(issue.comments, issue.body))
       return out('evidencia', `ghosty-dev evidence ${n} --pr ${pr.number} --file evidencia.md`, 'CI verde y revisión limpia: prueba la vista previa (ghosty-dev preview --wait) y publica la evidencia', extra);
-    return out('listo', null, `#${n} tiene revisión y evidencia del commit actual: la persona lee la evidencia y mezcla el PR #${pr.number}`, extra);
+    return out('listo', `ghosty-dev merge ${pr.number}`, `#${n} tiene revisión y evidencia del commit actual: la persona lee la evidencia y decide el merge del PR #${pr.number}; si te lo pidió, hazlo con ghosty-dev merge (verifica todos los checks y espera el deploy), nunca con gh pr merge`, extra);
+  }
+  // La rama tuvo PR y lo cerraron sin merge (Formmy, fila 42): primero decidir si se reabre.
+  if (branch && branch !== def) {
+    const closed = closedPrOf({ branch });
+    if (closed) return out('reabrir', `gh pr reopen ${closed.pr}`, `${closedLine(closed)}. Mientras siga cerrado, un push a ${branch} no corre CI, vista previa ni revisión`, { pr: closed.pr, closed });
   }
   const own = branch?.match(/^ghosty-dev\/(\d+)-/);
   if (own) return out('abrir-pr', `git push -u origin HEAD && gh pr create --fill --body "Closes #${own[1]}"`, `la rama de #${own[1]} no tiene PR abierto`, { issue: Number(own[1]) });
@@ -886,6 +979,9 @@ export function factoryManifest({ memory, why }) {
   return `---
 # Memoria de la caja de trabajo de Ghosty (instalar, construir y probar): de 4gb a 8gb, múltiplos de 1 GB.
 memory: ${memory}
+# Rutas que Ghosty abre en la vista previa de cada PR («Ghosty · Smoke», hasta 5). Pon la de la FUNCIÓN PRINCIPAL,
+# no sólo /login: un smoke de /login pasó en verde con el chat roto (Formmy #73). Quita el # y cámbiala:
+# smoke: [/ruta-de-la-funcion-principal]
 ---
 Configuración de la fábrica de Ghosty Studio para este repo.
 
@@ -897,6 +993,19 @@ Configuración de la fábrica de Ghosty Studio para este repo.
   en macOS, deja ~1 GB de holgura y sube \`memory:\`. El cambio aplica a la siguiente caja que nazca.
 - Abajo de esta lista van las convenciones del repo que deben saber los agentes (pruebas, estilo, qué no tocar).
 `;
+}
+
+const PR_TEMPLATE_PATHS = ['.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md', 'pull_request_template.md', 'PULL_REQUEST_TEMPLATE.md', 'docs/pull_request_template.md', 'docs/PULL_REQUEST_TEMPLATE.md', '.github/PULL_REQUEST_TEMPLATE'];
+const MAIN_FLOW_LINE = 'Flujo principal probado con sesión:';
+
+// Un factory.md sin `smoke:` en su frontmatter: se sugiere la ruta de la función principal (Formmy, fila 44).
+function smokeHint(path) {
+  try {
+    const front = readFileSync(path, 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    return /^smoke:/m.test(front) ? '' : '; sin smoke: agrega a su frontmatter «smoke: [/ruta-de-la-funcion-principal]» (no sólo /login)';
+  } catch {
+    return '';
+  }
 }
 
 // Dónde va el pre-push: core.hooksPath si lo hay (husky, lefthook), si no .git/hooks. Un hook ajeno no se pisa.
@@ -928,6 +1037,14 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
     const exists = existsSync(join(dir, to));
     plan.push({ action: exists && !force ? 'skip' : 'write', path: to });
   }
+  // Plantilla del PR con el renglón obligatorio «Flujo principal probado con sesión» (Formmy, fila 46). GitHub usa una
+  // sola: si el repo ya tiene la suya (en cualquiera de sus rutas), no se escribe otra y se dice qué agregarle.
+  const prTemplate = PR_TEMPLATE_PATHS.find((p) => existsSync(join(dir, p)));
+  plan.push(
+    prTemplate && !(force && prTemplate === PR_TEMPLATE_PATHS[0])
+      ? { action: 'skip', path: prTemplate, name: `${prTemplate} (ya existe: agrégale el renglón «${MAIN_FLOW_LINE} <qué y cómo>»)` }
+      : { action: 'write', path: PR_TEMPLATE_PATHS[0] },
+  );
   const agentsPath = join(dir, 'AGENTS.md');
   const agentsText = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : null;
   const agentsAction =
@@ -940,7 +1057,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
   plan.push(
     box
       ? { action: 'write', path: FACTORY_FILE, memory: box.memory, why: box.why, name: `${FACTORY_FILE} (memory: ${box.memory}: ${box.why})` }
-      : { action: 'skip', path: FACTORY_FILE, name: `${FACTORY_FILE} (ya existe: no se toca, ni con --force)` },
+      : { action: 'skip', path: FACTORY_FILE, name: `${FACTORY_FILE} (ya existe: no se toca, ni con --force)${smokeHint(factoryPath)}` },
   );
   const hook = prePushTarget(dir);
   plan.push(hook.action === 'write' ? { action: 'write', path: hook.shown, name: `${hook.shown} (chequeo del lock antes de subir)` } : { action: 'skip', path: hook.shown, name: `${hook.shown} (${hook.why})` });
@@ -963,6 +1080,10 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
     if (existsSync(target) && !force) continue;
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(ROOT, from), target);
+  }
+  if (plan.some((x) => x.action === 'write' && x.path === PR_TEMPLATE_PATHS[0])) {
+    mkdirSync(join(dir, '.github'), { recursive: true });
+    copyFileSync(join(ROOT, 'templates/pull_request_template.md'), join(dir, PR_TEMPLATE_PATHS[0]));
   }
   if (box) {
     mkdirSync(dirname(factoryPath), { recursive: true });

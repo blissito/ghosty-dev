@@ -6,7 +6,7 @@
 // cuando la piden. Nunca entra en un mensaje de error, en stderr ni en lo que imprime `show`. SECURITY.md.
 import { api, git } from './gh.mjs';
 import { AuthError, checkRepo, cleanMessage, plain, request } from './auth.mjs';
-import { UserError, openPrs, repoFullName } from './commands.mjs';
+import { UserError, closedLine, closedPrOf, openPrs, repoFullName } from './commands.mjs';
 
 export const PREVIEW_PENDING_EXIT = 75; // EX_TEMPFAIL: todavía se está armando, vuelve a preguntar
 const FINAL = new Set(['ready', 'failed']);
@@ -65,7 +65,12 @@ export function currentPr() {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim();
   if (!branch || branch === 'HEAD') throw new UserError('No estás en una rama: di el número del PR (ghosty-dev preview <pr>).');
   const pr = openPrs().find((p) => p.headRefName === branch);
-  if (!pr) throw new UserError(`La rama ${plain(branch, 200)} no tiene un PR abierto. Ábrelo y haz push, o di el número: ghosty-dev preview <pr>.`);
+  if (!pr) {
+    // Cerrado sin merge (Formmy, fila 42): eso es lo primero, no «ábrelo».
+    const closed = closedPrOf({ branch });
+    if (closed) throw new UserError(`${closedLine(closed)}. Mientras siga cerrado, un push a ${plain(branch, 200)} no arma vista previa ni corre CI.`);
+    throw new UserError(`La rama ${plain(branch, 200)} no tiene un PR abierto. Ábrelo y haz push, o di el número: ghosty-dev preview <pr>.`);
+  }
   return pr.number;
 }
 

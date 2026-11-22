@@ -55,14 +55,18 @@ test('diagnose: llaves faltantes, registro con URL para copiar + consola + 3 pas
     'node_modules/x/i.js': 'admin/oauth/authorize SHOPIFY_API_KEY',
   });
   const r = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT });
-  assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['oauth-google-llaves', false], ['oauth-google-registro', null], ['oauth-callback', false]]);
+  // Fila 47: sin llaves en la preview, OAuth es aviso (no MAL) y el camino recomendado es la identidad de Ghosty.
+  assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['oauth-google-llaves', null], ['oauth-google-registro', null], ['oauth-callback', null]]);
+  assert.match(r.checks[1].fix, /^primero la identidad de Ghosty .*cliente OAuth APARTE sólo para previews .*nunca el de producción/);
   const reg = r.checks[2];
-  assert.equal(reg.detail, 'Para entrar con Google en tus vistas previas falta un paso único: registrar esta URL en tu proyecto de Google');
+  assert.equal(reg.detail, 'Sólo si usas OAuth en previews (mejor: la identidad de Ghosty): registra esta URL en un cliente de Google APARTE para previews, nunca en el de producción');
   assert.deepEqual([reg.copy, reg.consoleUrl, reg.steps.length], [URI, 'https://console.cloud.google.com/apis/credentials', 3]);
   assert.match(reg.fix, /pídeselo a Ghosty con ghosty-browser/);
   const text = doctorText({ repo: 'acme/demo', ...r });
   assert.match(text, new RegExp(`\\n\\n {6}${URI.replace(/[./]/g, '\\$&')}\\n\\n {6}consola: https://console\\.cloud\\.google\\.com/apis/credentials\\n {6}1\\. Abre la consola\\.`));
-  assert.match(text, /MAL oauth-google-llaves: Google: a la vista previa le faltan GOOGLE_CLIENT_SECRET/);
+  assert.match(text, / ! {2}oauth-google-llaves: Google: a la vista previa le faltan GOOGLE_CLIENT_SECRET\. No copies ahí el secreto de producción/);
+  // Con las llaves puestas (se quiere OAuth en previews) y sin el proxy, el callback sí es MAL.
+  assert.equal(diagnose(d, { saved: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], catalog: CAT }).checks.find((c) => c.name === 'oauth-callback').ok, false);
   // Con el proxy en el código y las llaves: sólo queda el registro (aviso, no falla).
   writeFileSync(join(d, 'app/auth.server.ts'), 'new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, callbackURL: process.env.GS_PREVIEW_OAUTH_REDIRECT_URI })');
   const ok = diagnose(d, { saved: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], catalog: CAT });
@@ -129,4 +133,22 @@ test('envNames: sólo nombres de variable válidos', async () => {
   const { envNames } = await import('../src/preview.mjs');
   assert.deepEqual(envNames(['A_B', 'A_B', 'mal valor', 'x=1', 3, 'OK']), ['A_B', 'OK']);
   assert.equal(envNames(undefined), null);
+});
+
+test('doctor: la identidad de Ghosty va primero; adoptada, OAuth deja de pedir llaves; base de la preview (filas 43 y 47)', () => {
+  const d = repo({
+    'package.json': { dependencies: { 'remix-auth-google': '^2' } },
+    'app/auth.server.ts': 'new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID }); createCookieSessionStorage({})',
+  });
+  let r = diagnose(d, { saved: ['DATABASE_URL', 'MONGO_ATLAS_URI'], catalog: CAT });
+  assert.deepEqual(r.checks.slice(0, 3).map((c) => c.name), ['lock', 'login-en-previews', 'base-de-la-preview']);
+  assert.match(r.checks[1].detail, /camino recomendado: sin OAuth/);
+  assert.match(r.checks[2].detail, /DATABASE_URL, MONGO_ATLAS_URI/);
+  assert.match(r.checks[2].fix, /base desechable .*nunca la URL de producción/);
+  // Adoptada la identidad: un solo renglón de OAuth en verde, sin llaves ni registro ni callback.
+  writeFileSync(join(d, 'app/preview-identity.server.js'), 'const JWKS_URL = process.env.GS_PREVIEW_IDENTITY_JWKS_URL;');
+  r = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT });
+  assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['login-en-previews', true], ['oauth', true]]);
+  assert.match(r.checks[2].detail, /no hace falta, la app entra con la identidad de Ghosty/);
+  assert.ok(r.checks.every((c) => c.ok !== false));
 });

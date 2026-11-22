@@ -11,7 +11,7 @@ description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que
 2. Trabajo nuevo: `ghosty-dev claim <n>`. Trabajo que ya existe (PR a mano, rama propia): `ghosty-dev claim --pr <m> --issue <n>`.
 3. Push → `ghosty-dev preview --wait --json` → prueba la app; si falla: `ghosty-dev box logs` / `box exec -- <cmd>` → arregla → push.
 4. CI verde → revisión de otra sesión: `ghosty-dev review <n> --pr <m>` (subagente ghosty-dev-revisor), 0 hallazgos abiertos.
-5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona mezcla. Nunca `gh issue comment` a mano.
+5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona decide el merge; si te lo pide: `ghosty-dev merge <m>` (sólo con TODOS los checks en verde, y espera el deploy), nunca `gh pr merge`. Nunca `gh issue comment` a mano.
 
 Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pendiente** (un issue con etiqueta
 `ghosty-dev:*`). Tres leyes, sin excepción:
@@ -57,8 +57,10 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   `ghosty-dev doctor` dice qué falta.
 - **Login en previews sin OAuth**: la vista previa abierta desde Ghosty trae `X-Ghosty-Identity` (JWT EdDSA, 12 h, `aud` =
   `PREVIEW_HOST`, JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`). Receta de ~15 líneas con `jose` en AGENTS.md («Login en
-  previews»): si existe esa variable, verifica el header y crea la sesión por `email`. Va a main una vez; `doctor` lo
-  sugiere. «Probado en la preview del PR #N» sólo vale si #N contiene el mismo commit.
+  previews»): si existe esa variable, verifica el header y entra como un usuario de prueba sembrado en la base de la
+  vista previa (nunca una cuenta personal; la base de la preview es desechable, no la de producción). Va a main una
+  vez; `doctor` lo sugiere y avisa si la preview trae `DATABASE_URL`/`MONGO_*`. Es el camino recomendado: no edites el
+  cliente OAuth de producción ni copies su secreto a la preview (si de verdad necesitas OAuth: un cliente aparte). «Probado en la preview del PR #N» sólo vale si #N contiene el mismo commit.
 - **API de partner en previews sin llaves**: la vista previa trae `GHOSTY_PREVIEW_TOKEN` (identidad de la caja) y la API
   de partner de Ghosty lo acepta como `Authorization: Bearer` (sólo pruebas). Nunca copies la llave de partner: receta de
   3 líneas en AGENTS.md («API de partner en previews»); `doctor` la sugiere.
@@ -72,7 +74,13 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
 - **PR apilado** (su base es la rama de otro PR, o lo armaste sobre uno sin mezclar): `preview`/`wait` escriben solos
   `Depende de #N` en la descripción y la quitan cuando ese PR entra (`ghosty-dev deps` para hacerlo ya).
 - **Borrador:** mientras el PR es draft la puerta no exige evidencia (ni hay vista previa); al marcarlo listo
-  (`gh pr ready`) se exige todo.
+  (`gh pr ready`) se exige todo. Si lo regresas a borrador porque algo no funciona, di por qué: deja el pendiente
+  bloqueado con el motivo (aparece «Bloqueado» en el tablero), no sólo `gh pr ready --undo`.
+- **PR cerrado sin merge**: `next`/`wait`/`show` dicen quién lo cerró, cuándo y el motivo, y ofrecen `gh pr reopen <m>`
+  como primer paso; mientras siga cerrado, un push a su rama no corre CI, vista previa ni revisión.
+- **Merge** (sólo si la persona te lo pide): `ghosty-dev merge <m>` mezcla únicamente con todos los checks del último
+  commit resueltos en verde (también «Ghosty · Smoke»), la puerta de evidencia en verde y sin borrador; si no, dice qué
+  falta (`--wait` espera). Después espera el deploy de producción y dice cómo salió. Nunca `gh pr merge`.
   **La liga lleva la llave de la vista previa:** úsala para probar (navegador, curl, Playwright), pero nunca la
   pegues en la evidencia, el issue, el PR ni el chat; en «Preview» escribe qué probaste y el commit.
 
@@ -156,14 +164,20 @@ $ npm test
 ✅ passed — <liga del run>
 
 ## Preview
-<liga o video del recorrido, o «no aplica»>
+<qué probaste en la vista previa y el commit, o «no aplica»>
+
+## Flujo principal probado con sesión
+Entré con la identidad de Ghosty y mandé un mensaje en el chat de Crear: respondió con el formulario.
+![chat](<captura>)        <!-- o un bloque «$ …» con su salida; sin interfaz ni login: «no aplica: <motivo>» -->
 
 ## Criterios de aceptación
 - [x] <cada criterio del pendiente, con el mismo texto>
 ~~~
 
 Reglas: la salida es la real (si la recortas, dilo); un criterio que no se cumple se queda `[ ]` y no publicas;
-CI rojo no se publica como evidencia.
+CI rojo no se publica como evidencia. «Flujo principal probado con sesión» es obligatorio (la puerta lo exige):
+abrir la página o un smoke de `/login` no cuenta; usa la función principal logueado. Si no funciona y no lo puedes
+arreglar ahora, no publiques: deja el pendiente bloqueado con el motivo y avísale a la persona.
 
 ## Abrir pendientes desde la plática
 

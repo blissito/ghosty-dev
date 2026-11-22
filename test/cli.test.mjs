@@ -41,9 +41,12 @@ test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y A
     '.github/ghosty-dev/evidence.mjs',
     '.claude/skills/ghosty-dev/SKILL.md',
     '.claude/agents/ghosty-dev-revisor.md',
+    '.github/pull_request_template.md',
   ]) {
     assert.ok(existsSync(join(repo, f)), f);
   }
+  // Fila 46: el PR trae el renglón obligatorio del flujo principal.
+  assert.match(readFileSync(join(repo, '.github/pull_request_template.md'), 'utf8'), /^Flujo principal probado con sesión: $/m);
   const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8');
   assert.match(agents, /^# Reglas del repo/);
   assert.match(agents, /ghosty-dev:agents/);
@@ -390,7 +393,9 @@ test('init crea .ghosty/factory.md con 4gb en un repo sin señales de build pesa
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /\.ghosty\/factory\.md \(memory: 4gb: no hay señales/);
   const md = readFileSync(join(repo, '.ghosty/factory.md'), 'utf8');
-  assert.match(md, /^---\n(?:#.*\n)*memory: 4gb\n---\n/);
+  assert.match(md, /^---\n(?:#.*\n)*memory: 4gb\n(?:#.*\n)*---\n/);
+  // Fila 44: sugiere el smoke de la función principal (comentado: la ruta la elige la persona).
+  assert.match(md, /^# smoke: \[\/ruta-de-la-funcion-principal\]$/m);
   assert.doesNotMatch(md, /^## @/m); // el cuerpo no abre secciones de rol de Teams
 });
 

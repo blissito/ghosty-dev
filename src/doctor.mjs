@@ -155,14 +155,20 @@ export function parsePreviewOAuth(o) {
 
 // Los chequeos. `saved`: nombres guardados en gs para la preview (null si no se pudieron leer). `catalog`: el de gs
 // (null si no llegó). `previewOAuth`: el `oauth` de la preview del PR, si hay.
+// Orden (Formmy, fila 47): lock → identidad de Ghosty (el camino sin OAuth va PRIMERO) → base de la preview → OAuth.
 export function diagnose(dir, opts = {}) {
-  const r = diagnoseOAuth(dir, opts);
   const id = identityCheck(dir);
-  if (id) r.checks.push(id);
+  const r = diagnoseOAuth(dir, { ...opts, identity: id?.ok === true });
+  const lock = r.checks.shift();
+  const db = databaseCheck(opts.saved);
+  r.checks.unshift(...[lock, id, db].filter(Boolean));
   const partner = partnerTokenCheck(dir);
   if (partner) r.checks.push(partner);
   // Con la receta del token de caja, la llave de partner ya no le hace falta a la vista previa.
-  const missing = Array.isArray(opts.previewMissingEnv) && partner?.ok ? opts.previewMissingEnv.filter((n) => !PARTNER_KEY_VARS.has(n)) : opts.previewMissingEnv ?? null;
+  let missing = Array.isArray(opts.previewMissingEnv) && partner?.ok ? opts.previewMissingEnv.filter((n) => !PARTNER_KEY_VARS.has(n)) : opts.previewMissingEnv ?? null;
+  // Con la identidad de Ghosty adoptada, las llaves OAuth no le hacen falta a la vista previa (fila 47).
+  const oauthVars = new Set((opts.catalog?.providers ?? []).flatMap((p) => p.env.flat()));
+  if (Array.isArray(missing) && id?.ok) missing = missing.filter((n) => !oauthVars.has(n));
   const env = missingEnvCheck(missing, opts.previewMissingEnvTouched ?? []);
   if (env) r.checks.push(env);
   return r;
@@ -181,6 +187,20 @@ export function missingEnvCheck(names, touched = []) {
   };
 }
 
+// Fila 43: probar con sesión escribe en la base. Si la vista previa trae la variable de una base (sólo NOMBRES: gs no
+// da valores), se avisa que debe ser una desechable (copia o vacía con seed), nunca la de producción.
+const DB_ENV = /^(DATABASE_URL|DB_URL|DIRECT_URL|MONGO(DB)?_[A-Z0-9_]*|[A-Z0-9_]*MONGO_(URI|URL|ATLAS)[A-Z0-9_]*|MONGO_ATLAS[A-Z0-9_]*|POSTGRES[A-Z0-9_]*|PG(HOST|DATABASE|URL)|MYSQL[A-Z0-9_]*|SUPABASE_(URL|DB_URL|SERVICE_ROLE_KEY)|TURSO_DATABASE_URL|LIBSQL_URL|REDIS_URL|PLANETSCALE[A-Z0-9_]*|NEON[A-Z0-9_]*)$/;
+export function databaseCheck(saved) {
+  const hits = (saved ?? []).filter((k) => DB_ENV.test(k));
+  if (!hits.length) return null;
+  return {
+    name: 'base-de-la-preview',
+    ok: null,
+    detail: `la vista previa trae ${hits.slice(0, 4).join(', ')}: si apunta a la base de producción, cada prueba con sesión escribe en datos reales de clientes`,
+    fix: 'que la vista previa use una base desechable (una copia o una base vacía con seed y un usuario de prueba), guardada con ghosty-dev env push; nunca la URL de producción',
+  };
+}
+
 // Identidad de Ghosty en previews (Formmy, fila 40): el proxy de la preview manda `X-Ghosty-Identity` (JWT de quien la
 // abre, verificado con el JWKS de gs). Si la app tiene login y no lo lee, un PR basado en main no prueba logueado.
 const LOGIN_HINT = /createCookieSessionStorage|getSession\(|commitSession|next-auth|@auth\/|better-auth|lucia|passport|signIn\(|\/login\b/g;
@@ -188,12 +208,12 @@ const LOGIN_HINT = /createCookieSessionStorage|getSession\(|commitSession|next-a
 export function identityCheck(dir) {
   const { tokens: login, usesProxy: uses } = grepRepo(dir, LOGIN_HINT, 'GS_PREVIEW_IDENTITY_JWKS_URL');
   if (!login.length) return null;
-  if (uses) return { name: 'login-en-previews', ok: true, detail: 'la app crea sesión con la identidad de Ghosty en la vista previa (X-Ghosty-Identity)', fix: null };
+  if (uses) return { name: 'login-en-previews', ok: true, detail: 'la app crea sesión con la identidad de Ghosty en la vista previa (X-Ghosty-Identity): no hace falta OAuth ahí', fix: null };
   return {
     name: 'login-en-previews',
     ok: null,
-    detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa',
-    fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL) y súbela a main',
+    detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa. Es el camino recomendado: sin OAuth, sin tocar tus clientes de producción ni copiar secretos',
+    fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL; la identidad entra como un usuario de prueba de la base de la preview) y súbela a main',
   };
 }
 
@@ -213,7 +233,7 @@ export function partnerTokenCheck(dir) {
   };
 }
 
-function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null } = {}) {
+function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null, identity = false } = {}) {
   const checks = [];
   const lock = checkLock(dir);
   checks.push(lock.lock ? { name: 'lock', ok: lock.ok, detail: lock.ok ? `${lock.lock} coincide con package.json` : lock.message, fix: lock.ok ? null : lock.fix } : { name: 'lock', ok: true, detail: 'sin lock que comparar', fix: null });
@@ -231,28 +251,37 @@ function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null 
     checks.push({ name: 'oauth', ok: true, detail: 'el repo no usa OAuth de un proveedor conocido', fix: null });
     return { checks, oauth };
   }
+  // Con la identidad de Ghosty adoptada, OAuth no hace falta en la vista previa: nada de llaves ni callback (fila 47).
+  if (identity) {
+    checks.push({ name: 'oauth', ok: true, detail: `${providers.map((p) => p.name).join(', ')}: en la vista previa no hace falta, la app entra con la identidad de Ghosty (no copies llaves ni toques tus clientes OAuth de producción)`, fix: null });
+    return { checks, oauth };
+  }
+  // Riesgo (fila 47): el cliente OAuth de producción no se edita ni su secreto se copia a un entorno de pruebas.
+  const separate = 'si de verdad necesitas OAuth en previews: un cliente OAuth APARTE sólo para previews (su propio ID y secreto), nunca el de producción';
   for (const p of providers) {
     if (p.missingEnv === null) checks.push({ name: `oauth-${p.id}-llaves`, ok: null, detail: `${p.name}: no pude leer las variables de la vista previa (ghosty-dev login)`, fix: 'ghosty-dev env ls' });
-    else if (p.missingEnv.length) checks.push({ name: `oauth-${p.id}-llaves`, ok: false, detail: `${p.name}: a la vista previa le faltan ${p.missingEnv.join(', ')}`, fix: 'ghosty-dev env push <archivo con esas variables>' });
+    else if (p.missingEnv.length) checks.push({ name: `oauth-${p.id}-llaves`, ok: null, detail: `${p.name}: a la vista previa le faltan ${p.missingEnv.join(', ')}. No copies ahí el secreto de producción`, fix: `primero la identidad de Ghosty (receta «Login en previews» de AGENTS.md, sin OAuth); ${separate}, y sus llaves con ghosty-dev env push <archivo>` });
     else checks.push({ name: `oauth-${p.id}-llaves`, ok: true, detail: `${p.name}: la vista previa tiene sus llaves`, fix: null });
     if (p.registered === true) checks.push({ name: `oauth-${p.id}-registro`, ok: true, detail: `${p.name}: ya regresó un login por el callback de Ghosty`, fix: null });
     else
       checks.push({
         name: `oauth-${p.id}-registro`,
         ok: null,
-        detail: `Para entrar con ${p.name} en tus vistas previas falta un paso único: registrar esta URL en tu proyecto de ${p.name}`,
+        detail: `Sólo si usas OAuth en previews (mejor: la identidad de Ghosty): registra esta URL en un cliente de ${p.name} APARTE para previews, nunca en el de producción`,
         copy: redirectUri,
         consoleUrl: p.consoleUrl,
         steps: p.steps,
         fix: `o pídeselo a Ghosty con ghosty-browser: «${oauth.agentPrompt ?? `registra ${redirectUri ?? 'la URL de callback de Ghosty'} como redirect URI de ${p.name} en ${p.consoleUrl ?? 'su consola'}`}»`,
       });
   }
+  // MAL sólo si ya hay llaves en la preview (se quiere OAuth ahí); si no, es un aviso más del camino con OAuth.
+  const intendsOAuth = providers.some((p) => Array.isArray(p.missingEnv) && !p.missingEnv.length);
   checks.push(
     usesProxy
       ? { name: 'oauth-callback', ok: true, detail: `el código usa ${catalog.env.redirectUri}`, fix: null }
       : {
           name: 'oauth-callback',
-          ok: false,
+          ok: intendsOAuth ? false : null,
           detail: `el redirect_uri no usa ${catalog.env.redirectUri}: en la vista previa el proveedor rechaza el callback`,
           fix: `si existe ${catalog.env.redirectUri}, úsalo como redirect_uri (también al canjear el code) y arma el state con previewOAuthState(state, '/ruta/callback')${providers.some((p) => p.signsCallback) ? '; en el callback de Shopify, previewOAuthUnwrap(state)' : ''}${catalog.docs ? ` (${catalog.docs})` : ''}`,
         },

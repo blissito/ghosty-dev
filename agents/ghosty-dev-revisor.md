@@ -32,6 +32,9 @@ Lo demás (otros métodos o rutas, despliegues raros, mensajes más bonitos, «e
 va como «Pendiente nuevo sugerido». Si dudas, no es hallazgo. El objetivo es que el pendiente cierre bien, no que
 el código sea perfecto.
 4. Corre también la suite completa del repo.
+   **Ejerce el flujo principal con sesión** si el repo tiene vista previa (`ghosty-dev preview <pr> --wait --json`,
+   entrando con la identidad de Ghosty): usa la función principal del cambio, no sólo abras la página. Si truena
+   (p. ej. «Falta la credencial»), es hallazgo aunque el diff se vea bien.
 5. Borra tu worktree al terminar: `git worktree remove ../rev-<n> --force`.
 
 ## Qué publicas

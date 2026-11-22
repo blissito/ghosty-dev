@@ -7,7 +7,7 @@
 2. Trabajo nuevo: `ghosty-dev claim <n>`. Trabajo que ya existe (PR a mano, rama propia): `ghosty-dev claim --pr <m> --issue <n>`.
 3. Push → `ghosty-dev preview --wait --json` → prueba la app; si falla: `ghosty-dev box logs` / `box exec -- <cmd>` → arregla → push.
 4. CI verde → revisión de otra sesión: `ghosty-dev review <n> --pr <m>` (subagente ghosty-dev-revisor), 0 hallazgos abiertos.
-5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona mezcla. Nunca `gh issue comment` a mano.
+5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona decide el merge; si te lo pide: `ghosty-dev merge <m>` (sólo con TODOS los checks en verde, y espera el deploy), nunca `gh pr merge`. Nunca `gh issue comment` a mano.
 
 Este repo usa **ghosty-dev**: las tareas son issues de GitHub con etiqueta `ghosty-dev:*` y se cierran con
 evidencia. No uses listas TODO en markdown para llevar el trabajo.
@@ -18,7 +18,10 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
    (subagente `ghosty-dev-revisor`, o `ghosty-dev review <n>` en otra sesión); tú no te calificas. Con la revisión
    en 0 hallazgos abiertos: `ghosty-dev evidence <n> --file evidencia.md`
    (secciones «Qué se hizo», «Verificación» con comandos `$ …` y su salida real, «CI» con resultado y liga,
-   «Preview», «Criterios de aceptación» marcados). El PR lleva `Closes #<n>`; sin revisión del commit actual y sin
+   «Preview», **«Flujo principal probado con sesión»** —qué función principal usaste logueado en la vista previa y
+   cómo, con captura o bloque `$ …` con salida; abrir la página no cuenta; sin interfaz: «no aplica: <motivo>»—,
+   «Criterios de aceptación» marcados). El mismo renglón va en la descripción del PR (plantilla de init).
+   Si la función principal no funciona y no lo puedes arreglar ahora, no lo marques listo: déjalo bloqueado con motivo. El PR lleva `Closes #<n>`; sin revisión del commit actual y sin
    evidencia, el check `ghosty-dev/evidencia` no deja mergear. Nunca cierres un issue sin evidencia.
 3. **Se espera por evento, no se sondea.** Con el PR abierto: `ghosty-dev wait <n> --watch` espera al CI en una sola llamada (tope 5 min); si tarda más, toma otro pendiente o termina. Si el repo está conectado a Ghosty Studio, `wait --watch` también avisa cuando la vista previa y la revisión de Ghosty terminan, y `ghosty-dev show <n>` da la ficha y los servicios del PR (vista previa con su liga, revisión, smoke, CI): no hace falta otro CLI.
    Para probar la app: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia (0 lista, 75 armándose, 1 falló; sin pendiente: `show --pr <m>`);
@@ -35,6 +38,8 @@ La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van 
 - Arma el `state` con `previewOAuthState(state, '/ruta/del/callback')` (snippet de 10 líneas: docs de Ghosty Studio, fabrica/oauth-en-previews; usa `GS_PREVIEW_OAUTH_STATE_KEY`).
 - Una sola vez, el dueño registra `https://www.ghosty.studio/preview-oauth/callback` en el proveedor (GitHub: un OAuth App aparte para previews).
 - `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos.
+- **Primero la identidad de Ghosty (abajo), sin OAuth.** Si de verdad hace falta OAuth en previews: un cliente OAuth
+  APARTE sólo para previews; nunca edites el cliente de producción ni copies su secreto a la vista previa.
 
 **Login en previews sin OAuth** (identidad de Ghosty, como Cloudflare Access): quien abre la vista previa desde Ghosty
 (dueño, miembro o invitado aceptado) llega con el header `X-Ghosty-Identity` (JWT EdDSA de 12 h, atado al host de la
@@ -55,8 +60,11 @@ export async function previewIdentity(request) {
   }
 }
 ```
-En el loader de sesión: sin sesión y con `previewIdentity(request)` → busca o crea al usuario por `email` y crea la
-sesión. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
+En el loader de sesión: sin sesión y con `previewIdentity(request)` → entra como un **usuario de prueba sembrado en la
+base de la vista previa** (búscalo o créalo con un correo de prueba, p. ej. `preview-${role}@ghosty.test`, y guarda
+`sub`/`email` de la identidad sólo como dato) y crea la sesión: así el agente prueba con sesión sin elegir cuentas
+personales de Google. La base de la vista previa tiene que ser desechable (copia o vacía con seed), nunca la de
+producción: `ghosty-dev doctor` avisa si la preview trae `DATABASE_URL`, `MONGO_*`, etc. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
 evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
 
 **API de partner en previews sin llaves** (identidad de la caja, como el OIDC de GitHub Actions): cada vista previa trae
@@ -69,6 +77,9 @@ const auth = previewToken ? { Authorization: `Bearer ${previewToken}` } : { "X-G
 ```
 `...auth` en los headers del fetch y sin el error de «falta la llave» si hay token. Si la dueña tiene varios espacios de
 partner, `.ghosty/factory.md` dice cuál con `partner: <espacio>` en el frontmatter. `ghosty-dev doctor` lo sugiere.
+
+Un PR cerrado sin merge: `next`, `wait` y `show` dicen quién lo cerró y el motivo, y ofrecen `gh pr reopen <m>`;
+mientras siga cerrado, un push a su rama no corre CI, vista previa ni revisión (el pre-push lo avisa).
 
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y

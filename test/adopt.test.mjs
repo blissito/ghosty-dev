@@ -113,7 +113,7 @@ test('next dice el siguiente paso: ligar → CI → revisión → evidencia → 
   assert.deepEqual([step().step, step().command], ['evidencia', 'ghosty-dev evidence 5 --pr 76 --file evidencia.md']);
   edit(s, (db) => db.issues[5].comments.push({ body: formatEvidence(5, VALID_EVIDENCE) }));
   assert.equal(step().step, 'listo');
-  assert.match(s.run('status').out, /^Siguiente paso: listo\n {2}por qué: #5 tiene revisión y evidencia/);
+  assert.match(s.run('status').out, /^Siguiente paso: listo\n {2}ghosty-dev merge 76\n {2}por qué: #5 tiene revisión y evidencia/);
   // En main sin nada en curso: tomar el siguiente pendiente.
   const t = setup({ issues: { 3: issue(3, 'Otro') } });
   assert.deepEqual([JSON.parse(t.run('next', '--json').out).step, JSON.parse(t.run('next', '--json').out).command], ['tomar', 'ghosty-dev claim 3']);

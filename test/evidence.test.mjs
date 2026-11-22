@@ -14,10 +14,27 @@ test('lee los criterios del pendiente', () => {
   assert.deepEqual(acceptanceCriteria(ISSUE), [{ done: false, text: '/health responde 200' }]);
 });
 
-test('sin «Qué se hizo» ni «Verificación» falla', () => {
+test('sin «Qué se hizo», «Verificación» ni flujo principal falla', () => {
   const r = validateEvidence('## CI\n✅ passed\n');
   assert.equal(r.ok, false);
-  assert.equal(r.errors.length, 2);
+  assert.equal(r.errors.length, 3);
+});
+
+test('flujo principal probado con sesión: obligatorio, con captura o salida (Formmy, filas 44 y 46)', () => {
+  const without = VALID_EVIDENCE.replace(/## Flujo principal[\s\S]*?(?=## Criterios)/, '');
+  assert.match(validateEvidence(without, ISSUE).errors.join(), /Flujo principal probado con sesión/);
+  // Sólo texto: falta la prueba.
+  const bare = VALID_EVIDENCE.replace(/## Flujo principal[\s\S]*?(?=## Criterios)/, '## Flujo principal probado con sesión\nEntré y mandé un mensaje en el chat.\n\n');
+  assert.match(validateEvidence(bare, ISSUE).errors.join(), /necesita la prueba/);
+  // Renglón suelto con captura.
+  const shot = VALID_EVIDENCE.replace(/## Flujo principal[\s\S]*?(?=## Criterios)/, '').replace('## Preview\nno aplica\n', '## Preview\nFlujo principal probado con sesión: entré con X-Ghosty-Identity y mandé un mensaje en Crear ![chat](https://github.com/user-attachments/assets/abc)\n');
+  assert.deepEqual(validateEvidence(shot, ISSUE), { ok: true, errors: [] });
+  // «no aplica» sólo con motivo.
+  const na = (why) => VALID_EVIDENCE.replace(/## Flujo principal[\s\S]*?(?=## Criterios)/, `## Flujo principal probado con sesión\n${why}\n\n`);
+  assert.match(validateEvidence(na('no aplica'), ISSUE).errors.join(), /necesita el motivo/);
+  assert.equal(validateEvidence(na('No aplica: es una biblioteca sin interfaz ni login'), ISSUE).ok, true);
+  // Un comentario HTML de la plantilla no cuenta como contenido.
+  assert.match(validateEvidence(na('<!-- qué y cómo -->'), ISSUE).errors.join(), /Falta «Flujo principal/);
 });
 
 test('comandos sin salida no cuentan como verificación', () => {

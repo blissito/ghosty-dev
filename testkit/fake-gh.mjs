@@ -75,7 +75,15 @@ if (group === 'label' && verb === 'create') {
   const prBySha = (x) => db.prs.find((p) => sha(p) === x);
   let m;
   if (path === 'user') out({ login: db.me });
-  else if (path === 'repos/{owner}/{repo}') out({ full_name: db.repo, default_branch: 'main', html_url: `https://github.com/${db.repo}` });
+  else if (path === 'repos/{owner}/{repo}') out({ full_name: db.repo, default_branch: 'main', html_url: `https://github.com/${db.repo}`, ...(db.repoInfo ?? {}) });
+  else if ((m = path.match(/pulls\/(\d+)\/merge$/))) {
+    const p = db.prs.find((x) => String(x.number) === m[1]) ?? fail('HTTP 404: Not Found');
+    if (db.mergeFails) fail('HTTP 405: Required status check is expected');
+    Object.assign(p, { state: 'closed', mergedAt: '2026-11-22T12:00:00Z', mergedWith: body });
+    out({ merged: true, sha: db.mergeSha ?? `merge-${p.number}` });
+  }
+  else if (path.endsWith('/actions/runs')) out({ workflow_runs: (db.pushRuns ?? []).filter((r) => r.head_sha === q.get('head_sha')).map((r) => { const seen = { ...r }; if (r.then) { Object.assign(r, r.then); delete r.then; } return seen; }) });
+  else if ((m = path.match(/issues\/(\d+)\/events$/))) out(page(db.prs.find((p) => String(p.number) === m[1])?.events ?? []));
   else if (path.includes('/contents/.github/ghosty-dev/gate.mjs')) {
     if (db.gateOnBase === false) fail('HTTP 404: Not Found');
     out({ name: 'gate.mjs' });
@@ -172,9 +180,9 @@ if (group === 'label' && verb === 'create') {
       p.mergeableReads = (p.mergeableReads ?? 0) + 1;
       mergeable = null;
     }
-    out({ mergeable, mergeable_state: mergeable === null ? 'unknown' : p.mergeableState, base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
+    out({ mergeable, mergeable_state: mergeable === null ? 'unknown' : p.mergeableState, base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: Boolean(p.draft), merged_at: p.mergedAt ?? null, closed_at: p.closedAt ?? null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
   }
-  else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === 'open').map((p) => ({ number: p.number, title: p.title ?? `PR ${p.number}`, draft: Boolean(p.draft), html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
+  else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === (q.get('state') ?? 'open')).map((p) => ({ number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: Boolean(p.draft), merged_at: p.mergedAt ?? null, closed_at: p.closedAt ?? null, html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
   else if ((m = path.match(/compare\/([^.]+)\.\.\.(.+)$/))) out({ status: (db.ancestors ?? []).includes(`${m[1]}...${m[2]}`) ? 'ahead' : 'diverged' });
   else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {
     const p = prBySha(m[1]);
@@ -188,7 +196,7 @@ if (group === 'label' && verb === 'create') {
     });
     out({ check_runs: page(runs) });
   }
-  else if (path.match(/commits\/([^/]+)\/status$/)) out({ statuses: [] });
+  else if ((m = path.match(/commits\/([^/]+)\/status$/))) out({ statuses: prBySha(m[1])?.statuses ?? [] });
   else if (path.match(/actions\/workflows\/[^/]+\/runs$/)) out({ workflow_runs: (db.runs ?? []).filter((r) => !q.get('head_sha') || !r.headSha || r.headSha === q.get('head_sha')).map((r) => ({ id: r.databaseId, status: r.status ?? 'completed' })) });
   else if ((m = path.match(/actions\/runs\/(\d+)\/rerun$/))) {
     (db.reruns ??= []).push(Number(m[1]));

@@ -110,9 +110,16 @@ Agregué el endpoint /health.
 ## Preview
 no aplica
 
+## Flujo principal probado con sesión
+no aplica: es un endpoint de salud sin interfaz ni login
+
 ## Criterios de aceptación
 - [x] /health responde 200
 ```
+
+«Flujo principal probado con sesión» es obligatorio (Formmy, filas 44 y 46): qué función principal se usó logueado
+en la vista previa y cómo, con una captura (imagen o video) o un bloque `$ …` con su salida; «no aplica: <motivo>»
+sólo con motivo. Va también en la plantilla del pendiente y en la del PR (`init` la instala).
 
 (En el comentario real, la verificación va en un bloque con tres comillas invertidas.)
 
@@ -173,7 +180,9 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
 5. **wait.** `ghosty-dev wait <n> --watch` pone `esperando-ci` y espera al CI con una sola llamada bloqueante (no gasta tokens; tope 5 min). Si el CI tarda más, el agente toma otro pendiente o **termina su sesión**. Nunca sondea.
 6. **evidence.** Al volver a salir en `ready`, el agente escribe la evidencia y la publica con
    `ghosty-dev evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
-7. **close.** El Clerk lee la evidencia y mergea; `Closes #n` cierra el pendiente. Sin PR: `ghosty-dev close <n>`,
+7. **close.** El Clerk lee la evidencia y mergea (o le pide al agente `ghosty-dev merge <m>`: sólo con todos los
+   checks del commit de cabeza resueltos en verde o neutral, la puerta en verde, sin borrador ni conflicto; luego
+   espera el deploy de producción, el workflow que corre con push a la rama base); `Closes #n` cierra el pendiente. Sin PR: `ghosty-dev close <n>`,
    que se niega si no hay evidencia válida.
 8. **pedidos.** Lo que la persona le pide al escritor vive en la bitácora: un comentario del issue o del PR que
    menciona a `@ghosty` o lleva la marca `<!-- ghosty-dev:pedido -->` (así publica Ghosty Studio lo que se escribe
@@ -397,6 +406,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C31 | `doctor`: baja el catálogo público de gs (`GET /api/v2/preview-oauth/providers`, sin sesión, sin redirecciones; no hay catálogo propio), detecta como la caja (grepPattern, codeHints, alias de env), dice llaves faltantes (`env ls`), la URL a registrar sola en su renglón + consola + 3 pasos + «pídeselo a Ghosty con ghosty-browser», y si el código no usa `GS_PREVIEW_OAUTH_REDIRECT_URI`; prefiere `preview.oauth` del PR (`registered`). Sin catálogo no inventa | `test/doctor.test.mjs` |
 | C32 | `preview` y `doctor` dicen las variables que el código lee y la vista previa del PR no tiene (`missingEnv` de gs, sólo nombres válidos; las que lee el PR primero): `preview` las imprime con «ghosty-dev env push», `doctor` agrega el check `env-faltantes` (sale 1). Nunca valores | `test/preview.test.mjs`, `test/doctor.test.mjs` |
 | C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
+| C33 | `merge <m>` no mezcla con un check en curso (también «Ghosty · Smoke»), en rojo, la puerta faltante, borrador o conflicto (75 si sólo falta que resuelva, `--wait` espera; 1 si algo falla); tras mezclar quita las etiquetas del pendiente y espera el deploy en push a la base. PR cerrado sin merge: `merge`/`wait`/`show`/`next` dicen quién, cuándo y el motivo y ofrecen `gh pr reopen`; el pre-push lo avisa. `block <n> --reason` deja motivo con marca; `next` lo pide en borrador. La evidencia exige «Flujo principal probado con sesión»; `doctor` pone la identidad de Ghosty antes que OAuth y avisa de la base de la preview | `test/merge.test.mjs`, `test/doctor.test.mjs`, `test/evidence.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
