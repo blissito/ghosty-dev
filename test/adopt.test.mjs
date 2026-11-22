@@ -175,3 +175,52 @@ test('claim --cloud sin --yes dice antes qué ocupa la nube y qué desalojaría,
     }
   }
 });
+
+test('claim parte de la base aunque el clon esté en otra rama, y avisa antes; --base inexistente se rechaza (C29)', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const g = (...a) => spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { cwd: s.repo, encoding: 'utf8' }).stdout.trim();
+  const main = g('rev-parse', 'main');
+  g('checkout', '-q', '-b', 'feat/x');
+  g('commit', '-q', '--allow-empty', '-m', 'trabajo de otro PR');
+  assert.equal(s.run('claim', '5', '--base', 'no-existe').code, 1);
+  const r = s.run('claim', '5');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.err, /Aviso: Estás en feat\/x; la rama nueva parte de main, no de feat\/x\./);
+  assert.match(r.out, /rama: ghosty-dev\/5-salud \(parte de main\)/);
+  assert.equal(g('rev-parse', 'ghosty-dev/5-salud'), main);
+});
+
+test('show <n> con n PR dice que es PR y qué pendiente cierra, sin confundirlo con un issue cerrado (C29)', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud') }, prs: [handPr({ body: 'Closes #5' })] });
+  const r = s.run('show', '76');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^#76 es un PR, no un pendiente: cierra #5 \(ghosty-dev show 5\)\.\nPR #76 Arreglo a mano\n {2}estado: abierto/);
+  assert.doesNotMatch(r.out, /cerrado/);
+  assert.equal(JSON.parse(s.run('show', '76', '--json').out).kind, 'pr');
+  assert.equal(JSON.parse(s.run('show', '5', '--json').out).kind, 'issue');
+});
+
+test('asks y next ignoran avisos del bot de otro commit o de un check que ya no existe; los de la persona sí cuentan (C29)', () => {
+  const bot = { login: 'ghosty-studio[bot]', type: 'Bot' };
+  const s = setup({
+    issues: { 5: issue(5, 'Salud') },
+    prs: [handPr({ body: 'Closes #5', statusCheckRollup: [{ id: 1, name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }], comments: [
+      { author: bot, body: '<!-- ghosty-dev:pedido -->\nEl CI del PR #76 falló (claude-review). Arréglalo.' },
+      { author: bot, body: '<!-- ghosty-dev:pedido -->\nEl CI del PR #76 pasó en el commit bfc298a. Publica la evidencia.' },
+    ] })],
+  });
+  spawnSync('git', ['checkout', '-q', '-b', 'fix/puerta'], { cwd: s.repo });
+  assert.equal(JSON.parse(s.run('next', '--json').out).step, 'revision');
+  const a = JSON.parse(s.run('asks', '5', '--peek', '--json').out);
+  assert.deepEqual(a.asks, []);
+  assert.deepEqual(a.stale.map((x) => x.reason), ['el check «claude-review» ya no existe en ' + SHA.slice(0, 7), `habla del commit bfc298a; la cabeza del PR es ${SHA.slice(0, 7)}`]);
+  assert.match(s.run('asks', '5').out, /sin pedidos nuevos\.\nObsoletos \(avisos del bot/);
+  // Un aviso del bot sobre la cabeza actual y un pedido de la persona sí son pedidos.
+  edit(s, (db) => db.prs[0].comments.push({ author: bot, body: `<!-- ghosty-dev:pedido -->\nEl CI pasó en el commit ${SHA.slice(0, 7)}. Publica la evidencia.` }, { author: { login: 'bliss' }, body: '<!-- ghosty-dev:pedido -->\nusa la opción barata' }));
+  assert.deepEqual(JSON.parse(s.run('asks', '5', '--json').out).asks.map((x) => x.by), ['ghosty-studio[bot]', 'bliss']);
+  // asks <m> con m un PR cerrado: sus avisos del bot ya no aplican.
+  edit(s, (db) => { db.prs[0].state = 'closed'; });
+  const closed = JSON.parse(s.run('asks', '76', '--peek', '--json').out);
+  assert.deepEqual(closed.asks.map((x) => x.by), ['bliss']);
+  assert.ok(closed.stale.every((x) => x.reason === 'el PR #76 ya está cerrado'));
+});

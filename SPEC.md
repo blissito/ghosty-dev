@@ -295,6 +295,17 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
 - **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia; si falla: `ghosty-dev box logs` / `ghosty-dev box exec -- <comando>` → arregla → push. `preview` acepta la sesión con
   `dev` o `repo:env`; 403 `insufficient_scope` → `ghosty-dev login --force`.
 
+## 5c-ter. Rama base, PR contra pendiente y avisos obsoletos (Formmy, filas 34–36)
+
+- `claim <n> [--base <rama>]`: la rama `ghosty-dev/<n>-…` parte de `origin/<rama principal>` (tras `git fetch`) o de
+  `--base`, nunca de la rama donde está el clon; si el clon está en otra, avisa antes por stderr.
+- `show <m>` con m un PR (el endpoint de issues también los devuelve) lo muestra como PR, `kind: "pr"`, con el
+  pendiente que cierra; con un issue, `kind: "issue"` y su PR ligado.
+- Un aviso del **bot** (`user.type: Bot`) es obsoleto si nombra un commit que no es la cabeza del PR, un check que la
+  cabeza ya no tiene, es anterior al commit de la cabeza, o su PR ya está cerrado. `asks` lo lista aparte como
+  `stale` (con la razón) y lo marca leído; `next`, `ready` y `wait` nunca lo proponen. Un pedido de una persona
+  nunca es obsoleto.
+
 ## 5c-bis. Conflicto con la base
 
 Un PR en conflicto no se mezcla aunque CI, revisión y evidencia estén verdes, así que es lo primero que se dice
@@ -353,6 +364,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C25 | `evidence` re-corre la puerta del PR que cierra #n (cualquier rama, por `head_sha`); el workflow con `issue_comment` (sólo comentarios con marca) re-corre el run de la puerta del PR que cierra el issue, si ya terminó | `test/adopt.test.mjs` |
 | C27 | `preview share` imprime la liga pública (idempotente) y sólo ahí; `unshare` la revoca sin imprimirla; `requests` lista limpia; `accept/reject <id> --pr` deciden; PR cerrado o id inválido salen 1 | `test/share.test.mjs` |
 | C28 | PR en conflicto con su base (`mergeable:false`/`mergeable_state:dirty`, reintento si llega `null`): `next`/`status` lo ponen como primer paso con `git fetch origin && git switch <rama> && git merge origin/<base>` y los archivos (git merge-tree); `show --pr` y `ready` lo avisan; la puerta falla con esa causa sin correr gate.mjs (en borrador sólo avisa) | `test/adopt.test.mjs`, `test/gate-runner.test.mjs` |
+| C29 | `claim <n>` crea la rama desde `origin/<principal>` (o `--base`), nunca desde la rama actual, y avisa antes si el clon está en otra; `show <m>` con m PR lo dice («es un PR, no un pendiente: cierra #n»); `asks`/`next` dejan fuera, marcados «obsoletos», los avisos del bot de otro commit, de un check que ya no existe, anteriores a la cabeza o de un PR cerrado | `test/adopt.test.mjs` |
 | C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 

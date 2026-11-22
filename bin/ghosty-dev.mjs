@@ -33,7 +33,7 @@ Uso: ghosty-dev <comando> [opciones]
                                          (empieza por aquí tras compactar o retomar una sesión)
   ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto);
                                          avisa los PR abiertos que no están ligados a un pendiente
-  claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
+  claim <n> [--no-worktree] [--base B]   te asigna el pendiente y crea su rama y worktree desde origin/main (o B)
   claim --pr <m> --issue <n>             adopta un PR que ya existe como el trabajo de #n (sin rama ni worktree
                                          nuevos; agrega «Closes #n» si falta)
   claim <n> --cloud [--yes] [--workspace S]
@@ -132,6 +132,7 @@ const { values, positionals } = parseArgs({
     issue: { type: 'string' },
     workspace: { type: 'string' },
     status: { type: 'string' },
+    base: { type: 'string' },
     until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
@@ -259,6 +260,25 @@ function autoDeps(pr) {
   } catch {}
 }
 
+// Un PR en `show --pr <m>` o en `show <m>` cuando <m> es PR (`note` arriba: no es un pendiente).
+async function printPr(r, note) {
+    r.preview = await previewSummary(r.pr);
+    print(r, (x) =>
+      [
+        ...(note ? [note] : []),
+        `PR #${x.pr} ${x.title}`,
+        ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
+        `  estado: ${x.state}`,
+        `  rama: ${x.branch ?? '—'}`,
+        `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
+        `  ${x.url}`,
+        ...previewLine(x.preview),
+        ...servicesBlock(x.services),
+        ...(x.ficha ? ['', x.ficha] : []),
+      ].join('\n'),
+    );
+}
+
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
   else console.log(human(data));
@@ -352,7 +372,7 @@ try {
         if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`)) printCloud(await cloud.start(next.number, { workspace: values.workspace }));
         process.exit(process.exitCode ?? 0);
       }
-      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'] });
+      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`) });
       print(result, (r) => `Tomado #${r.number} ${r.title}${r.worktree ? `\n  worktree: ${r.worktree}\n  rama: ${r.branch}` : ''}${r.resumed ? `\n  retoma: ${r.reason}` : ''}`);
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
@@ -380,8 +400,8 @@ try {
   } else if (command === 'teleport') {
     print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
-    const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
-    print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
+    const r = cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`) });
+    print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
@@ -400,7 +420,11 @@ try {
     );
   } else if (command === 'asks') {
     const r = cmd.asks(num(arg), { peek: values.peek });
-    print(r, (x) => (x.asks.length ? x.asks.map((a) => `- ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n') : `#${x.number}: sin pedidos nuevos.`));
+    print(r, (x) =>
+      [x.asks.length ? x.asks.map((a) => `- ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n') : `#${x.number}: sin pedidos nuevos.`]
+        .concat(x.stale.length ? [`Obsoletos (avisos del bot que ya no aplican a la cabeza del PR; no hay que hacerlos):`, ...x.stale.map((a) => `  - ${a.reason}: ${a.text.split('\n')[0].slice(0, 120)}`)] : [])
+        .join('\n'),
+    );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
@@ -408,21 +432,7 @@ try {
     const r = cmd.block(num(arg), num(values.by, '--by <m>'));
     print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);
   } else if (command === 'show' && values.pr !== undefined) {
-    const r = cmd.showPr(num(values.pr, '--pr <m>'));
-    r.preview = await previewSummary(r.pr);
-    print(r, (x) =>
-      [
-        `PR #${x.pr} ${x.title}`,
-        ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
-        `  estado: ${x.state}`,
-        `  rama: ${x.branch ?? '—'}`,
-        `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
-        `  ${x.url}`,
-        ...previewLine(x.preview),
-        ...servicesBlock(x.services),
-        ...(x.ficha ? ['', x.ficha] : []),
-      ].join('\n'),
-    );
+    await printPr(cmd.showPr(num(values.pr, '--pr <m>')));
   } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
     // share|unshare|requests [<pr>] · accept|reject <id> [--pr <m>]. Sin PR: el de tu rama.
     const decision = arg === 'accept' || arg === 'reject';
@@ -487,22 +497,26 @@ try {
     process.exitCode = r.exitCode;
   } else if (command === 'show') {
     const r = cmd.show(num(arg));
-    if (!r.pr && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
-    r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
-    print(r, (x) =>
-      [
-        `#${x.number} ${x.title}`,
-        `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
-        `  escritor: ${x.assignees.join(', ') || '—'}`,
-        `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
-        `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
-        `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
-        ...(x.pr ? [`  PR: ${x.pr}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
-        ...previewLine(x.preview),
-        ...servicesBlock(x.services),
-        ...(x.ficha ? ['', x.ficha] : []),
-      ].join('\n'),
-    );
+    if (r.kind === 'pr') {
+      await printPr(r, `#${r.pr} es un PR, no un pendiente${r.closes.length ? `: cierra ${r.closes.map((c) => '#' + c).join(', ')} (ghosty-dev show ${r.closes[0]})` : ''}.`);
+    } else {
+      if (!r.pr && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
+      r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
+      print(r, (x) =>
+        [
+          `#${x.number} ${x.title}`,
+          `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
+          `  escritor: ${x.assignees.join(', ') || '—'}`,
+          `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
+          `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
+          `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
+          ...(x.pr ? [`  PR: ${x.pr}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
+          ...previewLine(x.preview),
+          ...servicesBlock(x.services),
+          ...(x.ficha ? ['', x.ficha] : []),
+        ].join('\n'),
+      );
+    }
   } else if (command === 'close') {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);

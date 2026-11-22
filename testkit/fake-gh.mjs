@@ -130,7 +130,7 @@ if (group === 'label' && verb === 'create') {
   }
   else if ((m = path.match(/issues\/(\d+)\/comments$/)) && !db.issues[m[1]] && db.prs.some((p) => String(p.number) === m[1])) {
     // Comentarios de la conversación de un PR (ahí también vive la ficha).
-    out(page((db.prs.find((p) => String(p.number) === m[1]).comments ?? []).map((c) => ({ body: c.body, user: { login: c.author?.login } }))));
+    out(page((db.prs.find((p) => String(p.number) === m[1]).comments ?? []).map((c) => ({ body: c.body, user: { login: c.author?.login, type: c.author?.type }, created_at: c.createdAt }))));
   }
   else if ((m = path.match(/pulls\/(\d+)\/comments$/))) out(page(db.prs.find((p) => String(p.number) === m[1])?.reviewComments ?? []));
   else if (path.endsWith('/deployments')) out((db.deployments ?? []).filter((d) => d.sha === q.get('sha')).map((d) => ({ id: d.id, sha: d.sha })));
@@ -140,7 +140,12 @@ if (group === 'label' && verb === 'create') {
     if (method === 'POST') {
       i.comments.push({ author: { login: db.me }, body: body.body });
       out({ html_url: `https://github.com/${db.repo}/issues/${i.number}#issuecomment-${i.comments.length}` });
-    } else out(page(i.comments.map((c) => ({ body: c.body, user: { login: c.author?.login } }))));
+    } else out(page(i.comments.map((c) => ({ body: c.body, user: { login: c.author?.login, type: c.author?.type }, created_at: c.createdAt }))));
+  }
+  else if ((m = path.match(/issues\/(\d+)$/)) && !db.issues[m[1]] && db.prs.some((p) => String(p.number) === m[1])) {
+    // Como GitHub: el endpoint de issues también devuelve los PR, con `pull_request`.
+    const p = db.prs.find((x) => String(x.number) === m[1]);
+    out({ number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', body: p.body ?? '', labels: [], assignees: [], html_url: p.url, pull_request: { url: p.url } });
   }
   else if ((m = path.match(/issues\/(\d+)$/))) {
     const i = issue(m[1]);

@@ -201,7 +201,23 @@ function setState(issue, state, { assign } = {}) {
   if (assign) api('POST', `${API_ISSUE(issue.number)}/assignees`, { assignees: [assign] });
 }
 
-export function claim(n, { worktree = true } = {}) {
+// La rama del pendiente parte SIEMPRE de la base (origin/<rama principal> o --base), nunca de la rama donde está
+// parado el clon (Formmy, fila 34: `claim 83` desde la rama del PR #73 arrastró todo ese PR).
+export function claimBase(base) {
+  const name = base || api('GET', REPO, undefined, { allowFail: true })?.default_branch || 'main';
+  if (!/^[\w./-]{1,200}$/.test(name) || name.startsWith('-')) throw new UserError('--base va con el nombre de una rama.');
+  git(['fetch', '--quiet', 'origin', name], { allowFail: true, timeout: 60_000 });
+  const remote = `origin/${name}`;
+  const ref = git(['rev-parse', '--verify', '--quiet', `${remote}^{commit}`], { allowFail: true }) ? remote : git(['rev-parse', '--verify', '--quiet', `${name}^{commit}`], { allowFail: true }) ? name : null;
+  if (!ref) throw new UserError(`No encuentro la rama base ${name} (ni origin/${name}): git fetch origin o --base <rama>.`);
+  const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
+  const warning = current && current !== name && current !== 'HEAD' ? `Estás en ${current}; la rama nueva parte de ${ref}, no de ${current}.` : null;
+  return { name, ref, warning };
+}
+
+export function claim(n, { worktree = true, base, onWarning = () => {} } = {}) {
+  const from = worktree ? claimBase(base) : null;
+  if (from?.warning) onWarning(from.warning);
   const issue = viewIssue(n);
   if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
   const login = me();
@@ -226,10 +242,10 @@ export function claim(n, { worktree = true } = {}) {
     path = join(dirname(top), `${basename(top)}-${n}`);
     if (!existsSync(path)) {
       const exists = git(['rev-parse', '--verify', '--quiet', branch], { allowFail: true }) !== null;
-      git(exists ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path], { cwd: top });
+      git(exists ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path, from.ref], { cwd: top });
     }
   }
-  return { number: n, title: issue.title, branch, worktree: path };
+  return { number: n, title: issue.title, branch, worktree: path, base: from?.ref ?? null, warning: from?.warning ?? null };
 }
 
 // Adopta lo que ya existe (Formmy, fila 32): un PR abierto a mano o desde una rama propia queda como el trabajo del
@@ -286,27 +302,70 @@ function markSeen(n, list) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, JSON.stringify(seen));
 }
-function unseenAsks(n) {
+// Un aviso del BOT (no de la persona) que ya no aplica a la cabeza del PR (Formmy, fila 36): nombra un commit que
+// no es la cabeza («pasó en el commit bfc298a»), un check que el commit de la cabeza ya no tiene («falló
+// (claude-review)»), o es anterior al commit de la cabeza. Un pedido de una persona nunca es obsoleto.
+const isBot = (u) => u?.type === 'Bot' || /\[bot\]$/.test(u?.login ?? '');
+function staleReason(c, head) {
+  if (!head || !isBot(c.user)) return null;
+  if (head.closed) return head.closed;
+  if (!head.sha) return null;
+  const body = String(c.body ?? '');
+  const shas = [...body.matchAll(/\bcommit\s+`?([0-9a-f]{7,40})\b/gi)].map((x) => x[1].toLowerCase());
+  if (shas.length && !shas.some((s) => head.sha.startsWith(s))) return `habla del commit ${shas[0].slice(0, 7)}; la cabeza del PR es ${head.sha.slice(0, 7)}`;
+  const check = body.match(/\bfall[óo]\s*\(([^)\n]{1,100})\)/i)?.[1]?.trim();
+  if (check && head.checks && !head.checks.has(check.toLowerCase())) return `el check «${check}» ya no existe en ${head.sha.slice(0, 7)}`;
+  if (head.date && c.created_at && Date.parse(c.created_at) < head.date) return `es anterior al commit ${head.sha.slice(0, 7)}`;
+  return null;
+}
+
+function headOf(pr) {
+  if (!pr?.headRefOid) return null;
+  const sha = pr.headRefOid.toLowerCase();
+  const { runs, statuses } = commitChecks(sha);
+  const checks = new Set([...runs.map((r) => r.name), ...statuses.map((s) => s.context)].filter(Boolean).map((x) => String(x).toLowerCase()));
+  const c = api('GET', `${REPO}/commits/${sha}`, undefined, { allowFail: true });
+  const date = Date.parse(c?.commit?.committer?.date ?? '') || null;
+  return { sha, checks: checks.size ? checks : null, date };
+}
+
+// { fresh, stale }: los pedidos sin leer; los obsoletos van aparte, nunca se proponen.
+function readAsks(n) {
   const seen = readSeen(n);
   const sources = [['issue', n]];
-  const pr = prOf(n);
+  let pr = prOf(n);
+  let head;
   if (pr) sources.push(['pr', pr.number]);
-  const out = [];
+  else {
+    // #n mismo es un PR (sus avisos viven en su conversación): su cabeza manda; cerrado, ningún aviso del bot aplica.
+    const p = api('GET', `${REPO}/pulls/${n}`, undefined, { allowFail: true });
+    if (p?.number) {
+      if (p.state !== 'open') head = { closed: `el PR #${n} ya está ${p.merged_at ? 'mezclado' : 'cerrado'}` };
+      else pr = { number: p.number, headRefOid: p.head?.sha };
+    }
+  }
+  const fresh = [];
+  const stale = [];
   for (const [from, number] of sources) {
     const comments = apiAll(`${API_ISSUE(number)}/comments`, { allowFail: true }) ?? [];
     comments.forEach((c, index) => {
-      if (index >= (seen[from] ?? 0) && isAsk(c.body || '')) out.push({ from, index, by: c.user?.login ?? null, text: askText(c.body || ''), url: c.html_url ?? null });
+      if (index < (seen[from] ?? 0) || !isAsk(c.body || '')) return;
+      const a = { from, index, by: c.user?.login ?? null, text: askText(c.body || ''), url: c.html_url ?? null };
+      if (isBot(c.user) && head === undefined) head = headOf(pr);
+      const why = staleReason(c, head);
+      (why ? stale : fresh).push(why ? { ...a, stale: why } : a);
     });
   }
-  return out;
+  return { fresh, stale };
 }
+const unseenAsks = (n) => readAsks(n).fresh;
 const publicAsk = ({ from, by, text, url }) => ({ from, by, text, url });
 
 // Los pedidos nuevos de la persona; al leerlos quedan vistos (con peek, no).
 export function asks(n, { peek = false } = {}) {
-  const fresh = unseenAsks(n);
-  if (!peek) markSeen(n, fresh);
-  return { number: n, asks: fresh.map(publicAsk) };
+  const { fresh, stale } = readAsks(n);
+  if (!peek) markSeen(n, [...fresh, ...stale]);
+  return { number: n, asks: fresh.map(publicAsk), stale: stale.map((a) => ({ ...publicAsk(a), reason: a.stale })) };
 }
 
 // ---------- wait (Ley 3; Beads gates «so agents never need to poll») ----------
@@ -557,12 +616,20 @@ export function fichaOf(comments) {
 }
 
 export function show(n) {
+  // #n puede ser un PR (el endpoint de issues también los devuelve): entonces se dice y se muestra como PR, con el
+  // pendiente que cierra (Formmy, fila 35: `show 73` decía «cerrado» con #73 PR abierto).
+  const raw = api('GET', API_ISSUE(n), undefined, { allowFail: true });
+  if (!raw || raw.pull_request) {
+    const p = api('GET', `${REPO}/pulls/${n}`, undefined, { allowFail: true });
+    if (p?.number) return { kind: 'pr', ...showPr(n) };
+  }
   const issue = viewIssue(n, { comments: true });
   const open = openIssues();
   // La ficha vive en el PR (y hoy también en el issue): primero la del PR, si no hay, la del issue.
   const pr = issue.state === 'OPEN' ? prOf(n) : null;
   const prComments = pr ? apiAll(`${API_ISSUE(pr.number)}/comments`, { allowFail: true }) ?? [] : [];
   return {
+    kind: 'issue',
     number: issue.number,
     title: issue.title,
     state: issue.state === 'OPEN' ? stateOf(issue) : 'cerrado',
