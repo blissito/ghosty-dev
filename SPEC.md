@@ -165,7 +165,9 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
 2. **claim.** `ghosty-dev claim <n>` asigna al agente, pone `tomado` y crea la rama `ghosty-dev/<n>-<slug>` en su propio
    worktree `../<repo>-<n>`. Si ya tiene otro asignado, falla. Si dos se asignan a la vez, el que ve a otro se retira.
 3. **work.** Un pendiente por worktree. Lo que descubra va a un pendiente nuevo, no a una nota.
-4. **PR.** La descripción lleva `Closes #<n>`.
+4. **PR.** La descripción lleva `Closes #<n>`. Si el PR va apilado (su base es la rama de otro PR abierto) o trae el
+   commit de otro PR sin mezclar, ghosty-dev escribe solo `Depende de #N` (con la marca `<!-- ghosty-dev:depende -->`;
+   `preview`, `wait` y `deps [<pr>]` lo hacen) sin duplicar lo que ya diga el cuerpo, y la quita cuando ese PR entra.
 5. **wait.** `ghosty-dev wait <n> --watch` pone `esperando-ci` y espera al CI con una sola llamada bloqueante (no gasta tokens; tope 5 min). Si el CI tarda más, el agente toma otro pendiente o **termina su sesión**. Nunca sondea.
 6. **evidence.** Al volver a salir en `ready`, el agente escribe la evidencia y la publica con
    `ghosty-dev evidence <n> --file evidencia.md`, que la valida antes de publicarla y re-ejecuta la puerta del PR.
@@ -181,7 +183,10 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
 
 **La puerta** (`.github/workflows/evidence-gate.yml`, check `ghosty-dev/evidencia`): falla si el PR no cierra ningún
 pendiente o si alguno de los que cierra no tiene evidencia válida. Su script se lee de la rama base, para que un PR
-no pueda aflojar su propia puerta. Se vuelve obligatoria con *branch protection*.
+no pueda aflojar su propia puerta. Se vuelve obligatoria con *branch protection*. **Validar al cerrar, no mientras se
+itera:** en un PR borrador la puerta sale en verde con «Borrador: la evidencia se exige al marcarlo listo» y vuelve a
+correr con `ready_for_review`. Si la rama base todavía no trae el script (PR abierto antes de instalar ghosty-dev) o
+no carga, sale en verde con la explicación (aviso `::notice`), nunca un `MODULE_NOT_FOUND` en rojo.
 
 ## 5b. La nube (opcional)
 
@@ -284,6 +289,8 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C19 | `preview`: lista → liga sólo en stdout y 0; armándose → 75 sin liga; `--wait` armándose→lista y no se conforma con un commit viejo; falló → 1 con el error limpio; 403 `insufficient_scope` pide `login --force`; PR deducido de la rama; la liga nunca sale en stderr, errores ni `show --pr` (que da `{phase, sha}`) | `test/preview.test.mjs` |
 | C20 | `box logs` limpia la salida (ANSI, `?k=`, `Bearer`) y manda `--lines`; `box exec -- …` arma la línea de shell, sale con el código del comando y deduce el PR; `restart` y `rebuild`; 404 sin caja, 403 sin asiento e `insufficient_scope` con el siguiente paso y sin tokens | `test/box.test.mjs` |
 | C21 | `wait --pr --until preview|ci|any`: un renglón JSON por cambio sin la liga; CI verde 0, rojo 1; tope → 75; una vista previa de un commit viejo no cuenta como lista | `test/box.test.mjs` |
+| C22 | la puerta en borrador sale verde con su nota y corre con `ready_for_review`; sin script en la base o con uno que no carga, verde con la explicación; un `gate.mjs` viejo se corre como antes | `test/gate-runner.test.mjs` |
+| C23 | `Depende de #N`: apilado sobre la rama de otro PR o con su commit → se agrega una vez; lo que escribió una persona no se duplica ni se toca; al entrar ese PR, se quita | `test/deps.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1

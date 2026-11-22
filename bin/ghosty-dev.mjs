@@ -9,6 +9,7 @@ import * as envVars from '../src/env.mjs';
 import * as previews from '../src/preview.mjs';
 import * as boxes from '../src/box.mjs';
 import { waitPr } from '../src/watch.mjs';
+import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
 
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
@@ -52,6 +53,9 @@ Uso: ghosty-dev <comando> [opciones]
   box exec [<pr>] -- <comando…>          corre el comando en el checkout de la caja (/app/src, 60 s); sale con su código
   box restart [<pr>]                     reinicia la app de la caja sin rearmar
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
+  deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
+                                         abierto (o trae su commit) y la quita cuando ése entra; preview y wait lo
+                                         hacen solos
   wait --pr <m> [--until preview|ci|review|any] [--minutes 10]
                                          espera por PR, sin pendiente: hasta que la vista previa, el CI o la revisión
                                          del último commit terminen (any: el primer cambio). Un renglón (JSON con
@@ -207,6 +211,16 @@ function previewText(x, { opened } = {}) {
   return `${head}. Espérala: ghosty-dev preview ${x.pr} --wait`;
 }
 
+// «Depende de #N» al día en la descripción del PR (src/deps.mjs). Lo hacen solos preview y wait: nunca detiene el
+// comando, y sólo avisa por stderr cuando cambió algo.
+function autoDeps(pr) {
+  try {
+    const r = syncDeps(pr);
+    if (r.added.length) console.error(`Agregué a la descripción del PR #${pr}: ${r.added.map((n) => `Depende de #${n}`).join(', ')}.`);
+    if (r.removed.length) console.error(`Quité de la descripción del PR #${pr}: ${r.removed.map((n) => `Depende de #${n}`).join(', ')} (ya entró).`);
+  } catch {}
+}
+
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(data, null, 2));
   else console.log(human(data));
@@ -283,6 +297,7 @@ try {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
     const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
+    if (r.pr) autoDeps(Number(String(r.pr).split('/').pop()));
     print(r, (x) =>
       x.asks?.length
         ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
@@ -321,10 +336,20 @@ try {
   } else if (command === 'preview') {
     const pr = arg === undefined ? undefined : num(arg, '<pr>');
     // Los avisos (commit viejo, falta push) van a stderr y nunca llevan la liga.
+    autoDeps(pr ?? previews.currentPr());
     const r = await previews.preview(pr, { wait: values.wait, onNote: (n) => console.error(n) });
     if (r.url && values.open) auth.openBrowser(r.url);
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
+  } else if (command === 'deps') {
+    const pr = arg === undefined ? previews.currentPr() : num(arg, '<pr>');
+    const r = syncDeps(pr);
+    print(r, (x) =>
+      [`PR #${x.pr}: ${x.dependsOn.length ? `depende de ${x.dependsOn.map((n) => '#' + n).join(', ')}` : 'no depende de otro PR abierto'}.`]
+        .concat(x.added.length ? [`  agregué: ${x.added.map((n) => `Depende de #${n}`).join(', ')}`] : [])
+        .concat(x.removed.length ? [`  quité: ${x.removed.map((n) => `Depende de #${n}`).join(', ')}`] : [])
+        .join('\n'),
+    );
   } else if (command === 'box') {
     // Lo que va después de `--` es el comando de exec; antes, `box <op> [<pr>]`.
     const dd = process.argv.indexOf('--', 2);
@@ -347,6 +372,7 @@ try {
     const minutes = values.minutes === undefined ? 10 : Number(values.minutes);
     if (!Number.isFinite(minutes) || minutes < 0) throw new cmd.UserError('--minutes va en minutos (default 10).');
     const onChange = (s) => console.log(values.json ? JSON.stringify({ event: 'state', ...s }) : prStateLine(s));
+    autoDeps(num(values.pr, '--pr <m>'));
     const r = await waitPr(num(values.pr, '--pr <m>'), { until: values.until ?? 'any', minutes, onChange });
     console.log(
       values.json

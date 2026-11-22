@@ -39,6 +39,10 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   `box restart` reinicia la app; `box rebuild` la rearma sin push. Lo que arregles en la caja con `exec` se pierde en
   el siguiente push: el arreglo va al código. Para esperar CI o revisión sin pendiente:
   `ghosty-dev wait --pr <m> --until ci|review|preview|any --json` (0 cumplido, 1 falló/rojo, 75 tiempo).
+- **PR apilado** (su base es la rama de otro PR, o lo armaste sobre uno sin mezclar): `preview`/`wait` escriben solos
+  `Depende de #N` en la descripción y la quitan cuando ese PR entra (`ghosty-dev deps` para hacerlo ya).
+- **Borrador:** mientras el PR es draft la puerta no exige evidencia (ni hay vista previa); al marcarlo listo
+  (`gh pr ready`) se exige todo.
   **La liga lleva la llave de la vista previa:** úsala para probar (navegador, curl, Playwright), pero nunca la
   pegues en la evidencia, el issue, el PR ni el chat; en «Preview» escribe qué probaste y el commit.
 

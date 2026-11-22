@@ -4,7 +4,8 @@
 name: ghosty-dev
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    # ready_for_review: en borrador la puerta no exige nada; al marcarlo listo vuelve a correr y exige todo.
+    types: [opened, edited, synchronize, reopened, ready_for_review, converted_to_draft]
 permissions:
   contents: read
   issues: read
@@ -22,7 +23,26 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: .github/ghosty-dev
-      - run: node .github/ghosty-dev/gate.mjs
+      # Si la base todavía no trae el script (PR abierto antes de instalar ghosty-dev) o no carga, la puerta no truena
+      # en rojo: sale en verde con la explicación. El script se sigue leyendo SÓLO de la base. Un gate.mjs viejo (sin
+      # `main` exportado) se corre como antes.
+      - run: |
+          node --input-type=module -e '
+            import { appendFileSync, existsSync } from "node:fs";
+            import { spawnSync } from "node:child_process";
+            const path = ".github/ghosty-dev/gate.mjs";
+            const skip = (why) => {
+              const text = `- La puerta no corrió: ${why} Se exige en cuanto la rama base tenga ghosty-dev (ghosty-dev init + push a la base).`;
+              console.log(`::notice title=ghosty-dev/evidencia::${text.slice(2)}`);
+              if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
+              process.exit(0);
+            };
+            if (!existsSync(path)) skip("la rama base no tiene .github/ghosty-dev/gate.mjs.");
+            let gate;
+            try { gate = await import(`${process.cwd()}/${path}`); } catch (e) { skip(`el script de la base no carga (${String(e?.code ?? e?.message ?? e).slice(0, 120)}).`); }
+            if (typeof gate.main === "function") gate.main();
+            else process.exit(spawnSync(process.execPath, [path], { stdio: "inherit" }).status ?? 1);
+          '
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

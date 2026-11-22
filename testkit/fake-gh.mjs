@@ -155,9 +155,14 @@ if (group === 'label' && verb === 'create') {
   }
   else if ((m = path.match(/pulls\/(\d+)$/))) {
     const p = db.prs.find((x) => String(x.number) === m[1]) ?? fail('HTTP 404: Not Found');
-    out({ number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
+    if (method === 'PATCH') {
+      p.body = body.body;
+      p.bodyEdits = (p.bodyEdits ?? 0) + 1;
+    }
+    out({ base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
   }
-  else if (path.endsWith('/pulls')) out(page(db.prs.map((p) => ({ number: p.number, html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } }))));
+  else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === 'open').map((p) => ({ number: p.number, html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
+  else if ((m = path.match(/compare\/([^.]+)\.\.\.(.+)$/))) out({ status: (db.ancestors ?? []).includes(`${m[1]}...${m[2]}`) ? 'ahead' : 'diverged' });
   else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {
     const p = prBySha(m[1]);
     // Simula que el CI termina mientras se espera: la segunda lectura de un check corriendo ya lo ve terminado.

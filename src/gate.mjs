@@ -80,10 +80,24 @@ export function evaluatePullRequest(pr, fetchIssue, external = null) {
   return { ok, lines };
 }
 
-function main() {
+// Un borrador todavía se está iterando: se valida al cerrar, no mientras tanto. La puerta sale en verde con la
+// explicación, y el workflow vuelve a correr con `ready_for_review` (al marcarlo listo), donde ya se exige todo.
+export const DRAFT_NOTE = 'Borrador: la evidencia se exige al marcarlo listo.';
+
+function report(lines) {
+  const text = lines.map((l) => `- ${l}`).join('\n');
+  console.log(text);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
+}
+
+export function main() {
   const gh = process.env.GHOSTY_DEV_GH || 'gh';
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const pr = event.pull_request;
+  if (pr?.draft) {
+    report([DRAFT_NOTE]);
+    process.exit(0);
+  }
   // REST, igual que el CLI (nada de `gh issue view`, que usa GraphQL).
   const get = (path) => JSON.parse(execFileSync(gh, ['api', '-X', 'GET', path], { encoding: 'utf8' }));
   const fetchIssue = (n) => ({
@@ -105,9 +119,7 @@ function main() {
     external = externalReview(config, runs, pr.head.sha);
   }
   const { ok, lines } = evaluatePullRequest(pr, fetchIssue, external);
-  const report = lines.map((l) => `- ${l}`).join('\n');
-  console.log(report);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${report}\n`);
+  report(lines);
   process.exit(ok ? 0 : 1);
 }
 

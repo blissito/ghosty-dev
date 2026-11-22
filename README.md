@@ -100,7 +100,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 ## Comandos
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
-`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
+`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
