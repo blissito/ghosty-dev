@@ -59,6 +59,16 @@ En el loader de sesión: sin sesión y con `previewIdentity(request)` → busca 
 sesión. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
 evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
 
+**API de partner en previews sin llaves** (identidad de la caja, como el OIDC de GitHub Actions): cada vista previa trae
+`GHOSTY_PREVIEW_TOKEN` (JWT de Ghosty, `aud` = `ghosty-api`) y `/api/v2/partner/*` lo acepta como Bearer, sólo para
+pruebas (turnos, AG-UI, páginas, lecturas). Nunca copies `GHOSTY_PARTNER_KEY` a la preview; donde la app firma:
+```js
+// Vista previa de Ghosty: sin llave de partner, la caja trae su propia identidad.
+const previewToken = !process.env.GHOSTY_PARTNER_KEY && process.env.GHOSTY_PREVIEW_TOKEN;
+const auth = previewToken ? { Authorization: `Bearer ${previewToken}` } : { "X-Ghosty-Key": keyId, "X-Ghosty-Ts": ts, "X-Ghosty-Sig": signCredentialBody(secret, ts, keyId, raw) };
+```
+`...auth` en los headers del fetch y sin el error de «falta la llave» si hay token. `ghosty-dev doctor` lo sugiere.
+
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Los identificadores van siempre en inglés (variables, funciones, llaves, archivos); en

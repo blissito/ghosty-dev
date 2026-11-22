@@ -113,6 +113,18 @@ test('doctor: variables faltantes de la preview del PR → check env-faltantes c
   assert.equal(d.checks.find((k) => k.name === 'env-faltantes').ok, false);
 });
 
+test('doctor: llave de partner sin token de caja → partner-en-previews sugiere la receta; con token, la llave deja de faltar', async () => {
+  const sin = diagnose(repo({ 'package.json': {}, 'server/b.ts': 'const k = process.env.GHOSTY_PARTNER_KEY;' }), { catalog: null, previewMissingEnv: ['GHOSTY_PARTNER_KEY', 'GHOSTY_PARTNER_KEY_SECRET'] });
+  const c = sin.checks.find((x) => x.name === 'partner-en-previews');
+  assert.equal(c.ok, null);
+  assert.match(c.fix, /GHOSTY_PREVIEW_TOKEN/);
+  assert.equal(sin.checks.find((x) => x.name === 'env-faltantes').ok, false);
+  const con = diagnose(repo({ 'package.json': {}, 'server/b.ts': 'const k = process.env.GHOSTY_PARTNER_KEY || process.env.GHOSTY_PREVIEW_TOKEN;' }), { catalog: null, previewMissingEnv: ['GHOSTY_PARTNER_KEY', 'GHOSTY_PARTNER_KEY_SECRET'] });
+  assert.equal(con.checks.find((x) => x.name === 'partner-en-previews').ok, true);
+  assert.equal(con.checks.find((x) => x.name === 'env-faltantes').ok, true);
+  assert.equal(diagnose(repo({ 'package.json': {} }), { catalog: null }).checks.find((x) => x.name === 'partner-en-previews'), undefined);
+});
+
 test('envNames: sólo nombres de variable válidos', async () => {
   const { envNames } = await import('../src/preview.mjs');
   assert.deepEqual(envNames(['A_B', 'A_B', 'mal valor', 'x=1', 3, 'OK']), ['A_B', 'OK']);

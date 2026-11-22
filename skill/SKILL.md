@@ -59,6 +59,9 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   `PREVIEW_HOST`, JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`). Receta de ~15 líneas con `jose` en AGENTS.md («Login en
   previews»): si existe esa variable, verifica el header y crea la sesión por `email`. Va a main una vez; `doctor` lo
   sugiere. «Probado en la preview del PR #N» sólo vale si #N contiene el mismo commit.
+- **API de partner en previews sin llaves**: la vista previa trae `GHOSTY_PREVIEW_TOKEN` (identidad de la caja) y la API
+  de partner de Ghosty lo acepta como `Authorization: Bearer` (sólo pruebas). Nunca copies la llave de partner: receta de
+  3 líneas en AGENTS.md («API de partner en previews»); `doctor` la sugiere.
 - **Caja sin memoria** (`box logs` termina en «⚠ La caja se quedó sin memoria», o `box`/`preview` dicen «la caja no
   responde»): agrega `.ghosty/factory.md` con `memory: 8gb` en el frontmatter (bajo `setup:`), commit y push.
 - **PR en conflicto con main**: `ghosty-dev next` lo pone primero con el comando (`git fetch origin && git switch <rama>

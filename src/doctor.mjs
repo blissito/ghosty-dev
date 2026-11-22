@@ -159,7 +159,11 @@ export function diagnose(dir, opts = {}) {
   const r = diagnoseOAuth(dir, opts);
   const id = identityCheck(dir);
   if (id) r.checks.push(id);
-  const env = missingEnvCheck(opts.previewMissingEnv ?? null, opts.previewMissingEnvTouched ?? []);
+  const partner = partnerTokenCheck(dir);
+  if (partner) r.checks.push(partner);
+  // Con la receta del token de caja, la llave de partner ya no le hace falta a la vista previa.
+  const missing = Array.isArray(opts.previewMissingEnv) && partner?.ok ? opts.previewMissingEnv.filter((n) => !PARTNER_KEY_VARS.has(n)) : opts.previewMissingEnv ?? null;
+  const env = missingEnvCheck(missing, opts.previewMissingEnvTouched ?? []);
   if (env) r.checks.push(env);
   return r;
 }
@@ -190,6 +194,22 @@ export function identityCheck(dir) {
     ok: null,
     detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa',
     fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL) y súbela a main',
+  };
+}
+
+// Identidad de la caja (22-nov): cada vista previa trae `GHOSTY_PREVIEW_TOKEN` y la API de partner de Ghosty lo acepta
+// como Bearer (sólo pruebas). Si el código firma con la llave de partner y no usa el token, la vista previa necesitaría
+// copiar llaves de producción.
+const PARTNER_KEY_VARS = new Set(['GHOSTY_PARTNER_KEY', 'GHOSTY_PARTNER_KEY_SECRET', 'GHOSTY_PARTNER_SECRET']);
+export function partnerTokenCheck(dir) {
+  const { tokens, usesProxy: uses } = grepRepo(dir, /GHOSTY_PARTNER_KEY/g, 'GHOSTY_PREVIEW_TOKEN');
+  if (!tokens.length) return null;
+  if (uses) return { name: 'partner-en-previews', ok: true, detail: 'la app usa GHOSTY_PREVIEW_TOKEN en la vista previa: no necesita la llave de partner', fix: null };
+  return {
+    name: 'partner-en-previews',
+    ok: null,
+    detail: 'la app firma la API de partner de Ghosty con GHOSTY_PARTNER_KEY y la vista previa no la tiene: lo que llame a Ghosty falla en el PR',
+    fix: 'adopta la receta «API de partner en previews» de AGENTS.md (3 líneas: Bearer con GHOSTY_PREVIEW_TOKEN si no hay llave) y súbela a main',
   };
 }
 
