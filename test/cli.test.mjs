@@ -401,3 +401,13 @@ test('un pedido de la persona despierta a su escritor: ready lo ofrece, wait lo 
   // Ya leído: deja de ofrecerse como pedido (sin PR, sigue la regla de siempre: ci-sin-pr).
   assert.ok(!JSON.parse(s.run('ready', '--json').out).some((i) => i.reason === 'pedido'));
 });
+
+test('show trae la ficha del comentario fijo más reciente, sin el pie (C15)', async () => {
+  const { fichaOf } = await import('../src/commands.mjs');
+  const viejo = { body: '<!-- ghosty-dev:ficha -->\n**👻 Ficha del pendiente**\n\n| Estado | Viejo |' };
+  const nuevo = { body: '<!-- ghosty-dev:ficha -->\n**👻 Ficha del pendiente**\n\n| Estado | Esperando el CI |\n\n<sub>La actualiza Ghosty</sub>' };
+  const f = fichaOf([viejo, { body: 'otro' }, nuevo]);
+  assert.ok(f.includes('Esperando el CI'));
+  assert.ok(!f.includes('<sub>'));
+  assert.equal(fichaOf([{ body: 'nada' }]), null);
+});

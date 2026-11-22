@@ -395,6 +395,13 @@ export function block(n, by) {
 
 // ---------- show (Beads: bd show) ----------
 
+// La ficha del pendiente que publica la plataforma (comentario fijo, editado en su lugar). SPEC §5b.
+export const FICHA_MARK = '<!-- ghosty-dev:ficha -->';
+export function fichaOf(comments) {
+  const c = [...(comments || [])].reverse().find((x) => (x.body || '').startsWith(FICHA_MARK));
+  return c ? c.body.slice(FICHA_MARK.length).replace(/<sub>[\s\S]*?<\/sub>/g, '').trim() : null;
+}
+
 export function show(n) {
   const issue = viewIssue(n, { comments: true });
   const open = openIssues();
@@ -406,6 +413,7 @@ export function show(n) {
     blockedBy: openBlockers(issue, new Set(open.map((i) => i.number))),
     evidence: Boolean(findValidEvidence(issue.comments, issue.body)),
     asks: unseenAsks(n).map(publicAsk),
+    ficha: fichaOf(issue.comments),
     url: issue.url,
   };
 }

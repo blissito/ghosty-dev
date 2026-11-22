@@ -209,6 +209,7 @@ try {
         `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
         `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
         `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
+        ...(x.ficha ? ['', x.ficha] : []),
       ].join('\n'),
     );
   } else if (command === 'close') {

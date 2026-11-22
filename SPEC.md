@@ -196,6 +196,10 @@ issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada
 - La revisión la hace otra identidad (un check atado al commit, ver `reviewCheck` en §4b). Máximo 3 vueltas;
   después pregunta a la persona.
 - Sólo se mezcla solo si la rama exige `ghosty-dev/evidencia`; si no, la persona mezcla.
+- **La ficha del pendiente** (la mesa de trabajo): la plataforma la publica como UN comentario fijo en el PR y el
+  issue, marcado `<!-- ghosty-dev:ficha -->` y editado en su lugar (estado, vista previa, CI, revisión, smoke,
+  commit, rama, PR y pedidos abiertos). Es una proyección: no se edita a mano. La vista previa además sale como
+  Deployment de GitHub del commit («View deployment»). `show <n>` la imprime, así un agente local ve lo mismo.
 
 La implementación de referencia es Ghosty Studio (`ghosty dev`, con sesión de `ghosty login`). Este CLI sólo
 delega en ese binario (`GHOSTY_DEV_GHOSTY` lo cambia).
@@ -218,6 +222,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
 | C13 | `claim --cloud` delega sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube | `claim --cloud manda…`, `stop y teleport…` |
+| C15 | `show` imprime la ficha del comentario fijo más reciente, sin la línea de pie | `show trae la ficha…` |
 | C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 
