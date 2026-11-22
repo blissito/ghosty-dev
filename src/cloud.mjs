@@ -1,8 +1,10 @@
 // La nube de ghosty-dev: el mismo pendiente, pero lo construye un agente en una caja de trabajo de tu cuenta de
 // Ghosty en vez de tu compu. Aquí no hay sesión ni tokens: todo pasa por el CLI `ghosty` (ghosty login), que ya
-// guarda y renueva la sesión. GHOSTY_DEV_GHOSTY cambia el binario (los tests usan uno falso).
+// guarda y renueva la sesión. Las variables de la vista previa NO pasan por aquí: son `ghosty-dev env` (src/env.mjs),
+// con la sesión propia de ghosty-dev (src/auth.mjs). GHOSTY_DEV_GHOSTY cambia el binario (los tests usan uno falso).
 import { execFileSync } from 'node:child_process';
-import { api, git } from './gh.mjs';
+import { git } from './gh.mjs';
+import { repoFullName as repoName } from './commands.mjs';
 
 export class CloudError extends Error {}
 
@@ -12,13 +14,11 @@ function ghosty(args) {
     const out = execFileSync(bin, [...args, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     return out.trim() ? JSON.parse(out) : {};
   } catch (e) {
-    if (e.code === 'ENOENT') throw new CloudError('La nube necesita el CLI de Ghosty: npm i -g @ghostystudio/cli && ghosty login');
+    if (e.code === 'ENOENT') throw new CloudError('Mandar pendientes a la nube necesita el CLI de Ghosty: npm i -g @ghostystudio/cli && ghosty login. Las variables de la vista previa no: ghosty-dev login y ghosty-dev env.');
     const detail = (e.stderr || e.message || '').toString().trim().split('\n').slice(-3).join('\n');
     throw new CloudError(`La nube no aceptó el pendiente: ${detail}`);
   }
 }
-
-const repoName = () => api('GET', 'repos/{owner}/{repo}').full_name;
 
 const view = (r) => ({ number: r.issue, title: r.title, cloud: true, id: r.id, state: r.estado, phase: r.phase, pr: r.prUrl ?? null, url: r.issueUrl, branch: r.branch ?? null, already: !!r.yaEstaba });
 

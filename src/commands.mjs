@@ -152,6 +152,9 @@ function ciOf(n) {
 
 const me = () => api('GET', 'user').login;
 
+// «dueño/nombre» del repo del cwd: gh lo resuelve con el `git remote`.
+export const repoFullName = () => api('GET', REPO).full_name;
+
 // ---------- ready (Beads: bd ready) ----------
 
 export function ready() {

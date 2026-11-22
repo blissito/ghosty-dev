@@ -253,6 +253,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 | C17 | el CI no cuenta los checks de la lista normativa (§5c) y sí el smoke; `wait --watch` no espera a la vista previa y avisa cuando la revisión termina; `show` lee la ficha del PR antes que la del issue y los servicios del commit del PR | `el CI no cuenta…`, `wait --watch no espera…`, `show lee la ficha del PR…` |
+| C18 | identidad (§8): device flow con `authorization_pending` → tokens, `slow_down` suma 5 s, `expired_token` y `access_denied` fallan; loopback `127.0.0.1/cb` con PKCE S256 rechaza otro `state`; refresh con < 60 s y reintento único tras 401; `logout` revoca y borra; `auth.json` 0600; `env push` sin archivo falla y nunca imprime valores | `test/auth.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
@@ -261,3 +262,32 @@ Lo que no está porque no se traza a una ley ni a una fuente de la tabla: roles 
 transiciones obligatorias, prioridades, épicas, memoria del proyecto, enjambres. Lo que en tu compu no se puede
 (correr sin la laptop prendida, preview que bloquea el merge, CI aislado, varios agentes a la vez) es la nube de
 Ghosty, no este repo.
+
+## 8. Identidad
+
+Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunca se mezclan.
+
+1. **GitHub es `gh`.** Issues, PR, checks y etiquetas van con la sesión de `gh` de la persona. El token de `gh`
+   **nunca** se manda a Ghosty Studio ni a ningún otro servidor.
+2. **Ghosty Studio sólo para los secretos de la nube.** Lo único que necesita identidad de persona en Ghosty son las
+   variables (secretos) de la vista previa del repo. Para eso ghosty-dev tiene su propio login OAuth 2.0:
+   - cliente público `ghosty-dev` (sin secreto), scope `profile repo:env` y nada más;
+   - endpoints por metadata [RFC 8414](https://www.rfc-editor.org/rfc/rfc8414)
+     (`/.well-known/oauth-authorization-server`); sin `device_authorization_endpoint`, `${base}/oauth2/device`.
+     `GHOSTY_DEV_BASE_URL` cambia la base (por defecto `https://www.ghosty.studio`);
+   - con navegador en la máquina: redirect loopback [RFC 8252](https://www.rfc-editor.org/rfc/rfc8252)
+     `http://127.0.0.1:<puerto al azar>/cb` + PKCE S256 ([RFC 7636](https://www.rfc-editor.org/rfc/rfc7636)) +
+     `state`; un regreso con otro `state` se rechaza;
+   - sin navegador (`SSH_CONNECTION`, `CI`, Linux sin `DISPLAY`/`WAYLAND_DISPLAY`) o con `--device`: device flow
+     [RFC 8628](https://www.rfc-editor.org/rfc/rfc8628) (`slow_down` suma 5 s al intervalo);
+   - la sesión vive en `${XDG_CONFIG_HOME:-~/.config}/ghosty-dev/auth.json`, modo 0600 en carpeta 0700. El access
+     se renueva con el refresh cuando le quedan menos de 60 s, y una vez tras un 401; el refresh rota y se guarda el
+     nuevo. `logout` revoca el refresh ([RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)) y borra el archivo;
+   - `GHOSTY_DEV_TOKEN` manda sobre el archivo (CI): se usa tal cual, sin refresh ni reintento.
+3. **Variables.** `env ls` da sólo nombres (guardadas, faltantes, riesgos, pedidos bloqueados). `env push <archivo>`
+   exige el archivo (nunca lee un `.env` implícito), imprime la ruta y los nombres antes de guardar, pide
+   confirmación (sin terminal exige `--yes`), fusiona por defecto y dice cuáles ya guardadas se quedan; `--replace`
+   reemplaza todas. Sólo el dueño del espacio guarda. **Ningún valor se imprime**, tampoco en errores.
+
+La API es `GET|POST /api/v2/me/repos/:owner/:name/env` de Ghosty Studio, con `Authorization: Bearer`. Los pendientes
+en la nube (§5b) siguen delegando en el CLI `ghosty`; las variables no.

@@ -4,6 +4,9 @@ import { parseArgs } from 'node:util';
 import { resolve } from 'node:path';
 import * as cmd from '../src/commands.mjs';
 import * as cloud from '../src/cloud.mjs';
+import * as auth from '../src/auth.mjs';
+import * as envVars from '../src/env.mjs';
+import { createInterface } from 'node:readline/promises';
 
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
@@ -37,8 +40,17 @@ Uso: ghosty-dev <comando> [opciones]
                                          (vista previa, revisión, smoke y CI del commit actual)
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
+Variables de la vista previa (sesión propia en Ghosty Studio; GitHub sigue siendo gh):
+  login [--device]                       entra a Ghosty Studio (navegador; --device o sin navegador: liga + código)
+  whoami                                 con qué cuenta de Ghosty Studio estás y cuándo vence la sesión
+  logout                                 revoca la sesión y borra ~/.config/ghosty-dev/auth.json
+  env ls                                 nombres de las variables del repo: guardadas, faltantes, riesgos
+  env push <archivo> [--replace] [--yes] guarda las variables del archivo (nunca imprime valores); por defecto
+                                         fusiona con las guardadas, --replace reemplaza todas
+
 Opciones globales: --json (salida en JSON), -h/--help
-Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube requiere el CLI ghosty con sesión (ghosty login).`;
+Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube requiere el CLI ghosty con sesión (ghosty login).
+Variables: GHOSTY_DEV_TOKEN (CI) manda sobre la sesión guardada; GHOSTY_DEV_BASE_URL cambia el servidor.`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -63,10 +75,13 @@ const { values, positionals } = parseArgs({
     criteria: { type: 'string', multiple: true },
     context: { type: 'string' },
     from: { type: 'string' },
+    device: { type: 'boolean' },
+    replace: { type: 'boolean' },
+    yes: { type: 'boolean', short: 'y' },
   },
 });
 
-const [command, arg] = positionals;
+const [command, arg, arg2] = positionals;
 const num = (v, what = '<n>') => {
   const n = Number(String(v ?? '').replace(/^#/, ''));
   if (!Number.isInteger(n) || n <= 0) throw new cmd.UserError(`Falta el número del pendiente ${what}.`);
@@ -233,10 +248,63 @@ try {
   } else if (command === 'close') {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);
+  } else if (command === 'login') {
+    // La liga sale de inmediato (en --json como evento de una línea) para que un agente se la pase a la persona.
+    const onPrompt = (p) => {
+      if (values.json) console.log(JSON.stringify({ event: 'login_url', ...p }));
+      else if (p.method === 'device') console.log(`Abre esta liga en cualquier dispositivo y confirma el código ${p.code}:\n  ${p.url}`);
+      else console.log(`Abriendo tu navegador para entrar a Ghosty Studio…\n  Si no se abre, entra a: ${p.url}`);
+    };
+    const r = await auth.login({ device: values.device, onPrompt });
+    print(r, (x) => `Sesión de Ghosty Studio lista${x.email ? ` como ${x.email}` : ''} (vence ${x.expiresAt}; se renueva sola).`);
+  } else if (command === 'logout') {
+    const r = await auth.logout();
+    print(r, (x) =>
+      [x.loggedOut ? `Sesión cerrada${x.revoked ? ' y revocada en Ghosty Studio' : ' (no se pudo revocar en el servidor; el archivo local ya se borró)'}.` : 'No había sesión guardada.']
+        .concat(x.envToken ? ['GHOSTY_DEV_TOKEN sigue puesto: ese token no lo maneja logout.'] : [])
+        .join('\n'),
+    );
+  } else if (command === 'whoami') {
+    const r = await auth.whoami();
+    print(r, (x) => `${x.email ?? 'Sesión activa'} en ${x.base}${x.expiresAt ? ` (vence ${x.expiresAt}; se renueva sola)` : ''}\n  sesión: ${x.source}${x.scope ? `\n  permisos: ${x.scope}` : ''}`);
+  } else if (command === 'env' && arg === 'ls') {
+    const r = await envVars.ls();
+    print(r, (x) =>
+      [
+        `${x.repo}${x.workspace ? ` · espacio ${x.workspace}` : ''}`,
+        `  guardadas: ${x.saved === null ? 'no se pudieron leer' : x.saved.join(', ') || '—'}`,
+        `  faltan: ${x.missing.join(', ') || '—'}`,
+        ...x.risks.map((k) => `  riesgo: ${k.key}: ${k.risk}`),
+        ...x.blocked.map((b) => `  pedido ${b.id} bloqueado por: ${b.keys.join(', ') || 'variables sin nombre'}`),
+        x.canWrite ? '  Guárdalas con: ghosty-dev env push <archivo>' : '  Sólo el dueño del espacio guarda variables.',
+      ].join('\n'),
+    );
+  } else if (command === 'env' && arg === 'push') {
+    const p = await envVars.plan(arg2, { replace: values.replace });
+    // El resumen (ruta y nombres, nunca valores) va a stderr con --json, para no ensuciar la salida.
+    (values.json ? console.error : console.log)(envVars.planText(p));
+    if (!values.yes) {
+      const retry = `ghosty-dev env push ${arg2}${values.replace ? ' --replace' : ''} --yes`;
+      if (!process.stdin.isTTY) throw new cmd.UserError(`Sin terminal para confirmar. Si la persona ya lo aprobó: ${retry}`);
+      const rl = createInterface({ input: process.stdin, output: process.stderr });
+      const answer = await rl.question(`¿Guardar ${p.keys.length} variable(s) en ${p.repo}? [s/N] `);
+      rl.close();
+      if (!/^(s|si|sí|y|yes)$/i.test(answer.trim())) throw new cmd.UserError('No se guardó nada.');
+    }
+    const r = await envVars.push(p);
+    print(r, (x) =>
+      [`Guardadas en ${x.repo}${x.workspace ? ` (espacio ${x.workspace})` : ''}: ${x.keys.join(', ') || '—'}`]
+        .concat(x.kept?.length ? [`  se quedaron: ${x.kept.join(', ')}`] : [])
+        .concat(x.dropped?.length ? [`  descartadas: ${x.dropped.join(', ')}`] : [])
+        .concat(x.risks.map((k) => `  riesgo: ${k.key}: ${k.risk}`))
+        .join('\n'),
+    );
+  } else if (command === 'env') {
+    throw new cmd.UserError('Uso: ghosty-dev env ls | ghosty-dev env push <archivo> [--replace] [--yes]');
   } else {
     throw new cmd.UserError(`Comando desconocido: ${command}. Usa ghosty-dev --help.`);
   }
 } catch (e) {
-  console.error(e instanceof cmd.UserError ? e.message : `Error: ${e.message}`);
+  console.error(e instanceof cmd.UserError || e instanceof auth.AuthError ? e.message : `Error: ${e.message}`);
   process.exit(1);
 }

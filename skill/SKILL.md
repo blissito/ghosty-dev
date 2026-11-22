@@ -40,6 +40,10 @@ ghosty-dev show <n>                # la ficha y los servicios del PR: vista prev
 - **Tools de Ghosty desde la terminal:** con `ghosty login`, el CLI `ghosty` te da lo de Ghosty Studio (imágenes,
   documentos, sitios, navegador, voz, datos…). `ghosty --help` lista los comandos; úsalos en vez de instalar
   librerías para eso.
+- **La vista previa no arranca por variables** (la ficha o `show` lo dicen): `ghosty-dev env ls` da los nombres que
+  faltan. Para guardarlas hace falta `ghosty-dev login` (sesión de Ghosty Studio, aparte de `gh`) y
+  `ghosty-dev env push <archivo>`: pregúntale a la persona de qué archivo salen, enséñale los nombres que imprime y,
+  con su sí, `--yes`. Nunca leas un `.env` que no te nombró ni pegues un valor en el chat, el issue o el PR.
 - **CI verde** → pide la revisión (abajo) y, cuando no tenga hallazgos abiertos, publica la evidencia.
 - **CI rojo** → arréglalo, sube y vuelve a esperar.
 - **Se acabaron los 5 min** → el pendiente queda en `esperando-ci`: toma otro independiente o termina.
@@ -129,5 +133,7 @@ ghosty-dev block <n> --by <nuevo>
 
 - Tomar un pendiente asignado a otro, o trabajar dos pendientes en el mismo worktree.
 - Cerrar un issue con `gh issue close` directo, o publicar evidencia que no corriste.
+- Mandar el token de `gh` a Ghosty, imprimir el valor de una variable o subir variables sin que la persona nombre el
+  archivo y diga que sí.
 - Sondear el CI (`sleep`, loops, preguntar una y otra vez). La única espera es `ghosty-dev wait <n> --watch`.
 - Calificarte a ti mismo, escribir o publicar tú la revisión, o contarle al revisor lo que hiciste.

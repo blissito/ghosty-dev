@@ -98,7 +98,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 ## Comandos
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
-`show <n>` · `close <n>`.
+`show <n>` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
@@ -106,6 +106,22 @@ previa y la revisión terminan (el CI decide el verde) y `show <n>` imprime su e
 de la vista previa. Los checks de la plataforma que no cuentan como CI están en [SPEC.md §5c](SPEC.md).
 
 En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty login`): `claim <n> --cloud` · `cloud` · `stop <n>` · `teleport <n>`. Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
+
+### Variables de la vista previa
+
+La vista previa de la nube necesita los secretos del repo (`DATABASE_URL`, llaves de API…). Se suben desde tu compu
+con una sesión propia de Ghosty Studio, separada de GitHub (GitHub sigue siendo `gh` y su token nunca sale de tu
+máquina):
+
+```sh
+ghosty-dev login                       # navegador (OAuth con PKCE); por SSH o con --device: liga + código
+ghosty-dev env ls                      # sólo nombres: guardadas, faltantes, riesgos
+ghosty-dev env push .env.preview       # el archivo siempre se nombra; muestra los nombres y pide confirmación
+ghosty-dev whoami · ghosty-dev logout  # logout revoca la sesión en Ghosty
+```
+
+Por defecto `env push` fusiona con lo guardado (`--replace` reemplaza todo). Ningún valor se imprime. En CI,
+`GHOSTY_DEV_TOKEN` manda sobre la sesión guardada. Detalle normativo en [SPEC.md §8](SPEC.md).
 
 ## Tests
 

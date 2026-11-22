@@ -91,6 +91,19 @@ admin (por única vez, porque es la instalación de la puerta). Después corre `
 Si `protect` falla porque la persona no es admin, o porque es un repo privado sin plan de pago de GitHub, dile
 que lo marque en *Settings → Branches*.
 
+### Opcional: variables de la vista previa
+
+Sólo si el repo está conectado a Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles
+faltan). Es una sesión aparte de `gh`, sólo para esos secretos:
+
+```sh
+ghosty-dev login        # la persona entra en su navegador; por SSH o sin navegador imprime liga + código
+ghosty-dev env ls       # nombres: guardadas y faltantes (nunca valores)
+```
+
+Para subirlas, pregúntale a la persona **de qué archivo** salen (nunca asumas `.env`) y enséñale los nombres que
+imprime `ghosty-dev env push <archivo>`; con su sí, repite con `--yes`. Nunca copies un valor al chat.
+
 ## 5. Comprueba y avisa
 
 ```sh
