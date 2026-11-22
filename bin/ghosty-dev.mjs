@@ -69,6 +69,7 @@ Uso: ghosty-dev <comando> [opciones]
   preview unshare [<pr>]                 la revoca; quien la abra puede pedir acceso
   preview requests [<pr>] [--status pending|accepted|rejected|all]
   preview accept|reject <id> [--pr <m>]  decide una solicitud de acceso
+  check-lock                             ¿el lock (npm/pnpm/yarn) coincide con package.json en HEAD? Lo corre el pre-push
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
   deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
                                          abierto (o trae su commit) y la quita cuando ése entra; preview y wait lo
@@ -377,6 +378,8 @@ try {
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
       // Lo que vive fuera de la bitácora se avisa (stderr: no ensucia el --json), con el comando que lo liga.
+      const lock = cmd.repoLock();
+      if (lock && !lock.ok) console.error(`Aviso: ${lock.message}`);
       for (const p of cmd.unlinkedPrs()) console.error(`Aviso: el PR #${p.number} no está ligado a un pendiente: ${cmd.linkHint(p.number)}`);
       for (const p of cmd.openPrs().filter((x) => !x.draft).slice(0, 20)) {
         const c = cmd.conflictOf(p.number, { tries: 1 });
@@ -449,6 +452,11 @@ try {
     if (r.url && values.open) auth.openBrowser(r.url);
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
+  } else if (command === 'check-lock') {
+    // Lo corre el hook pre-push (ghosty-dev init): bloquea el push si el lock no coincide con package.json.
+    const r = cmd.repoLock() ?? { ok: true, problems: [] };
+    print(r, (x) => (x.ok ? (x.lock ? `${x.lock} coincide con package.json.` : 'Sin lock que comparar.') : x.message));
+    if (!r.ok) process.exitCode = 1;
   } else if (command === 'next' || command === 'status') {
     const r = cmd.next();
     print(r, (x) => `Siguiente paso: ${x.step}${x.command ? `\n  ${x.command}` : ''}\n  por qué: ${x.why}`);

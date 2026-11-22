@@ -1,13 +1,14 @@
 // Comandos de la bitácora. Cada uno se traza a una ley o a una fuente (ver SPEC.md, «Qué copiamos y de quién»).
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, appendFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
 import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
+import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -511,6 +512,10 @@ export function checkReview(file) {
 export function evidence(n, file, { pr: m } = {}) {
   if (!file || !existsSync(file)) throw new UserError('Falta --file <evidencia.md>.');
   const md = readFileSync(file, 'utf8');
+  // El lock tiene que coincidir con package.json en lo que se subió: si no, la caja de la preview truena en `npm ci`
+  // y la evidencia sería de algo que no arma.
+  const lock = repoLock();
+  if (lock && !lock.ok) throw new UserError(lock.message);
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
@@ -670,6 +675,12 @@ export function showPr(m) {
 // Lo que se pierde al resumir una sesión es el camino («empieza por claim»), no el destino («publica evidencia»)
 // (Formmy, fila 32). `next` lo reconstruye desde la bitácora: rama actual, su PR, el pendiente que cierra, CI,
 // revisión del commit HEAD, evidencia y pedidos. Regresa { step, command, why, … }.
+// Chequeo del lock en la raíz del clon (null fuera de un repo).
+export function repoLock() {
+  const top = git(['rev-parse', '--show-toplevel'], { allowFail: true })?.trim();
+  return top ? checkLock(top) : null;
+}
+
 export function next() {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
   const info = api('GET', REPO);
@@ -678,15 +689,18 @@ export function next() {
   const pr = branch && branch !== def ? prs.find((p) => p.headRefName === branch) : null;
   const out = (step, command, why, extra = {}) => ({ step, command, why, branch, ...extra });
   if (pr) {
-    // Un PR en conflicto no se mezcla aunque todo lo demás esté verde: es lo primero (Formmy, fila 33).
+    // Un pedido (de la persona o el automático de gs en el PR, marca ghosty-dev:pedido) va antes que todo.
+    const linked = closingRefs(pr.body)[0];
+    if (linked && unseenAsks(linked).length) return out('pedido', `ghosty-dev asks ${linked}`, `hay un pedido nuevo en #${linked} o en el PR #${pr.number}: va antes que todo`, { pr: pr.number, issue: linked });
+    const lock = repoLock();
+    if (lock && !lock.ok) return out('lock', lock.fix, lock.message, { pr: pr.number });
+    // Un PR en conflicto no se mezcla aunque todo lo demás esté verde (Formmy, fila 33).
     const conflict = conflictOf(pr.number);
     if (conflict) return out('conflicto', conflict.command, `${conflictLine(pr.number, conflict)}; va antes que revisión o evidencia`, { pr: pr.number, conflict });
     const refs = closingRefs(pr.body);
     if (!refs.length) return out('ligar', `ghosty-dev claim --pr ${pr.number} --issue <n>`, `el PR #${pr.number} no está ligado a un pendiente; si no hay pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim`, { pr: pr.number });
     const n = refs[0];
     const extra = { pr: pr.number, issue: n };
-    const asks = unseenAsks(n);
-    if (asks.length) return out('pedido', `ghosty-dev asks ${n}`, `la persona pidió algo en #${n}: va antes que todo`, extra);
     if (pr.draft) return out('iterar', `gh pr ready ${pr.number}`, 'el PR es borrador: la puerta no exige nada hasta marcarlo listo; termina y márcalo', extra);
     const checks = commitChecks(pr.headRefOid);
     const ci = ciVerdict(checks);
@@ -867,6 +881,17 @@ Configuración de la fábrica de Ghosty Studio para este repo.
 `;
 }
 
+// Dónde va el pre-push: core.hooksPath si lo hay (husky, lefthook), si no .git/hooks. Un hook ajeno no se pisa.
+function prePushTarget(dir) {
+  const custom = git(['config', '--get', 'core.hooksPath'], { cwd: dir, allowFail: true })?.trim();
+  const hooks = custom ? resolve(dir, custom) : git(['rev-parse', '--path-format=absolute', '--git-path', 'hooks'], { cwd: dir, allowFail: true })?.trim();
+  if (!hooks) return { action: 'skip', shown: 'pre-push', why: 'no es un clon de git' };
+  const path = join(hooks, 'pre-push');
+  const shown = custom ? join(custom, 'pre-push') : '.git/hooks/pre-push';
+  if (existsSync(path) && !readFileSync(path, 'utf8').includes(HOOK_MARK)) return { action: 'skip', path, shown, why: 'ya hay un pre-push propio: agrégale «ghosty-dev check-lock»' };
+  return { action: 'write', path, shown };
+}
+
 // `labels: false`: no crea las etiquetas en GitHub (la persona no lo confirmó); quedan en el plan como «skip».
 export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true } = {}) {
   const files = [
@@ -899,8 +924,14 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
       ? { action: 'write', path: FACTORY_FILE, memory: box.memory, why: box.why, name: `${FACTORY_FILE} (memory: ${box.memory}: ${box.why})` }
       : { action: 'skip', path: FACTORY_FILE, name: `${FACTORY_FILE} (ya existe: no se toca, ni con --force)` },
   );
+  const hook = prePushTarget(dir);
+  plan.push(hook.action === 'write' ? { action: 'write', path: hook.shown, name: `${hook.shown} (chequeo del lock antes de subir)` } : { action: 'skip', path: hook.shown, name: `${hook.shown} (${hook.why})` });
   if (protectBranch) plan.push({ action: 'gate', name: `${GATE_CHECK} obligatorio en la rama principal` });
   if (dryRun) return plan;
+  if (hook.action === 'write') {
+    mkdirSync(dirname(hook.path), { recursive: true });
+    writeFileSync(hook.path, PRE_PUSH, { mode: 0o755 });
+  }
 
   for (const state of labels ? STATES : []) {
     const [color, description] = LABEL_STYLE[state];
