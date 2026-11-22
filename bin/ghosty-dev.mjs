@@ -217,14 +217,14 @@ const printCloud = (r) =>
 // Una línea por servicio de la plataforma (vista previa, revisión, smoke) y el CI del commit del PR.
 const SERVICE_WORD = { pendiente: 'en curso', listo: 'lista', fallo: 'falló', neutral: 'neutral', 'sin-check': '—' };
 function serviceLine(key, s) {
-  const label = { preview: 'Vista previa', review: 'Revisión', smoke: 'Smoke' }[key];
+  const label = { preview: 'Vista previa', review: 'Revisión', smoke: 'Smoke', gate: 'Evidencia (ghosty-dev/evidencia)' }[key];
   const word = key === 'review' && s.status === 'listo' ? 'terminada' : SERVICE_WORD[s.status];
   const extra = [s.title, key === 'review' && s.comments ? `${s.comments} comentario(s) de hallazgos` : null].filter(Boolean).join(' · ');
   const url = key === 'preview' ? s.deployment ?? s.url : s.url;
   return `  ${label}: ${word}${extra ? ` (${extra})` : ''}${url ? `\n    ${url}` : ''}`;
 }
 const servicesBlock = (sv) =>
-  sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...['preview', 'review', 'smoke'].map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
+  sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...['preview', 'review', 'smoke', 'gate'].filter((k) => sv[k] && (k !== 'gate' || sv[k].status !== 'sin-check')).map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
 
 // Vista previa según Ghosty Studio, para `show`: fase y commit, NUNCA la liga (ésa sólo la da `preview`). Si no hay
 // sesión de ghosty-dev o gs no contesta, `show` sigue con lo de GitHub.
@@ -241,8 +241,26 @@ async function previewSummary(pr) {
 const previewLine = (p) => (p ? [`  vista previa (Ghosty Studio): ${PHASE_WORD[p.phase] ?? p.phase}${p.sha ? ` · commit ${p.sha.slice(0, 7)}` : ''} — la liga: ghosty-dev preview`] : []);
 
 const CI_WORD = { verde: 'verde', rojo: 'rojo', pendiente: 'en curso', 'sin-checks': 'sin checks' };
-const prStateLine = (s) =>
-  `PR #${s.pr} (${(s.sha ?? '').slice(0, 7)}${s.state !== 'abierto' ? `, ${s.state}` : ''}): vista previa ${PHASE_WORD[s.preview.phase] ?? s.preview.phase} · CI ${CI_WORD[s.ci] ?? s.ci} · revisión ${SERVICE_WORD[s.review.status]}${s.review.title ? ` (${s.review.title})` : ''} · smoke ${SERVICE_WORD[s.smoke.status]}`;
+// Lo que todavía no está, en una frase: así el agente no repite «me bloquea la preview» con la preview ya lista
+// (Formmy, 22-nov). La evidencia sólo cuenta si la puerta existe en el commit.
+const missingOf = (s) => {
+  const sha = (s.sha ?? '').slice(0, 7);
+  const out = [];
+  if (s.preview.phase !== 'ready' && s.preview.phase !== 'none') out.push(`vista previa (${PHASE_WORD[s.preview.phase] ?? s.preview.phase})`);
+  // El smoke cuenta como CI (SPEC §5c): se nombra dentro del CI, no dos veces.
+  const smokeOpen = s.smoke.status === 'pendiente' || s.smoke.status === 'fallo';
+  if (s.ci !== 'verde') out.push(`CI (${CI_WORD[s.ci] ?? s.ci}${smokeOpen ? `; smoke ${SERVICE_WORD[s.smoke.status]}` : ''})`);
+  else if (smokeOpen) out.push(`smoke (${SERVICE_WORD[s.smoke.status]})`);
+  if (s.review.status === 'pendiente') out.push('revisión');
+  if (s.gate && s.gate.status !== 'listo' && s.gate.status !== 'sin-check') out.push(`evidencia en ${sha}${s.gate.title ? ` (${s.gate.title})` : ''}`);
+  return out;
+};
+const prStateLine = (s) => {
+  const head = `PR #${s.pr} (${(s.sha ?? '').slice(0, 7)}${s.state !== 'abierto' ? `, ${s.state}` : ''}): vista previa ${PHASE_WORD[s.preview.phase] ?? s.preview.phase} · CI ${CI_WORD[s.ci] ?? s.ci} · revisión ${SERVICE_WORD[s.review.status]}${s.review.title ? ` (${s.review.title})` : ''} · smoke ${SERVICE_WORD[s.smoke.status]}${s.gate && s.gate.status !== 'sin-check' ? ` · evidencia ${SERVICE_WORD[s.gate.status]}` : ''}`;
+  if (s.state !== 'abierto') return head;
+  const miss = missingOf(s);
+  return `${head}\n  ${miss.length ? `falta: ${miss.join(', ')}` : 'no falta nada: listo para merge'}`;
+};
 
 function previewText(x, { opened } = {}) {
   const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
@@ -412,7 +430,7 @@ try {
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
     // Esperar = ya empujó: la tarjeta regresa a «En revisión».
     await writer.beat(num(arg), 'pushed');
-    const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
+    const r = await cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
     if (r.pr) autoDeps(Number(String(r.pr).split('/').pop()));
     // Lo despertó un pedido o el CI salió rojo: le toca corregir (la tarjeta vuelve a «Escribiendo»).
     if (r.asks?.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);

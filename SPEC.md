@@ -268,7 +268,11 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
   y el CI. Con varios checks del mismo nombre manda el más reciente.
 - `wait <n> --watch` reporta en stderr cuando la vista previa o la revisión del commit actual terminan (lista,
   falló, neutral con su título, p. ej. los hallazgos), sin esperarlas: el veredicto verde/rojo es del CI. Al volver,
-  `services` trae su estado.
+  `services` trae su estado. También el smoke y la puerta de evidencia (`ghosty-dev/evidencia`).
+- **En vivo** (`wait --watch` y `wait --pr`): con sesión de Ghosty Studio escuchan `/api/v2/me/dev-runs/live` (el
+  aviso del webhook de GitHub que mueve el tablero) y releen en segundos en vez de esperar al siguiente sondeo; sin
+  sesión o con `GHOSTY_DEV_NO_LIVE=1`, sólo el sondeo. Cada renglón de `wait --pr` cierra con `falta: …` (vista
+  previa, CI, revisión, smoke, evidencia en <sha>) o `no falta nada: listo para merge`.
 - `show --pr <m>` hace lo mismo por número de PR, para un PR sin pendiente (escrito desde la terminal, en cualquier
   rama): estado, rama, `Closes #n`, ficha, servicios y CI. Nada de esto depende de un run de la nube.
 - **`preview [<pr>] [--wait] [--open] [--json]`** pregunta a la plataforma por la vista previa del PR (sin número: el

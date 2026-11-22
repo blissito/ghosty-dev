@@ -8,8 +8,9 @@
 // Nunca lleva la liga de la vista previa: sólo fase y commit.
 import { existingSession, plain } from './auth.mjs';
 import { api } from './gh.mjs';
-import { UserError, prServices } from './commands.mjs';
+import { UserError, prServices, repoFullName } from './commands.mjs';
 import { fetchPreview } from './preview.mjs';
+import { openLive } from './live.mjs';
 
 export const UNTIL = ['preview', 'ci', 'review', 'any'];
 export const WAIT_PENDING_EXIT = 75;
@@ -37,6 +38,7 @@ async function readState(pr, useGs) {
     ci: sv.ci,
     review: { status: sv.review.status, title: sv.review.title == null ? null : plain(sv.review.title, 200) },
     smoke: { status: sv.smoke.status, title: sv.smoke.title == null ? null : plain(sv.smoke.title, 200) },
+    gate: { status: sv.gate.status, title: sv.gate.title == null ? null : plain(sv.gate.title, 200) },
     previewCheck: sv.preview.status,
   };
 }
@@ -62,7 +64,7 @@ const done = {
   review: (s) => s.review.status !== 'pendiente' && s.review.status !== 'sin-check',
 };
 const failed = { preview: (s) => s.preview.phase === 'failed', ci: (s) => s.ci === 'rojo', review: () => false };
-const sig = (s) => JSON.stringify([s.sha, s.state, s.preview.phase, s.ci, s.review.status, s.smoke.status]);
+const sig = (s) => JSON.stringify([s.sha, s.state, s.preview.phase, s.ci, s.review.status, s.smoke.status, s.gate?.status]);
 
 // `onChange(state)` recibe el estado inicial y cada cambio. Regresa el estado final con `met`, `timedOut` y `exitCode`
 // (0 cumplido, 1 la vista previa falló o el CI salió rojo, 75 se acabó el tiempo).
@@ -79,15 +81,25 @@ export async function waitPr(pr, { until = 'any', minutes = 10, onChange = () =>
   const met = (x) => (until === 'any' ? sig(x) !== first || allDone(x) : done[until](x)) || x.state !== 'abierto';
   const steps = [3, 5, 8, 13, 21, 30];
   let last = first;
-  for (let i = 0; !met(s); i++) {
-    const delay = steps[Math.min(i, steps.length - 1)] * unit;
-    if (Date.now() + delay > deadline) return { ...s, until, met: false, timedOut: true, exitCode: WAIT_PENDING_EXIT, stuck: stuckChecks(s) };
-    await new Promise((r) => setTimeout(r, delay));
-    s = await readState(pr, useGs);
-    if (sig(s) !== last) {
-      last = sig(s);
-      onChange(s);
+  // En vivo: el aviso de Ghosty Studio corta la espera en segundos (y reinicia el backoff); sin sesión, sólo sondeo.
+  const live = useGs ? await openLive(repoFullName).catch(() => null) : null;
+  try {
+    for (let i = 0; !met(s); i++) {
+      const delay = steps[Math.min(i, steps.length - 1)] * unit;
+      if (Date.now() + delay > deadline) return { ...s, until, met: false, timedOut: true, exitCode: WAIT_PENDING_EXIT, stuck: stuckChecks(s) };
+      const woke = live ? await live.sleep(delay) : (await new Promise((r) => setTimeout(r, delay)), false);
+      if (woke) {
+        i = -1;
+        if (process.env.GHOSTY_DEV_DEBUG) console.error(`[en vivo] aviso de Ghosty Studio: releyendo el PR #${pr}`);
+      }
+      s = await readState(pr, useGs);
+      if (sig(s) !== last) {
+        last = sig(s);
+        onChange(s);
+      }
     }
+  } finally {
+    live?.close();
   }
   const bad = until === 'any' ? failed.preview(s) || failed.ci(s) : failed[until](s);
   return { ...s, until, met: true, timedOut: false, exitCode: bad ? 1 : 0 };

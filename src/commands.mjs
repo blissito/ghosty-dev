@@ -132,6 +132,8 @@ export function prServices(pr, { deep = false, checks } = {}) {
     preview: serviceOf(latestRun(got.runs, PREVIEW_CHECK)),
     review: serviceOf(latestRun(got.runs, REVIEW_CHECK)),
     smoke: serviceOf(latestRun(got.runs, SMOKE_CHECK)),
+    // La puerta de evidencia (Ley 2): lo que casi siempre falta al final, y lo que `wait` debe decir que falta.
+    gate: serviceOf(latestRun(got.runs, GATE_CHECK)),
     ci: ciVerdict(got),
   };
   if (deep) {
@@ -379,7 +381,7 @@ export function asks(n, { peek = false } = {}) {
 // La vista previa y la revisión del commit actual se reportan cuando terminan (`onService`), pero no detienen la
 // espera ni deciden el veredicto: el CI manda. Al volver, `services` trae su estado final.
 const DONE = (s) => s !== 'pendiente' && s !== 'sin-check';
-export function wait(n, { watch = false, minutes = 5, onService = () => {} } = {}) {
+export async function wait(n, { watch = false, minutes = 5, onService = () => {} } = {}) {
   const issue = viewIssue(n);
   const state = stateOf(issue);
   if (state !== 'tomado' && state !== 'esperando') throw new UserError(`#${n} no está tomado; primero ghosty-dev claim ${n}.`);
@@ -400,32 +402,40 @@ export function wait(n, { watch = false, minutes = 5, onService = () => {} } = {
   const track = (ci) => {
     if (!ci.pr) return;
     const sv = prServices(ci.pr, { checks: ci.checks });
-    for (const key of ['preview', 'review']) {
+    for (const key of ['preview', 'review', 'smoke', 'gate']) {
       const sig = `${ci.pr.headRefOid}|${sv[key].status}`;
       if (DONE(sv[key].status) && reported[key] !== sig) onService(key, sv[key]);
       reported[key] = sig;
     }
   };
   const first = prServices(before.pr, { checks: before.checks });
-  for (const key of ['preview', 'review']) reported[key] = `${before.pr.headRefOid}|${first[key].status}`;
-  // Tras un push, los checks tardan unos segundos en aparecer: se espera a que existan (tope ~90 s).
-  const step = Number(process.env.GHOSTY_DEV_REGISTER_WAIT_MS ?? 10_000);
-  for (let i = 0; before.status === 'sin-checks' && i < 9; i++) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, step);
-    before = ciOf(n);
-    track(before);
+  for (const key of ['preview', 'review', 'smoke', 'gate']) reported[key] = `${before.pr.headRefOid}|${first[key].status}`;
+  // En vivo: el aviso de Ghosty Studio (webhook de GitHub) corta la espera en segundos; sin sesión, sondeo normal.
+  const { openLive } = await import('./live.mjs');
+  const live = await openLive(repoFullName).catch(() => null);
+  const nap = (ms) => (live ? live.sleep(ms) : new Promise((r) => setTimeout(r, ms)));
+  try {
+    // Tras un push, los checks tardan unos segundos en aparecer: se espera a que existan (tope ~90 s).
+    const step = Number(process.env.GHOSTY_DEV_REGISTER_WAIT_MS ?? 10_000);
+    for (let i = 0; before.status === 'sin-checks' && i < 9; i++) {
+      await nap(step);
+      before = ciOf(n);
+      track(before);
+    }
+    let ci = before;
+    const every = Number(process.env.GHOSTY_DEV_WATCH_MS ?? 10_000);
+    for (const until = Date.now() + minutes * 60_000; ci.status === 'pendiente' && Date.now() < until; ) {
+      await nap(every);
+      got = news();
+      if (got.length) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, asks: got };
+      ci = ciOf(n);
+      track(ci);
+    }
+    const services = ci.pr ? (prServices(ci.pr, { deep: true, checks: ci.checks })) : null;
+    return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente', services };
+  } finally {
+    live?.close();
   }
-  let ci = before;
-  const every = Number(process.env.GHOSTY_DEV_WATCH_MS ?? 10_000);
-  for (const until = Date.now() + minutes * 60_000; ci.status === 'pendiente' && Date.now() < until; ) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, every);
-    got = news();
-    if (got.length) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, asks: got };
-    ci = ciOf(n);
-    track(ci);
-  }
-  const services = ci.pr ? (prServices(ci.pr, { deep: true, checks: ci.checks })) : null;
-  return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, timedOut: ci.status === 'pendiente', services };
 }
 
 
