@@ -49,7 +49,7 @@ ghosty-dev show <n>                # la ficha y los servicios del PR: vista prev
   login. Si no, **pregunta antes de correr login: cambia la configuración de la máquina.** Con su sí, en dos pasos:
 
   ```sh
-  ghosty-dev login --no-wait --json   # sale ya: {status:"pending", verification_uri_complete, user_code, …}
+  ghosty-dev login --no-wait --json   # sale ya: {status:"pending", url, code, …}
   # pásale a la persona la liga y el código, y espera a que diga que ya aprobó
   ghosty-dev login --wait --json      # sondea hasta 90 s; código 75 = sigue pendiente: vuelve a correrlo
   ```

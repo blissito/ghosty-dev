@@ -272,6 +272,9 @@ export async function loginStart() {
   const p = await startDevice(await endpoints(baseUrl()));
   return {
     status: 'pending',
+    // `url` y `code`: los mismos nombres que `ghosty login` (una sola forma para los dos CLIs, ver ghosty.studio/auth.md).
+    url: p.verificationUriComplete,
+    code: p.userCode,
     verification_uri_complete: p.verificationUriComplete,
     verification_uri: p.verificationUri,
     user_code: p.userCode,
@@ -286,7 +289,7 @@ export async function loginWait({ timeoutSec = 90 } = {}) {
   if (!pending?.deviceCode) throw new AuthError(`No hay un inicio de sesión pendiente. ${AGAIN}`);
   const tok = await pollDevice(await endpoints(baseUrl()), pending, Date.now() + timeoutSec * 1000);
   if (tok) return finish('device', tok);
-  return { status: 'pending', verification_uri_complete: pending.verificationUriComplete, user_code: pending.userCode, expires_at: new Date(pending.expiresAt).toISOString(), next: 'ghosty-dev login --wait' };
+  return { status: 'pending', url: pending.verificationUriComplete, code: pending.userCode, verification_uri_complete: pending.verificationUriComplete, user_code: pending.userCode, expires_at: new Date(pending.expiresAt).toISOString(), next: 'ghosty-dev login --wait' };
 }
 
 // ---------- refresh, peticiones ----------

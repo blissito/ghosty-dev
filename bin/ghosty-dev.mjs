@@ -59,6 +59,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean', short: 'v' },
     json: { type: 'boolean' },
     claim: { type: 'boolean' },
     cloud: { type: 'boolean' },
@@ -86,6 +87,12 @@ const { values, positionals } = parseArgs({
     yes: { type: 'boolean', short: 'y' },
   },
 });
+if (values.version) {
+  const { readFileSync } = await import('node:fs');
+  console.log(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  process.exit(0);
+}
+
 
 const [command, arg, arg2] = positionals;
 let existing = null; // sesión que ya había al pedir login
