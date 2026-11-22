@@ -243,7 +243,19 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
   commit viejo no cuenta. Si la vista previa es de otro commit, o el HEAD local no está empujado, lo avisa en stderr
   (`stale: true` en `--json`). Sale **0** lista, **75** todavía armándose (sin `--wait`, o al tope), **1** falló
   (con `error` limpio y recortado a 300).
-- **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia. Acepta la sesión con
+- **`box logs|exec|restart|rebuild [<pr>]`** opera la caja de la vista previa del PR (sin número: el de tu rama)
+  con `GET|POST /api/v2/me/repos/:owner/:name/prs/:pr/box`, sin un tercer agente: `logs [--lines N]` (cola del log
+  del build y del servidor, 200 por defecto, tope 5000), `exec -- <comando…>` (en el checkout `/app/src`, 60 s; varios
+  argumentos se unen en una línea de shell con comillas simples donde haga falta; **sale con el código del
+  comando**), `restart` (la app, sin rearmar) y `rebuild` (rearma el último commit; se sigue con `preview --wait`).
+  Devuelve `{phase, sha, text, exitCode}`. 404 = el PR todavía no tiene caja; 403 = sin asiento en el espacio (sólo
+  dueño o miembro escribe). La salida de la caja llega sin secuencias de control, sin `?k=…` ni `Bearer …`.
+- **`wait --pr <m> [--until preview|ci|review|any] [--minutes 10]`** espera por PR, sin pendiente ni run: sondea con
+  backoff (3 s → 30 s) el commit HEAD del PR hasta que la vista previa (de la plataforma con sesión; sin sesión, de
+  su check) quede lista o falle, el CI resuelva o la revisión termine; `any` (por defecto) regresa con el primer
+  cambio. Un renglón por cambio (con `--json`, `{event:"state",…}` y al final `{event:"done", met, timedOut,
+  exitCode}`), nunca la liga. Sale 0 cumplido, 1 vista previa fallida o CI rojo, 75 se acabó el tiempo.
+- **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia; si falla: `ghosty-dev box logs` / `ghosty-dev box exec -- <comando>` → arregla → push. `preview` acepta la sesión con
   `dev` o `repo:env`; 403 `insufficient_scope` → `ghosty-dev login --force`.
 
 ## 6. Pruebas de conformidad
@@ -270,6 +282,8 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C17 | el CI no cuenta los checks de la lista normativa (§5c) y sí el smoke; `wait --watch` no espera a la vista previa y avisa cuando la revisión termina; `show` lee la ficha del PR antes que la del issue y los servicios del commit del PR | `el CI no cuenta…`, `wait --watch no espera…`, `show lee la ficha del PR…` |
 | C18 | identidad (§8): orden de credenciales (`GHOSTY_DEV_TOKEN` → archivo → login) y `whoami` con `source`; un agente sin TTY nunca abre el navegador; `login --no-wait` sale ya con el pendiente 0600 y `--wait` lo retoma, sale con 75 si sigue pendiente; ninguna salida lleva tokens ni `device_code`; device flow con `authorization_pending` → tokens, `slow_down` suma 5 s, `expired_token` y `access_denied` fallan; loopback `127.0.0.1/cb` con PKCE S256 rechaza otro `state`; refresh con < 60 s y reintento único tras 401; `logout` revoca y borra; `auth.json` 0600; `env push` sin archivo falla y nunca imprime valores | `test/auth.test.mjs` |
 | C19 | `preview`: lista → liga sólo en stdout y 0; armándose → 75 sin liga; `--wait` armándose→lista y no se conforma con un commit viejo; falló → 1 con el error limpio; 403 `insufficient_scope` pide `login --force`; PR deducido de la rama; la liga nunca sale en stderr, errores ni `show --pr` (que da `{phase, sha}`) | `test/preview.test.mjs` |
+| C20 | `box logs` limpia la salida (ANSI, `?k=`, `Bearer`) y manda `--lines`; `box exec -- …` arma la línea de shell, sale con el código del comando y deduce el PR; `restart` y `rebuild`; 404 sin caja, 403 sin asiento e `insufficient_scope` con el siguiente paso y sin tokens | `test/box.test.mjs` |
+| C21 | `wait --pr --until preview|ci|any`: un renglón JSON por cambio sin la liga; CI verde 0, rojo 1; tope → 75; una vista previa de un commit viejo no cuenta como lista | `test/box.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
@@ -331,5 +345,5 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
    reemplaza todas. Sólo el dueño del espacio guarda. **Ningún valor se imprime**, tampoco en errores.
 
 Las APIs son `GET|POST /api/v2/me/repos/:owner/:name/env` (variables), `GET /api/v2/me/repos/:owner/:name/prs/:pr/preview`
-(vista previa del PR) y `/api/v2/me/dev-runs` (nube) de Ghosty Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
+(vista previa del PR), `GET|POST …/prs/:pr/box` (su caja) y `/api/v2/me/dev-runs` (nube) de Ghosty Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
 forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.md).

@@ -62,6 +62,7 @@ ghosty-dev claim 1                       # rama ghosty-dev/1-agregar-health en .
 ghosty-dev wait 1 --watch                # espera al CI en una sola llamada, sin sondear (tope 5 min)
 ghosty-dev show 1                        # ficha y servicios del PR: vista previa, revisión, smoke y CI
 ghosty-dev preview --wait --json         # la liga de la vista previa del PR de tu rama, cuando queda lista
+ghosty-dev box logs                      # si falló: el log de su caja; box exec -- <cmd> corre ahí
 # el subagente ghosty-dev-revisor (contexto limpio) intenta romperlo y publica:
 ghosty-dev review 1 --file revision.md   # atada al commit del PR; con hallazgos, se arregla y se repite
 ghosty-dev evidence 1 --file evidencia.md
@@ -99,7 +100,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 ## Comandos
 
 `init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
-`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
+`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
@@ -107,6 +108,7 @@ previa y la revisión terminan (el CI decide el verde) y `show <n>` imprime su e
 de la vista previa. Los checks de la plataforma que no cuentan como CI están en [SPEC.md §5c](SPEC.md).
 
 Para un PR escrito desde la terminal no hace falta ningún run: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia.
+Si falla: `box logs` (el log del build y del servidor) y `box exec -- <comando>` en la caja, arregla y push; `wait --pr <m>` espera vista previa, CI o revisión sin pendiente.
 `preview` sale 0 lista, 75 armándose y 1 si falló; `show --pr <m>` da estado, ficha, servicios y `preview: {phase, sha}`.
 La liga lleva la llave de la vista previa: no la pegues en issues ni PRs ([SECURITY.md](SECURITY.md)).
 

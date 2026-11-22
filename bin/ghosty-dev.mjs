@@ -7,6 +7,8 @@ import * as cloud from '../src/cloud.mjs';
 import * as auth from '../src/auth.mjs';
 import * as envVars from '../src/env.mjs';
 import * as previews from '../src/preview.mjs';
+import * as boxes from '../src/box.mjs';
+import { waitPr } from '../src/watch.mjs';
 import { createInterface } from 'node:readline/promises';
 
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
@@ -45,9 +47,19 @@ Uso: ghosty-dev <comando> [opciones]
   preview [<pr>] [--wait] [--open]       la vista previa del PR (sin número: el de tu rama). Lista: imprime la
                                          liga firmada (o la abre con --open); --wait espera hasta ~10 min a que
                                          la del último push quede lista o falle. Sale 0 lista, 75 armándose, 1 falló
+  box logs [<pr>] [--lines N]            la caja de la vista previa del PR (sin número: el de tu rama): cola del log
+                                         del build y del servidor (200 renglones por defecto)
+  box exec [<pr>] -- <comando…>          corre el comando en el checkout de la caja (/app/src, 60 s); sale con su código
+  box restart [<pr>]                     reinicia la app de la caja sin rearmar
+  box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
+  wait --pr <m> [--until preview|ci|review|any] [--minutes 10]
+                                         espera por PR, sin pendiente: hasta que la vista previa, el CI o la revisión
+                                         del último commit terminen (any: el primer cambio). Un renglón (JSON con
+                                         --json) por cambio; sale 0 cumplido, 1 falló/rojo, 75 se acabó el tiempo
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
 Flujo del agente de terminal: git push → ghosty-dev preview --wait --json → prueba la app en la liga → evidencia.
+Si la vista previa falla: ghosty-dev box logs → ghosty-dev box exec -- <comando> → arregla → git push.
 La liga de preview lleva la llave de la vista previa: no la pegues en issues, PRs ni logs.
 
 Sesión propia en Ghosty Studio (nube, vista previa y variables; GitHub sigue siendo gh):
@@ -95,6 +107,8 @@ const { values, positionals } = parseArgs({
     pr: { type: 'string' },
     wait: { type: 'boolean' },
     open: { type: 'boolean' },
+    lines: { type: 'string' },
+    until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
     yes: { type: 'boolean', short: 'y' },
@@ -180,6 +194,10 @@ async function previewSummary(pr) {
 }
 const previewLine = (p) => (p ? [`  vista previa (Ghosty Studio): ${PHASE_WORD[p.phase] ?? p.phase}${p.sha ? ` · commit ${p.sha.slice(0, 7)}` : ''} — la liga: ghosty-dev preview`] : []);
 
+const CI_WORD = { verde: 'verde', rojo: 'rojo', pendiente: 'en curso', 'sin-checks': 'sin checks' };
+const prStateLine = (s) =>
+  `PR #${s.pr} (${(s.sha ?? '').slice(0, 7)}${s.state !== 'abierto' ? `, ${s.state}` : ''}): vista previa ${PHASE_WORD[s.preview.phase] ?? s.preview.phase} · CI ${CI_WORD[s.ci] ?? s.ci} · revisión ${SERVICE_WORD[s.review.status]}${s.review.title ? ` (${s.review.title})` : ''} · smoke ${SERVICE_WORD[s.smoke.status]}`;
+
 function previewText(x, { opened } = {}) {
   const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
   if (x.phase === 'ready')
@@ -261,7 +279,7 @@ try {
   } else if (command === 'claim') {
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'] });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
-  } else if (command === 'wait') {
+  } else if (command === 'wait' && values.pr === undefined) {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
     const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
@@ -307,6 +325,39 @@ try {
     if (r.url && values.open) auth.openBrowser(r.url);
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
+  } else if (command === 'box') {
+    // Lo que va después de `--` es el comando de exec; antes, `box <op> [<pr>]`.
+    const dd = process.argv.indexOf('--', 2);
+    const cmdParts = dd === -1 ? [] : process.argv.slice(dd + 1);
+    const pre = positionals.slice(0, positionals.length - cmdParts.length);
+    const op = pre[1];
+    if (!boxes.OPS.includes(op)) throw new cmd.UserError(`Uso: ghosty-dev box ${boxes.OPS.join('|')} [<pr>] (exec: -- <comando…>)`);
+    if (op !== 'exec' && cmdParts.length) throw new cmd.UserError('Sólo box exec lleva un comando después de --.');
+    const pr = pre[2] === undefined ? previews.currentPr() : num(pre[2], '<pr>');
+    const r = await boxes.box(op, pr, { cmd: cmdParts.length ? boxes.shellJoin(cmdParts) : undefined, lines: values.lines });
+    print(r, (x) => {
+      const tail = x.text.replace(/\n+$/, '');
+      if (x.op === 'rebuild') return `Rearmando la vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}. Síguela: ghosty-dev preview ${x.pr} --wait`;
+      if (x.op === 'restart') return `${tail ? `${tail}\n` : ''}App de la caja del PR #${x.pr} reiniciada${x.exitCode ? ` (salió ${x.exitCode})` : ''}.`;
+      return tail || (x.op === 'logs' ? '(el log está vacío)' : '');
+    });
+    if (!values.json && op === 'exec' && r.exitCode) console.error(`(el comando salió con ${r.exitCode})`);
+    process.exitCode = boxes.exitCodeOf(r);
+  } else if (command === 'wait' && values.pr !== undefined) {
+    const minutes = values.minutes === undefined ? 10 : Number(values.minutes);
+    if (!Number.isFinite(minutes) || minutes < 0) throw new cmd.UserError('--minutes va en minutos (default 10).');
+    const onChange = (s) => console.log(values.json ? JSON.stringify({ event: 'state', ...s }) : prStateLine(s));
+    const r = await waitPr(num(values.pr, '--pr <m>'), { until: values.until ?? 'any', minutes, onChange });
+    console.log(
+      values.json
+        ? JSON.stringify({ event: 'done', ...r })
+        : r.timedOut
+          ? `Se acabó el tiempo y no ha pasado (${r.until}). Vuelve a correr: ghosty-dev wait --pr ${r.pr} --until ${r.until}`
+          : r.exitCode
+            ? `Listo (${r.until}): ${r.preview.phase === 'failed' ? 'la vista previa falló → ghosty-dev box logs ' + r.pr : 'el CI salió rojo'}.`
+            : `Listo (${r.until}).`,
+    );
+    process.exitCode = r.exitCode;
   } else if (command === 'show') {
     const r = cmd.show(num(arg));
     r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;

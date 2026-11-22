@@ -33,6 +33,12 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   `preview` sale 0 lista (`url` es la liga), 75 todavía armándose (vuelve a correrlo con `--wait`; en Claude Code,
   timeout 660000) y 1 si falló (`error` dice por qué; arréglalo y vuelve a subir). Si avisa que la vista previa es de
   otro commit, te falta `git push`. Sin pendiente (PR escrito desde la terminal): `ghosty-dev show --pr <m>`.
+- **La vista previa falló o la app truena: tú administras su caja**, no otro agente. `ghosty-dev box logs [--lines 400]`
+  (log del build y del servidor) → `ghosty-dev box exec -- <comando>` (en `/app/src`, 60 s, sale con su código; p. ej.
+  `curl -s -o /dev/null -w '%{http_code}' localhost:3000/ruta`) → arregla en tu rama → push → `preview --wait`.
+  `box restart` reinicia la app; `box rebuild` la rearma sin push. Lo que arregles en la caja con `exec` se pierde en
+  el siguiente push: el arreglo va al código. Para esperar CI o revisión sin pendiente:
+  `ghosty-dev wait --pr <m> --until ci|review|preview|any --json` (0 cumplido, 1 falló/rojo, 75 tiempo).
   **La liga lleva la llave de la vista previa:** úsala para probar (navegador, curl, Playwright), pero nunca la
   pegues en la evidencia, el issue, el PR ni el chat; en «Preview» escribe qué probaste y el commit.
 

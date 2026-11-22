@@ -13,7 +13,8 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
    «Preview», «Criterios de aceptación» marcados). El PR lleva `Closes #<n>`; sin revisión del commit actual y sin
    evidencia, el check `ghosty-dev/evidencia` no deja mergear. Nunca cierres un issue sin evidencia.
 3. **Se espera por evento, no se sondea.** Con el PR abierto: `ghosty-dev wait <n> --watch` espera al CI en una sola llamada (tope 5 min); si tarda más, toma otro pendiente o termina. Si el repo está conectado a Ghosty Studio, `wait --watch` también avisa cuando la vista previa y la revisión de Ghosty terminan, y `ghosty-dev show <n>` da la ficha y los servicios del PR (vista previa con su liga, revisión, smoke, CI): no hace falta otro CLI.
-   Para probar la app: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia (0 lista, 75 armándose, 1 falló; sin pendiente: `show --pr <m>`).
+   Para probar la app: push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia (0 lista, 75 armándose, 1 falló; sin pendiente: `show --pr <m>`);
+   si falla: `ghosty-dev box logs` / `ghosty-dev box exec -- <comando>` → arregla → push (la caja la administras tú; `wait --pr <m> --until ci|review` espera sin pendiente).
    La liga lleva la llave de la vista previa: nunca la pegues en la evidencia, el issue ni el PR.
    `ghosty-dev ready` te lo vuelve a ofrecer cuando el CI resuelva.
 

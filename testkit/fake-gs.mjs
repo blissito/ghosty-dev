@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
 // `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [] } = {}) {
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -24,6 +24,9 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     devCalls: [],
     previews: [...previews],
     previewCalls: [],
+    // La caja de la vista previa: null = el PR no tiene caja (404); { seat: false } = sin asiento (403).
+    box: box === undefined ? { log: 'npm run build\nlisto en :3000\n', execText: null, execCode: 0, seat: true } : box,
+    boxCalls: [],
   };
   const issue = () => {
     s.n += 1;
@@ -92,6 +95,19 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       const next = s.previews.length > 1 ? s.previews.shift() : s.previews[0] ?? { phase: 'none' };
       const page = `https://www.ghosty.studio/c/dev/pr/${pm[1]}/${pm[2]}/${pm[3]}/preview`;
       return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), sha: null, url: null, error: null, page, ...next });
+    }
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/box$/))) {
+      const body = raw ? JSON.parse(raw) : null;
+      s.boxCalls.push({ method: req.method, pr: Number(pm[3]), query: url.search, body });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      if (!s.box) return send(res, 404, { error: 'not_found', message: 'Este PR no tiene caja de preview: se arma sola con el siguiente push (PR no borrador).' });
+      if (req.method !== 'GET' && s.box.seat === false) return send(res, 403, { error: 'forbidden', message: 'sólo el dueño o un miembro del espacio opera la caja' });
+      const sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
+      if (req.method === 'GET') return send(res, 200, { phase: 'failed', sha, text: s.box.log, exitCode: 0 });
+      if (body?.op === 'exec') return send(res, 200, { phase: 'ready', sha, text: s.box.execText ?? `$ ${body.cmd}\n200`, exitCode: s.box.execCode });
+      if (body?.op === 'restart') return send(res, 200, { phase: 'ready', sha, text: 'reiniciada\n', exitCode: 0 });
+      if (body?.op === 'rebuild') return send(res, 200, { phase: 'building', sha });
+      return send(res, 400, { error: 'bad_request', message: 'op: exec | restart | rebuild' });
     }
     if (url.pathname.startsWith('/api/v2/me/dev-runs')) {
       const body = raw ? JSON.parse(raw) : null;
