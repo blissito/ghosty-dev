@@ -27,6 +27,8 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     // La caja de la vista previa: null = el PR no tiene caja (404); { seat: false } = sin asiento (403).
     box: box === undefined ? { log: 'npm run build\nlisto en :3000\n', execText: null, execCode: 0, seat: true } : box,
     boxCalls: [],
+    shareCalls: [],
+    share: { shared: false, url: null, n: 0, closed: false, requests: [{ id: 'ar_1', email: 'clienta@ejemplo.com', name: 'Clienta\x1b[31m', status: 'pending', createdAt: '2026-11-22T18:30:00.000Z', resolvedAt: null }] },
   };
   const issue = () => {
     s.n += 1;
@@ -95,6 +97,31 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       const next = s.previews.length > 1 ? s.previews.shift() : s.previews[0] ?? { phase: 'none' };
       const page = `https://www.ghosty.studio/c/dev/pr/${pm[1]}/${pm[2]}/${pm[3]}/preview`;
       return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), sha: null, url: null, error: null, page, ...next });
+    }
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/(share|access-requests)$/))) {
+      const body = raw ? JSON.parse(raw) : null;
+      s.shareCalls.push({ method: req.method, what: pm[4], pr: Number(pm[3]), query: url.search, body });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      const repo = `${pm[1]}/${pm[2]}`;
+      const pr = Number(pm[3]);
+      const sh = s.share;
+      if (pm[4] === 'share') {
+        if (req.method === 'POST') {
+          if (sh.closed) return send(res, 409, { error: 'conflict', message: 'El PR está cerrado: no se comparte.' });
+          if (!sh.shared) Object.assign(sh, { shared: true, url: sh.url ?? `https://www.ghosty.studio/pv/pvt_SECRETO${++sh.n}`, createdAt: '2026-11-22T18:00:00.000Z' });
+        }
+        if (req.method === 'DELETE') Object.assign(sh, { shared: false, url: null });
+        return send(res, 200, { repo, pr, shared: sh.shared, url: sh.shared ? sh.url : null, createdAt: sh.shared ? sh.createdAt : null, lastUsedAt: null });
+      }
+      if (req.method === 'GET') {
+        const st = url.searchParams.get('status') ?? 'pending';
+        return send(res, 200, { repo, pr, requests: sh.requests.filter((q) => st === 'all' || q.status === st) });
+      }
+      const q = sh.requests.find((x) => x.id === body?.id);
+      if (!q) return send(res, 404, { error: 'not_found', message: 'No existe esa solicitud.' });
+      if (body.decision !== 'accept' && body.decision !== 'reject') return send(res, 400, { error: 'bad_request', message: 'decision: accept | reject' });
+      Object.assign(q, { status: body.decision === 'accept' ? 'accepted' : 'rejected', resolvedAt: '2026-11-22T19:00:00.000Z' });
+      return send(res, 200, { repo, pr, request: q });
     }
     if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/box$/))) {
       const body = raw ? JSON.parse(raw) : null;

@@ -29,6 +29,10 @@ abre esa vista previa sin sesión. Por eso:
 - si se cuela en un issue, un PR, un chat o un log, quien la vea abre la vista previa: no la pegues; para la
   evidencia, basta con decir qué probaste y el commit.
 
+La liga **pública** de `preview share` (`https://www.ghosty.studio/pv/…`) es para dársela a alguien sin cuenta:
+sólo la imprime `share`, por stdout; `unshare`, `requests`, los errores y stderr nunca la llevan. Se revoca con
+`preview unshare` (la vieja da 410 y quien la abra puede pedir acceso: `preview requests`, `accept`, `reject`).
+
 ### La puerta falla cerrada
 
 El check `ghosty-dev/evidencia` lee su script sólo de la rama base: un PR no puede aflojar su propia puerta. Si ese

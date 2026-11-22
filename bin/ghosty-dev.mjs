@@ -7,6 +7,7 @@ import * as cloud from '../src/cloud.mjs';
 import * as auth from '../src/auth.mjs';
 import * as envVars from '../src/env.mjs';
 import * as previews from '../src/preview.mjs';
+import * as shares from '../src/share.mjs';
 import * as boxes from '../src/box.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
@@ -64,6 +65,10 @@ Uso: ghosty-dev <comando> [opciones]
                                          del build y del servidor (200 renglones por defecto)
   box exec [<pr>] -- <comando…>          corre el comando en el checkout de la caja (/app/src, 60 s); sale con su código
   box restart [<pr>]                     reinicia la app de la caja sin rearmar
+  preview share [<pr>]                   liga pública para alguien sin cuenta (la única vez que se imprime)
+  preview unshare [<pr>]                 la revoca; quien la abra puede pedir acceso
+  preview requests [<pr>] [--status pending|accepted|rejected|all]
+  preview accept|reject <id> [--pr <m>]  decide una solicitud de acceso
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
   deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
                                          abierto (o trae su commit) y la quita cuando ése entra; preview y wait lo
@@ -126,6 +131,7 @@ const { values, positionals } = parseArgs({
     lines: { type: 'string' },
     issue: { type: 'string' },
     workspace: { type: 'string' },
+    status: { type: 'string' },
     until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
@@ -412,6 +418,14 @@ try {
         ...(x.ficha ? ['', x.ficha] : []),
       ].join('\n'),
     );
+  } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
+    // share|unshare|requests [<pr>] · accept|reject <id> [--pr <m>]. Sin PR: el de tu rama.
+    const decision = arg === 'accept' || arg === 'reject';
+    const prRaw = decision ? values.pr : arg2 ?? values.pr;
+    const pr = prRaw === undefined ? previews.currentPr() : num(prRaw, '<pr>');
+    if (arg === 'share' || arg === 'unshare') print(await shares.share(arg, pr), shares.shareText);
+    else if (arg === 'requests') print(await shares.requests(pr, { status: values.status ?? 'pending' }), shares.requestsText);
+    else print(await shares.decide(arg, pr, arg2), shares.decideText);
   } else if (command === 'preview') {
     const pr = arg === undefined ? undefined : num(arg, '<pr>');
     // Los avisos (commit viejo, falta push) van a stderr y nunca llevan la liga.

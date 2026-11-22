@@ -295,6 +295,18 @@ de CI no es verde, uno en curso es pendiente y uno fallido es rojo.
 - **Flujo del agente de terminal:** push → `ghosty-dev preview --wait --json` → prueba la app en `url` → evidencia; si falla: `ghosty-dev box logs` / `ghosty-dev box exec -- <comando>` → arregla → push. `preview` acepta la sesión con
   `dev` o `repo:env`; 403 `insufficient_scope` → `ghosty-dev login --force`.
 
+## 5d. Compartir la vista previa con alguien sin cuenta
+
+- **`preview share [<pr>]`** → `POST /api/v2/me/repos/:owner/:name/prs/:pr/share` (idempotente) → `{repo, pr, shared,
+  url, createdAt, lastUsedAt}`. La liga pública (`https://www.ghosty.studio/pv/<token>`) sólo la imprime este
+  comando, por stdout; 409 si el PR está cerrado.
+- **`preview unshare [<pr>]`** → `DELETE …/share`: la liga vieja da 410 y quien la abra puede pedir acceso. No
+  imprime ninguna liga.
+- **`preview requests [<pr>] [--status pending|accepted|rejected|all]`** → `GET …/access-requests?status=` →
+  `{requests:[{id, email, name, status, createdAt, resolvedAt}]}` (nombre y correo limpios de controles).
+- **`preview accept|reject <id> [--pr <m>]`** → `POST …/access-requests` `{id, decision}`; un id que no tiene forma de
+  id no llama al servidor. Sin número de PR: el de la rama actual. Sesión con `dev`; nunca un `gat_`.
+
 ## 6. Pruebas de conformidad
 
 Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con un `gh` falso y sin red):
@@ -325,6 +337,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C23 | `Depende de #N`: apilado sobre la rama de otro PR o con su commit → se agrega una vez; lo que escribió una persona no se duplica ni se toca; al entrar ese PR, se quita | `test/deps.test.mjs` |
 | C24 | `init` imprime repo y rama antes de escribir y, fuera de la rama principal, no escribe sin `--yes`; sin terminal y sin `--yes` no crea etiquetas y lo dice; lista los workflows que dispara un push a la rama principal; `protect --dry-run` lista los PR abiertos que quedarían bloqueados y por qué, sin escribir | `test/install.test.mjs` |
 | C25 | `evidence` re-corre la puerta del PR que cierra #n (cualquier rama, por `head_sha`); el workflow con `issue_comment` (sólo comentarios con marca) re-corre el run de la puerta del PR que cierra el issue, si ya terminó | `test/adopt.test.mjs` |
+| C27 | `preview share` imprime la liga pública (idempotente) y sólo ahí; `unshare` la revoca sin imprimirla; `requests` lista limpia; `accept/reject <id> --pr` deciden; PR cerrado o id inválido salen 1 | `test/share.test.mjs` |
 | C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
