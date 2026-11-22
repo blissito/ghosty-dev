@@ -96,10 +96,17 @@ que lo marque en *Settings → Branches*.
 Sólo si el repo está conectado a Ghosty Studio y la vista previa necesita variables (`ghosty-dev env ls` dice cuáles
 faltan). Es una sesión aparte de `gh`, sólo para esos secretos:
 
+Primero `ghosty-dev whoami --json`: si ya hay sesión, sáltate el login. Si no, **pregúntale a la persona antes de
+correrlo** (cambia la configuración de la máquina) y hazlo en dos pasos, porque tú no ves la salida hasta que el
+comando termina:
+
 ```sh
-ghosty-dev login        # la persona entra en su navegador; por SSH o sin navegador imprime liga + código
-ghosty-dev env ls       # nombres: guardadas y faltantes (nunca valores)
+ghosty-dev login --no-wait --json   # sale ya con la liga y el código: pásaselos a la persona
+ghosty-dev login --wait --json      # cuando diga que ya aprobó; código 75 = sigue pendiente, vuelve a correrlo
+ghosty-dev env ls                   # nombres: guardadas y faltantes (nunca valores)
 ```
+
+Nunca pongas en un mensaje un token ni el `device_code`.
 
 Para subirlas, pregúntale a la persona **de qué archivo** salen (nunca asumas `.env`) y enséñale los nombres que
 imprime `ghosty-dev env push <archivo>`; con su sí, repite con `--yes`. Nunca copies un valor al chat.

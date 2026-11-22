@@ -41,7 +41,10 @@ Uso: ghosty-dev <comando> [opciones]
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
 
 Variables de la vista previa (sesión propia en Ghosty Studio; GitHub sigue siendo gh):
-  login [--device]                       entra a Ghosty Studio (navegador; --device o sin navegador: liga + código)
+  login [--device]                       entra a Ghosty Studio (navegador; --device, sin terminal o con --json:
+                                         liga + código y espera)
+  login --no-wait                        para agentes, paso 1: imprime liga + código y sale de inmediato
+  login --wait [--timeout 90]            paso 2: espera la aprobación hasta --timeout s; si sigue pendiente sale con 75
   whoami                                 con qué cuenta de Ghosty Studio estás y cuándo vence la sesión
   logout                                 revoca la sesión y borra ~/.config/ghosty-dev/auth.json
   env ls                                 nombres de las variables del repo: guardadas, faltantes, riesgos
@@ -76,12 +79,16 @@ const { values, positionals } = parseArgs({
     context: { type: 'string' },
     from: { type: 'string' },
     device: { type: 'boolean' },
+    'no-wait': { type: 'boolean' },
+    wait: { type: 'boolean' },
+    timeout: { type: 'string' },
     replace: { type: 'boolean' },
     yes: { type: 'boolean', short: 'y' },
   },
 });
 
 const [command, arg, arg2] = positionals;
+let existing = null; // sesión que ya había al pedir login
 const num = (v, what = '<n>') => {
   const n = Number(String(v ?? '').replace(/^#/, ''));
   if (!Number.isInteger(n) || n <= 0) throw new cmd.UserError(`Falta el número del pendiente ${what}.`);
@@ -248,14 +255,35 @@ try {
   } else if (command === 'close') {
     const r = cmd.close(num(arg));
     print(r, (x) => `#${x.number} cerrado con evidencia.`);
+  } else if (command === 'login' && !values.wait && (existing = await auth.existingSession())) {
+    // Ya hay credenciales (GHOSTY_DEV_TOKEN o sesión vigente/renovable): no se inicia otro login.
+    print(existing, (x) => `Ya hay sesión de Ghosty Studio${x.source === 'env' ? ' (GHOSTY_DEV_TOKEN)' : x.email ? ` como ${x.email}` : ''}; no hace falta login. Para cambiar de cuenta: ghosty-dev logout.`);
+  } else if (command === 'login' && values['no-wait']) {
+    // Paso 1 para agentes: liga + código y sale ya; la persona aprueba y el agente sigue con --wait.
+    const r = await auth.loginStart();
+    print(r, (x) => `Pásale a la persona esta liga y el código ${x.user_code} (vence ${x.expires_at}):\n  ${x.verification_uri_complete}\nCuando diga que ya: ghosty-dev login --wait`);
+  } else if (command === 'login' && values.wait) {
+    const timeoutSec = values.timeout === undefined ? 90 : Number(values.timeout);
+    if (!Number.isFinite(timeoutSec) || timeoutSec < 0) throw new cmd.UserError('--timeout va en segundos (default 90).');
+    const r = await auth.loginWait({ timeoutSec });
+    if (r.status === 'pending') {
+      print(r, (x) => `Todavía no se aprueba el código ${x.user_code} (${x.verification_uri_complete}). Vuelve a correr: ghosty-dev login --wait`);
+      process.exitCode = auth.PENDING_EXIT; // sin process.exit: que stdout termine de salir por el pipe
+    } else print(r, (x) => `Sesión de Ghosty Studio lista${x.email ? ` como ${x.email}` : ''} (vence ${x.expiresAt}; se renueva sola).`);
   } else if (command === 'login') {
-    // La liga sale de inmediato (en --json como evento de una línea) para que un agente se la pase a la persona.
-    const onPrompt = (p) => {
-      if (values.json) console.log(JSON.stringify({ event: 'login_url', ...p }));
-      else if (p.method === 'device') console.log(`Abre esta liga en cualquier dispositivo y confirma el código ${p.code}:\n  ${p.url}`);
-      else console.log(`Abriendo tu navegador para entrar a Ghosty Studio…\n  Si no se abre, entra a: ${p.url}`);
-    };
-    const r = await auth.login({ device: values.device, onPrompt });
+    // Sin terminal o con --json quien corre es un agente: nunca se abre el navegador, y la liga sale en la PRIMERA
+    // línea antes de sondear (en --json como evento de una línea).
+    // GHOSTY_DEV_ASSUME_TTY=1 lo desactiva (sólo para probar el loopback sin terminal).
+    const agent = values.json || (!process.env.GHOSTY_DEV_ASSUME_TTY && (!process.stdin.isTTY || !process.stdout.isTTY));
+    const onPrompt = (p) =>
+      process.stdout.write(
+        values.json
+          ? JSON.stringify({ event: 'login_url', ...p }) + '\n'
+          : p.method === 'device'
+            ? `Abre ${p.url} y confirma el código ${p.code}\n`
+            : `Abriendo tu navegador para entrar a Ghosty Studio. Si no se abre: ${p.url}\n`,
+      );
+    const r = await auth.login({ device: values.device, agent, onPrompt });
     print(r, (x) => `Sesión de Ghosty Studio lista${x.email ? ` como ${x.email}` : ''} (vence ${x.expiresAt}; se renueva sola).`);
   } else if (command === 'logout') {
     const r = await auth.logout();
@@ -266,7 +294,7 @@ try {
     );
   } else if (command === 'whoami') {
     const r = await auth.whoami();
-    print(r, (x) => `${x.email ?? 'Sesión activa'} en ${x.base}${x.expiresAt ? ` (vence ${x.expiresAt}; se renueva sola)` : ''}\n  sesión: ${x.source}${x.scope ? `\n  permisos: ${x.scope}` : ''}`);
+    print(r, (x) => `${x.email ?? 'Sesión activa'} en ${x.base}${x.expiresAt ? ` (vence ${x.expiresAt}; se renueva sola)` : ''}\n  sesión: ${x.source === 'env' ? 'GHOSTY_DEV_TOKEN' : x.path}${x.scope ? `\n  permisos: ${x.scope}` : ''}`);
   } else if (command === 'env' && arg === 'ls') {
     const r = await envVars.ls();
     print(r, (x) =>

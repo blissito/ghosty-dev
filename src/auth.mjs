@@ -35,8 +35,9 @@ export function readAuth() {
   }
 }
 
-function writeAuth(data) {
-  const path = authPath();
+const writeAuth = (data) => writeSecret(authPath(), data);
+
+function writeSecret(path, data) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, JSON.stringify(data, null, 2), { mode: 0o600 });
   chmodSync(path, 0o600); // por si el archivo ya existía con otro modo
@@ -137,11 +138,11 @@ async function loginLoopback(base, ep, onPrompt) {
       clearTimeout(timer);
       server.close();
       if (got) resolve(got);
-      else reject(new AuthError(`No se completó el inicio de sesión (${u.searchParams.get('error') ?? 'sin código'}). Corre: ghosty-dev login`));
+      else reject(new AuthError(`No se completó el inicio de sesión (${u.searchParams.get('error') ?? 'sin código'}). Siguiente paso: ghosty-dev login --no-wait`));
     });
     const timer = setTimeout(() => {
       server.close();
-      reject(new AuthError('El inicio de sesión caducó a los 5 minutos. Corre: ghosty-dev login'));
+      reject(new AuthError('El inicio de sesión caducó a los 5 minutos. Siguiente paso: ghosty-dev login --no-wait'));
     }, LOGIN_TIMEOUT_MS);
     server.on('error', (e) => {
       clearTimeout(timer);
@@ -164,52 +165,128 @@ async function loginLoopback(base, ep, onPrompt) {
   });
   const res = await form(ep.token, { grant_type: 'authorization_code', code, redirect_uri: redirectUri, code_verifier: verifier });
   const tok = await jsonOf(res);
-  if (!res.ok || !tok.access_token) throw new AuthError(`Falló el inicio de sesión (${tok.error ?? res.status}). Corre: ghosty-dev login`);
+  if (!res.ok || !tok.access_token) throw new AuthError(`Falló el inicio de sesión (${tok.error ?? res.status}). Siguiente paso: ghosty-dev login --no-wait`);
   return tok;
 }
 
 // Device flow RFC 8628: la persona abre la liga en cualquier dispositivo y confirma el código; aquí se sondea.
-// GHOSTY_DEV_POLL_UNIT_MS cambia la unidad del intervalo (los tests la bajan a 1 ms).
-async function loginDevice(ep, onPrompt) {
+// En dos pasos para un agente (timeouts de ~2 min, no ve stdout hasta que termina): `login --no-wait` pide el
+// código, lo guarda en pending-login.json (0600) y sale; `login --wait` retoma y sondea con tope. SPEC §8.
+// GHOSTY_DEV_POLL_UNIT_MS cambia la unidad del intervalo (los tests la bajan).
+const AGAIN = 'Corre ghosty-dev login --no-wait otra vez.';
+export const PENDING_EXIT = 75; // EX_TEMPFAIL: sigue pendiente, vuelve a intentar
+
+export const pendingPath = () => join(dirname(authPath()), 'pending-login.json');
+function readPending() {
+  try {
+    return JSON.parse(readFileSync(pendingPath(), 'utf8'));
+  } catch {
+    return null;
+  }
+}
+const clearPending = () => rmSync(pendingPath(), { force: true });
+
+async function startDevice(ep) {
   const res = await form(ep.device, { scope: SCOPE });
   const d = await jsonOf(res);
   if (!res.ok || !d.device_code) throw new AuthError(`No se pudo iniciar el inicio de sesión (${d.error ?? res.status}).`);
-  onPrompt({ method: 'device', url: d.verification_uri_complete || d.verification_uri, verificationUri: d.verification_uri, code: d.user_code });
-  const unit = Number(process.env.GHOSTY_DEV_POLL_UNIT_MS ?? 1000);
-  let interval = Number(d.interval ?? 5);
-  const deadline = Date.now() + (Number(d.expires_in) || 600) * 1000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, interval * unit));
-    const r = await form(ep.token, { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: d.device_code });
-    const body = await jsonOf(r);
-    if (r.ok && body.access_token) return body;
-    if (body.error === 'authorization_pending') continue;
-    if (body.error === 'slow_down') {
-      interval += 5; // RFC 8628 §3.5
-      continue;
-    }
-    if (body.error === 'expired_token') break;
-    if (body.error === 'access_denied') throw new AuthError('Se rechazó el inicio de sesión.');
-    throw new AuthError(`Falló el inicio de sesión (${body.error ?? r.status}). Corre: ghosty-dev login`);
-  }
-  throw new AuthError('El código caducó antes de confirmarse. Corre: ghosty-dev login');
+  const pending = {
+    deviceCode: d.device_code,
+    userCode: d.user_code,
+    verificationUri: d.verification_uri,
+    verificationUriComplete: d.verification_uri_complete || d.verification_uri,
+    interval: Number(d.interval ?? 5),
+    expiresAt: Date.now() + (Number(d.expires_in) || 600) * 1000,
+  };
+  writeSecret(pendingPath(), pending);
+  return pending;
 }
 
-export async function login({ device = false, onPrompt = () => {} } = {}) {
-  const base = baseUrl();
-  const ep = await endpoints(base);
-  const method = device || !hasLocalBrowser() ? 'device' : 'loopback';
-  const tok = method === 'device' ? await loginDevice(ep, onPrompt) : await loginLoopback(base, ep, onPrompt);
-  const s = session(base, tok);
-  writeAuth(s);
-  // El correo, para que whoami no tenga que preguntar; si /api/v2/me falla, la sesión sirve igual.
-  try {
-    const me = await request('GET', '/api/v2/me');
-    if (me?.email) writeAuth({ ...s, email: me.email });
-    return { method, email: me?.email ?? null, expiresAt: new Date(s.expiresAt).toISOString(), scope: s.scope, path: authPath() };
-  } catch {
-    return { method, email: null, expiresAt: new Date(s.expiresAt).toISOString(), scope: s.scope, path: authPath() };
+// Sondea hasta tener tokens, o hasta `until` (devuelve null: sigue pendiente). El intervalo nuevo tras slow_down
+// se guarda en el pendiente, para que el siguiente `--wait` lo respete.
+async function pollDevice(ep, pending, until = Infinity) {
+  const unit = Number(process.env.GHOSTY_DEV_POLL_UNIT_MS ?? 1000);
+  for (;;) {
+    if (Date.now() >= pending.expiresAt) {
+      clearPending();
+      throw new AuthError(`El código caducó antes de confirmarse. ${AGAIN}`);
+    }
+    if (Date.now() + pending.interval * unit > until) return null;
+    await new Promise((r) => setTimeout(r, pending.interval * unit));
+    const r = await form(ep.token, { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: pending.deviceCode });
+    const body = await jsonOf(r);
+    if (r.ok && body.access_token) {
+      clearPending();
+      return body;
+    }
+    if (body.error === 'authorization_pending') continue;
+    if (body.error === 'slow_down') {
+      pending.interval += 5; // RFC 8628 §3.5
+      writeSecret(pendingPath(), pending);
+      continue;
+    }
+    clearPending();
+    if (body.error === 'expired_token') throw new AuthError(`El código caducó antes de confirmarse. ${AGAIN}`);
+    if (body.error === 'access_denied') throw new AuthError(`Se rechazó el inicio de sesión. ${AGAIN}`);
+    throw new AuthError(`Falló el inicio de sesión (${body.error ?? r.status}). ${AGAIN}`);
   }
+}
+
+const promptOf = (p) => ({ method: 'device', url: p.verificationUriComplete, verificationUri: p.verificationUri, code: p.userCode });
+
+// Guarda la sesión y trae el correo (si /api/v2/me falla, la sesión sirve igual).
+async function finish(method, tok) {
+  const s = session(baseUrl(), tok);
+  writeAuth(s);
+  let email = null;
+  try {
+    email = (await request('GET', '/api/v2/me'))?.email ?? null;
+    if (email) writeAuth({ ...s, email });
+  } catch {}
+  return { status: 'ok', method, email, expiresAt: new Date(s.expiresAt).toISOString(), scope: s.scope, path: authPath() };
+}
+
+// Orden de credenciales ANTES de iniciar un login (como fly.io/auth.md): GHOSTY_DEV_TOKEN → sesión del archivo
+// vigente o renovable → sólo entonces login. Así un agente nunca pide login si ya hay sesión.
+export async function existingSession() {
+  if (process.env.GHOSTY_DEV_TOKEN) return { status: 'ok', already: true, source: 'env' };
+  let auth = readAuth();
+  if (!auth?.accessToken) return null;
+  if (auth.expiresAt !== undefined && auth.expiresAt - Date.now() < 60_000) auth = await refresh(auth);
+  if (!auth) return null;
+  return { status: 'ok', already: true, source: 'file', path: authPath(), email: auth.email ?? null, expiresAt: new Date(auth.expiresAt).toISOString() };
+}
+
+// `agent`: sin TTY o con --json quien corre es un agente: nunca se abre el navegador, va el device flow.
+export async function login({ device = false, agent = false, onPrompt = () => {} } = {}) {
+  const ep = await endpoints(baseUrl());
+  const method = device || agent || !hasLocalBrowser() ? 'device' : 'loopback';
+  if (method === 'loopback') return finish(method, await loginLoopback(baseUrl(), ep, onPrompt));
+  const pending = await startDevice(ep);
+  onPrompt(promptOf(pending));
+  return finish(method, await pollDevice(ep, pending));
+}
+
+// Paso 1 para agentes: pide el código, lo deja guardado y regresa de inmediato.
+export async function loginStart() {
+  const p = await startDevice(await endpoints(baseUrl()));
+  return {
+    status: 'pending',
+    verification_uri_complete: p.verificationUriComplete,
+    verification_uri: p.verificationUri,
+    user_code: p.userCode,
+    expires_at: new Date(p.expiresAt).toISOString(),
+    next: 'ghosty-dev login --wait',
+  };
+}
+
+// Paso 2: retoma el pendiente y sondea hasta `timeoutSec`. Si sigue pendiente: {status: 'pending'} (exit 75).
+export async function loginWait({ timeoutSec = 90 } = {}) {
+  const pending = readPending();
+  if (!pending?.deviceCode) throw new AuthError(`No hay un inicio de sesión pendiente. ${AGAIN}`);
+  const tok = await pollDevice(await endpoints(baseUrl()), pending, Date.now() + timeoutSec * 1000);
+  if (tok) return finish('device', tok);
+  return { status: 'pending', verification_uri_complete: pending.verificationUriComplete, user_code: pending.userCode, expires_at: new Date(pending.expiresAt).toISOString(), next: 'ghosty-dev login --wait' };
 }
 
 // ---------- refresh, peticiones ----------
@@ -230,7 +307,7 @@ async function refresh(auth) {
   }
 }
 
-const NOT_LOGGED = 'No has iniciado sesión en Ghosty Studio. Corre: ghosty-dev login (o pon GHOSTY_DEV_TOKEN)';
+const NOT_LOGGED = 'No has iniciado sesión en Ghosty Studio. Siguiente paso: ghosty-dev login --no-wait (o pon GHOSTY_DEV_TOKEN)';
 
 async function currentToken() {
   if (process.env.GHOSTY_DEV_TOKEN) return { token: process.env.GHOSTY_DEV_TOKEN, fromEnv: true };
@@ -238,7 +315,7 @@ async function currentToken() {
   if (!auth?.accessToken) throw new AuthError(NOT_LOGGED);
   if (auth.expiresAt !== undefined && auth.expiresAt - Date.now() < 60_000) {
     auth = await refresh(auth);
-    if (!auth) throw new AuthError('Tu sesión de Ghosty Studio venció. Corre: ghosty-dev login');
+    if (!auth) throw new AuthError('Tu sesión de Ghosty Studio venció. Siguiente paso: ghosty-dev login --no-wait');
   }
   return { token: auth.accessToken, fromEnv: false };
 }
@@ -247,9 +324,9 @@ async function currentToken() {
 async function toError(res) {
   const body = await jsonOf(res);
   const text = body.message || body.error_description || (typeof body.error === 'string' ? body.error : '') || res.statusText;
-  if (res.status === 401) return new AuthError('Tu sesión de Ghosty Studio ya no es válida. Corre: ghosty-dev login');
+  if (res.status === 401) return new AuthError('Tu sesión de Ghosty Studio ya no es válida. Siguiente paso: ghosty-dev login --no-wait');
   if (res.status === 403 && body.error === 'insufficient_scope')
-    return new AuthError('Tu sesión no tiene el permiso repo:env. Corre: ghosty-dev login');
+    return new AuthError('Tu sesión no tiene el permiso repo:env. Siguiente paso: ghosty-dev login --no-wait');
   if (res.status === 403) return new AuthError(`No permitido: ${text}`);
   if (res.status === 404) return new AuthError(text || 'No se encontró.');
   return new AuthError(`Ghosty Studio respondió ${res.status}: ${text}`);
@@ -282,7 +359,7 @@ export async function whoami() {
   const fromEnv = Boolean(process.env.GHOSTY_DEV_TOKEN);
   const auth = fromEnv ? null : readAuth();
   if (!fromEnv && !auth?.accessToken) throw new AuthError(NOT_LOGGED);
-  const out = { base: baseUrl(), source: fromEnv ? 'GHOSTY_DEV_TOKEN' : authPath(), email: auth?.email ?? null, id: null, scope: auth?.scope ?? null, expiresAt: null };
+  const out = { base: baseUrl(), source: fromEnv ? 'env' : 'file', path: fromEnv ? null : authPath(), email: auth?.email ?? null, id: null, scope: auth?.scope ?? null, expiresAt: null };
   try {
     const me = await request('GET', '/api/v2/me');
     Object.assign(out, { email: me.email ?? out.email, id: me.id ?? null, scope: Array.isArray(me.scopes) ? me.scopes.join(' ') : out.scope });

@@ -114,12 +114,14 @@ con una sesión propia de Ghosty Studio, separada de GitHub (GitHub sigue siendo
 máquina):
 
 ```sh
-ghosty-dev login                       # navegador (OAuth con PKCE); por SSH o con --device: liga + código
+ghosty-dev login                       # navegador (OAuth con PKCE); por SSH, sin terminal o con --device: liga + código
+ghosty-dev login --no-wait             # para agentes: liga + código y sale; luego ghosty-dev login --wait (exit 75 = sigue pendiente)
 ghosty-dev env ls                      # sólo nombres: guardadas, faltantes, riesgos
 ghosty-dev env push .env.preview       # el archivo siempre se nombra; muestra los nombres y pide confirmación
 ghosty-dev whoami · ghosty-dev logout  # logout revoca la sesión en Ghosty
 ```
 
+Si ya hay sesión (o `GHOSTY_DEV_TOKEN`), `login` no inicia otra; `whoami --json` dice de dónde salió (`source`).
 Por defecto `env push` fusiona con lo guardado (`--replace` reemplaza todo). Ningún valor se imprime. En CI,
 `GHOSTY_DEV_TOKEN` manda sobre la sesión guardada. Detalle normativo en [SPEC.md §8](SPEC.md).
 

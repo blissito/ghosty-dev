@@ -49,14 +49,14 @@ test('login sin navegador usa el device flow: pending → ok, y guarda la sesió
     assert.equal(statSync(authFile).mode & 0o777, 0o600);
     assert.equal(statSync(join(authFile, '..')).mode & 0o777, 0o700);
     // Ningún token en la salida.
-    assert.doesNotMatch(r.out + r.err, /at_1|rt_1/);
+    assert.doesNotMatch(r.out + r.err, /at_1|rt_1|dc_1/);
   }));
 
 test('device flow: slow_down suma 5 intervalos; expired_token y access_denied fallan con su mensaje', async () => {
   await withGs({ deviceReplies: ['slow_down', 'ok'] }, async ({ gs, cli }) => {
     const r = await cli(['login', '--device'], { extra: { GHOSTY_DEV_POLL_UNIT_MS: '20' } });
     assert.equal(r.code, 0, r.err);
-    assert.match(r.out, /confirma el código ABCD-EFGH/);
+    assert.match(r.out.split('\n')[0], /confirma el código ABCD-EFGH/);
     assert.equal(gs.polls.length, 2);
     // Intervalo 1 → 6 unidades de 20 ms tras slow_down.
     assert.ok(gs.polls[1] - gs.polls[0] >= 110, `espera tras slow_down: ${gs.polls[1] - gs.polls[0]} ms`);
@@ -74,37 +74,127 @@ test('device flow: slow_down suma 5 intervalos; expired_token y access_denied fa
   });
 });
 
-test('login con navegador: loopback 127.0.0.1/cb con PKCE S256; un regreso con otro state se rechaza', () =>
+test('login con navegador (persona en la terminal): loopback 127.0.0.1/cb con PKCE S256; otro state se rechaza', () =>
   withGs({}, async ({ gs, cli, authFile }) => {
     let browser;
-    const r = await cli(['login', '--json'], {
-      extra: WITH_BROWSER,
+    const r = await cli(['login'], {
+      extra: { ...WITH_BROWSER, GHOSTY_DEV_ASSUME_TTY: '1' },
       onLine: (line) => {
-        if (!line.startsWith('{"event"')) return;
-        const ev = JSON.parse(line);
+        const m = line.match(/Si no se abre: (\S+)/);
+        if (!m) return;
         browser = (async () => {
-          const u = new URL(ev.url);
-          assert.equal(ev.method, 'loopback');
+          const u = new URL(m[1]);
           assert.equal(u.origin + u.pathname, `${gs.base}/oauth2/authorize`);
           assert.equal(u.searchParams.get('client_id'), 'ghosty-dev');
           assert.equal(u.searchParams.get('scope'), 'profile repo:env');
           assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
           assert.match(u.searchParams.get('redirect_uri'), /^http:\/\/127\.0\.0\.1:\d+\/cb$/);
           // Un tercero que regresa con otro state: 400 y el CLI sigue esperando.
-          const bad = await gs.authorize(ev.url, { code: 'robado', state: 'otro' });
+          const bad = await gs.authorize(m[1], { code: 'robado', state: 'otro' });
           assert.equal(bad.status, 400);
-          const ok = await gs.authorize(ev.url);
+          const ok = await gs.authorize(m[1]);
           assert.equal(ok.status, 200);
         })();
       },
     });
     await browser;
     assert.equal(r.code, 0, r.err);
-    assert.equal(JSON.parse(r.out.trim().split('\n').slice(1).join('\n')).method, 'loopback');
+    assert.ok(browser, 'no salió la liga del loopback');
     // Sólo se canjeó el código bueno, con su verifier (el server falso valida PKCE).
     const grants = gs.calls.filter((c) => c.form?.grant_type === 'authorization_code');
     assert.deepEqual(grants.map((c) => c.form.code), ['code_1']);
+    assert.equal(gs.calls.some((c) => c.path === '/oauth2/device'), false);
     assert.equal(JSON.parse(readFileSync(authFile, 'utf8')).accessToken, 'at_1');
+  }));
+
+test('un agente (sin TTY) nunca abre el navegador: device flow con la liga en la PRIMERA línea', () =>
+  withGs({ deviceReplies: ['authorization_pending', 'ok'] }, async ({ gs, cli }) => {
+    const r = await cli(['login'], { extra: WITH_BROWSER });
+    assert.equal(r.code, 0, r.err);
+    assert.equal(r.out.split('\n')[0], `Abre ${gs.base}/device?code=ABCD-EFGH y confirma el código ABCD-EFGH`);
+    assert.equal(gs.calls.some((c) => c.form?.grant_type === 'authorization_code'), false);
+  }));
+
+test('login en dos pasos para agentes: --no-wait sale de inmediato con el pendiente 0600; --wait lo retoma', () =>
+  withGs({ deviceReplies: ['authorization_pending', 'ok'] }, async ({ gs, cli, authFile }) => {
+    const pendingFile = join(authFile, '..', 'pending-login.json');
+    const a = await cli(['login', '--no-wait', '--json']);
+    assert.equal(a.code, 0, a.err);
+    const out = JSON.parse(a.out);
+    assert.equal(out.status, 'pending');
+    assert.equal(out.verification_uri_complete, `${gs.base}/device?code=ABCD-EFGH`);
+    assert.equal(out.user_code, 'ABCD-EFGH');
+    assert.equal(out.next, 'ghosty-dev login --wait');
+    assert.ok(!Number.isNaN(Date.parse(out.expires_at)));
+    assert.equal(gs.polls.length, 0); // no sondeó
+    assert.equal(statSync(pendingFile).mode & 0o777, 0o600);
+    assert.equal(existsSync(authFile), false);
+
+    const b = await cli(['login', '--wait', '--json']);
+    assert.equal(b.code, 0, b.err);
+    assert.equal(JSON.parse(b.out).status, 'ok');
+    assert.equal(gs.polls.length, 2);
+    assert.equal(existsSync(pendingFile), false);
+    assert.equal(JSON.parse(readFileSync(authFile, 'utf8')).accessToken, 'at_1');
+    // Ningún --json suelta access_token, refresh_token ni device_code.
+    for (const x of [a, b]) assert.doesNotMatch(x.out + x.err, /at_1|rt_1|dc_1|access_token|refresh_token|device_code/);
+  }));
+
+test('orden de credenciales: con GHOSTY_DEV_TOKEN o sesión vigente/renovable, login no inicia otro; whoami dice de dónde', () =>
+  withGs({}, async ({ gs, cli, authFile }) => {
+    const env = await cli(['login', '--no-wait', '--json'], { extra: { GHOSTY_DEV_TOKEN: 'at_ci' } });
+    assert.equal(env.code, 0, env.err);
+    assert.deepEqual(JSON.parse(env.out), { status: 'ok', already: true, source: 'env' });
+
+    gs.refresh = 'rt_viejo';
+    saveSession(authFile, { accessToken: 'at_vencido', refreshToken: 'rt_viejo', expiresAt: Date.now() + 10_000 });
+    const file = await cli(['login', '--json']);
+    assert.equal(file.code, 0, file.err);
+    const out = JSON.parse(file.out);
+    assert.deepEqual([out.already, out.source], [true, 'file']);
+    assert.doesNotMatch(file.out, /at_1|rt_1/);
+    assert.equal(gs.calls.some((c) => c.path === '/oauth2/device'), false);
+
+    const who = await cli(['whoami', '--json']);
+    assert.equal(JSON.parse(who.out).source, 'file');
+    gs.valid.add('at_ci');
+    const whoEnv = await cli(['whoami', '--json'], { extra: { GHOSTY_DEV_TOKEN: 'at_ci' } });
+    assert.equal(JSON.parse(whoEnv.out).source, 'env');
+    assert.doesNotMatch(whoEnv.out + who.out, /at_ci|at_1|rt_1/);
+  }));
+
+test('login --wait: pendiente al vencer --timeout sale con 75; negado o sin pendiente pide --no-wait otra vez', () =>
+  withGs({ deviceReplies: Array(50).fill('authorization_pending') }, async ({ gs, cli, authFile }) => {
+    const pendingFile = join(authFile, '..', 'pending-login.json');
+    assert.equal((await cli(['login', '--no-wait'])).code, 0);
+    const slow = { GHOSTY_DEV_POLL_UNIT_MS: '20' };
+    const r = await cli(['login', '--wait', '--timeout', '0.1', '--json'], { extra: slow });
+    assert.equal(r.code, 75, r.err);
+    assert.deepEqual(
+      (({ status, next }) => ({ status, next }))(JSON.parse(r.out)),
+      { status: 'pending', next: 'ghosty-dev login --wait' },
+    );
+    assert.ok(gs.polls.length >= 1 && gs.polls.length <= 5, `sondeos: ${gs.polls.length}`);
+    assert.ok(existsSync(pendingFile));
+
+    gs.deviceReplies = ['access_denied'];
+    const denied = await cli(['login', '--wait']);
+    assert.equal(denied.code, 1);
+    assert.match(denied.err, /Se rechazó.*ghosty-dev login --no-wait otra vez/);
+    assert.equal(existsSync(pendingFile), false);
+
+    const none = await cli(['login', '--wait']);
+    assert.equal(none.code, 1);
+    assert.match(none.err, /No hay un inicio de sesión pendiente\. Corre ghosty-dev login --no-wait otra vez/);
+  }));
+
+test('sin sesión, los comandos que la necesitan dan el siguiente paso exacto', () =>
+  withGs({}, async ({ cli }) => {
+    for (const args of [['env', 'ls'], ['whoami']]) {
+      const r = await cli(args);
+      assert.equal(r.code, 1);
+      assert.match(r.err, /Siguiente paso: ghosty-dev login --no-wait/);
+    }
   }));
 
 test('refresh al vencer: con < 60 s se renueva antes de llamar y se guarda el refresh rotado', () =>

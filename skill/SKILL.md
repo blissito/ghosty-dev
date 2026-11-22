@@ -41,9 +41,22 @@ ghosty-dev show <n>                # la ficha y los servicios del PR: vista prev
   documentos, sitios, navegador, voz, datos…). `ghosty --help` lista los comandos; úsalos en vez de instalar
   librerías para eso.
 - **La vista previa no arranca por variables** (la ficha o `show` lo dicen): `ghosty-dev env ls` da los nombres que
-  faltan. Para guardarlas hace falta `ghosty-dev login` (sesión de Ghosty Studio, aparte de `gh`) y
-  `ghosty-dev env push <archivo>`: pregúntale a la persona de qué archivo salen, enséñale los nombres que imprime y,
-  con su sí, `--yes`. Nunca leas un `.env` que no te nombró ni pegues un valor en el chat, el issue o el PR.
+  faltan. Para guardarlas: `ghosty-dev env push <archivo>`. Pregúntale a la persona de qué archivo salen, enséñale
+  los nombres que imprime y, con su sí, `--yes`. Nunca leas un `.env` que no te nombró ni pegues un valor en el
+  chat, el issue o el PR.
+- **Sesión de Ghosty Studio** (sólo para variables; GitHub sigue siendo `gh`). Primero mira si ya hay:
+  `ghosty-dev whoami --json` (`source`: `env` = `GHOSTY_DEV_TOKEN`, `file` = sesión guardada). Si hay, no pidas
+  login. Si no, **pregunta antes de correr login: cambia la configuración de la máquina.** Con su sí, en dos pasos:
+
+  ```sh
+  ghosty-dev login --no-wait --json   # sale ya: {status:"pending", verification_uri_complete, user_code, …}
+  # pásale a la persona la liga y el código, y espera a que diga que ya aprobó
+  ghosty-dev login --wait --json      # sondea hasta 90 s; código 75 = sigue pendiente: vuelve a correrlo
+  ```
+
+  Muestra la liga al humano y espera a que apruebe; no intentes saltarte ese paso. Si caducó o lo negaron, vuelve a
+  empezar con `--no-wait`. Nunca imprimas, registres ni pongas en un mensaje el access_token, refresh_token ni
+  device_code (ni leas `~/.config/ghosty-dev/`).
 - **CI verde** → pide la revisión (abajo) y, cuando no tenga hallazgos abiertos, publica la evidencia.
 - **CI rojo** → arréglalo, sube y vuelve a esperar.
 - **Se acabaron los 5 min** → el pendiente queda en `esperando-ci`: toma otro independiente o termina.

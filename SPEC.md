@@ -253,7 +253,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C14 | un pedido (`@ghosty` o la marca) vuelve a ofrecer el pendiente a su escritor; `wait --watch` lo trae, `asks` lo marca leído; la evidencia no cuenta | `un pedido de la persona despierta…` |
 | C10 | `init` instala etiquetas, plantilla, Action, skill y `AGENTS.md` sin pisar lo que existe | `init instala…` |
 | C17 | el CI no cuenta los checks de la lista normativa (§5c) y sí el smoke; `wait --watch` no espera a la vista previa y avisa cuando la revisión termina; `show` lee la ficha del PR antes que la del issue y los servicios del commit del PR | `el CI no cuenta…`, `wait --watch no espera…`, `show lee la ficha del PR…` |
-| C18 | identidad (§8): device flow con `authorization_pending` → tokens, `slow_down` suma 5 s, `expired_token` y `access_denied` fallan; loopback `127.0.0.1/cb` con PKCE S256 rechaza otro `state`; refresh con < 60 s y reintento único tras 401; `logout` revoca y borra; `auth.json` 0600; `env push` sin archivo falla y nunca imprime valores | `test/auth.test.mjs` |
+| C18 | identidad (§8): orden de credenciales (`GHOSTY_DEV_TOKEN` → archivo → login) y `whoami` con `source`; un agente sin TTY nunca abre el navegador; `login --no-wait` sale ya con el pendiente 0600 y `--wait` lo retoma, sale con 75 si sigue pendiente; ninguna salida lleva tokens ni `device_code`; device flow con `authorization_pending` → tokens, `slow_down` suma 5 s, `expired_token` y `access_denied` fallan; loopback `127.0.0.1/cb` con PKCE S256 rechaza otro `state`; refresh con < 60 s y reintento único tras 401; `logout` revoca y borra; `auth.json` 0600; `env push` sin archivo falla y nunca imprime valores | `test/auth.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
@@ -284,7 +284,25 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
      se renueva con el refresh cuando le quedan menos de 60 s, y una vez tras un 401; el refresh rota y se guarda el
      nuevo. `logout` revoca el refresh ([RFC 7009](https://www.rfc-editor.org/rfc/rfc7009)) y borra el archivo;
    - `GHOSTY_DEV_TOKEN` manda sobre el archivo (CI): se usa tal cual, sin refresh ni reintento.
-3. **Variables.** `env ls` da sólo nombres (guardadas, faltantes, riesgos, pedidos bloqueados). `env push <archivo>`
+   - **Orden de credenciales antes de iniciar un login** (el de [fly.io/auth.md](https://fly.io/auth.md)):
+     `GHOSTY_DEV_TOKEN` → sesión del archivo vigente o renovable → sólo entonces login. `login` con credenciales ya
+     presentes no inicia nada y responde `{status:"ok", already:true, source}`; `whoami --json` dice `source`
+     (`env` | `file`).
+   - **Quien corre es un agente** si stdin o stdout no es TTY, o con `--json`: nunca se abre el navegador, va el
+     device flow, y la liga sale en la primera línea antes de sondear.
+4. **Login en dos pasos para agentes** (timeouts de ~2 min, sin ver stdout hasta que el comando termina):
+   1. `login --no-wait [--json]` pide el código, guarda el pendiente (`device_code`, intervalo, vencimiento) en
+      `pending-login.json` 0600 junto a `auth.json`, imprime liga y código y sale con 0 de inmediato. En `--json`:
+      `{status:"pending", verification_uri_complete, user_code, expires_at, next:"ghosty-dev login --wait"}`.
+   2. El agente le pasa la liga a la persona y espera a que apruebe.
+   3. `login --wait [--timeout 90]` retoma el pendiente y sondea hasta `--timeout` segundos (90 por defecto, para
+      caber en el timeout del agente; el código vive ~10 min). Aprobado: guarda la sesión, borra el pendiente, sale
+      con 0. Sigue pendiente: sale con **75** y `{status:"pending", next:"ghosty-dev login --wait"}`. Caducado o
+      negado: error con «corre ghosty-dev login --no-wait otra vez».
+
+   Sin sesión, todo comando que la necesita falla con el siguiente paso exacto: `ghosty-dev login --no-wait`.
+   **Ninguna salida** (tampoco `--json` ni errores) lleva `access_token`, `refresh_token` ni `device_code`.
+5. **Variables.** `env ls` da sólo nombres (guardadas, faltantes, riesgos, pedidos bloqueados). `env push <archivo>`
    exige el archivo (nunca lee un `.env` implícito), imprime la ruta y los nombres antes de guardar, pide
    confirmación (sin terminal exige `--yes`), fusiona por defecto y dice cuáles ya guardadas se quedan; `--replace`
    reemplaza todas. Sólo el dueño del espacio guarda. **Ningún valor se imprime**, tampoco en errores.
