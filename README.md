@@ -45,7 +45,7 @@ A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh
 npm install -g github:blissito/ghosty-dev
-cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Action, skill y AGENTS.md
+cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Actions (puerta y revisiones), skill y AGENTS.md
 git add -A && git commit -m "ghosty-dev" && git push   # directo a main: la puerta corre desde ahí
 ghosty-dev protect                     # ghosty-dev/evidencia obligatorio en main
 ```
@@ -68,6 +68,31 @@ ghosty-dev evidence 1 --file evidencia.md
 
 Al agente se le dice una sola cosa: «toma el siguiente pendiente». La skill (`.claude/skills/ghosty-dev/`) y
 `AGENTS.md` le explican el resto.
+
+## Revisiones de Ghosty (workflow reutilizable)
+
+`init` también deja `.github/workflows/ghosty-checks.yml`, que llama a
+[`checks.yml`](.github/workflows/checks.yml) de este repo. Todo es OSS y gratis, y cada job dice «no aplica» si tu
+repo no lo necesita:
+
+| Job | Qué revisa | ¿Bloquea? |
+|---|---|---|
+| `deps` | Paquetes nuevos (npm/PyPI): que existan, edad, descargas, typosquat, scripts al instalar; y CVE nuevas con OSV-Scanner | Sí: paquete inexistente o CVE HIGH/CRITICAL nueva |
+| `sast` | Semgrep CE `p/default`, sólo lo que introduce el PR (`--baseline-commit`) | Sí, en hallazgos ERROR |
+| `migrations` | squawk sobre el SQL nuevo de migraciones (Postgres) | Sí |
+| `api-contract` | oasdiff `breaking` entre el `openapi.*` de la base y el del PR | Sí |
+| `bundle` | Build de base contra PR y tamaño de la carpeta de salida | No: aviso si crece más de 20 % |
+| `coverage` | Cobertura de las líneas cambiadas con diff-cover (sólo si el repo ya genera lcov) | No |
+
+```yaml
+jobs:
+  ghosty-checks:
+    uses: blissito/ghosty-dev/.github/workflows/checks.yml@v1
+    with:
+      runs-on: '"ubuntu-latest"'   # privado con caja de CI de Ghosty: '["self-hosted","ws-<espacio>"]'
+```
+
+Las actions van fijadas por SHA y los binarios por versión con su sha256. Funciona igual desde repos privados.
 
 ## Comandos
 

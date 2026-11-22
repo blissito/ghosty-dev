@@ -35,6 +35,7 @@ test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y A
   for (const f of [
     '.github/ISSUE_TEMPLATE/pendiente.md',
     '.github/workflows/evidence-gate.yml',
+    '.github/workflows/ghosty-checks.yml',
     '.github/ghosty-dev/gate.mjs',
     '.github/ghosty-dev/evidence.mjs',
     '.claude/skills/ghosty-dev/SKILL.md',

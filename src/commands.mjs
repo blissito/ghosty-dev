@@ -402,6 +402,8 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
+    // Revisiones de Ghosty: llama al workflow reutilizable blissito/ghosty-dev/.github/workflows/checks.yml@v1.
+    ['templates/ghosty-checks.yml', '.github/workflows/ghosty-checks.yml'],
     ['src/evidence.mjs', '.github/ghosty-dev/evidence.mjs'],
     ['src/gate.mjs', '.github/ghosty-dev/gate.mjs'],
     ['skill/SKILL.md', '.claude/skills/ghosty-dev/SKILL.md'],

@@ -1,0 +1,412 @@
+# Revisiones de Ghosty: workflow reutilizable, una sola fuente para todos los repos.
+# Se llama desde el repo del cliente con:
+#   jobs:
+#     ghosty-checks:
+#       uses: blissito/ghosty-dev/.github/workflows/checks.yml@v1
+#       with:
+#         runs-on: '"ubuntu-latest"'     # privado con caja de CI: '["self-hosted","ws-<espacio>"]'
+#
+# Cada job detecta solo si le aplica; si no, termina en verde con «no aplica» en el resumen.
+# Bloquean: deps, sast, migrations y api-contract. Informativos (nunca fallan): bundle y coverage.
+# Todo es OSS y gratis; actions por SHA y binarios por versión con su sha256.
+name: ghosty-checks
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: 'Runner en JSON: "ubuntu-latest" o ["self-hosted","ws-<espacio>"]'
+        type: string
+        default: '"ubuntu-latest"'
+      node-version:
+        description: 'Versión de Node (vacío = .nvmrc o 22)'
+        type: string
+        default: ''
+      checks-ref:
+        description: 'Ref de blissito/ghosty-dev de donde salen los scripts (igual que la del uses:)'
+        type: string
+        default: 'v1'
+permissions:
+  contents: read
+env:
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  CHECKS: ${{ github.workspace }}/.ghosty/.github/ghosty-checks
+  OSV_VERSION: v2.7.1
+  OSV_SHA256_AMD64: fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8
+  OSV_SHA256_ARM64: 983d22fbad9724514e3fcc6acc83b5fa64c5ffa6b0d9f510028f22c1b223ff81
+  SQUAWK_VERSION: v2.72.0
+  SQUAWK_SHA256_AMD64: a61661808119a82515565503111099b070c869f73698f61cb1785de5d0c8b11a
+  SQUAWK_SHA256_ARM64: bcb529c1344512de5ce70695d89e7b1ae58738f73c05187a5f56cbf079417cf2
+  OASDIFF_VERSION: 1.37.0
+  OASDIFF_SHA256_AMD64: eac87307d31d08c36800c58a409c247f1c5db37fbb72e2544402f22a87cbca3c
+  OASDIFF_SHA256_ARM64: 072a425ac647ecf2808721e91293fd644cee7935d2b32e650b3158539b2c7898
+  SEMGREP_VERSION: 1.185.0
+  DIFF_COVER_VERSION: 11.0.1
+jobs:
+  # ── Dependencias nuevas: que existan, que tengan historia, typosquat, scripts al instalar y CVE nuevas ──
+  deps:
+    name: deps
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 15
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Dependencias\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: OSV-Scanner ${{ env.OSV_VERSION }}
+        if: github.event_name == 'pull_request'
+        run: |
+          case "$(uname -m)" in x86_64) a=amd64; s=$OSV_SHA256_AMD64;; aarch64|arm64) a=arm64; s=$OSV_SHA256_ARM64;; *) echo "arquitectura no soportada"; exit 1;; esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/osv-scanner" "https://github.com/google/osv-scanner/releases/download/$OSV_VERSION/osv-scanner_linux_$a"
+          echo "$s  $RUNNER_TEMP/bin/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/osv-scanner"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Revisar dependencias
+        if: github.event_name == 'pull_request'
+        run: |
+          mb=$(git -C repo merge-base "$BASE_SHA" "$HEAD_SHA")
+          git -C repo worktree add --detach "$RUNNER_TEMP/base" "$mb" >/dev/null
+          node "$CHECKS/deps.mjs" repo "$RUNNER_TEMP/base" "$mb" "$HEAD_SHA"
+
+  # ── SAST diff-aware: Semgrep CE, sólo lo que introduce el PR; bloquea en ERROR ──
+  sast:
+    name: sast
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 20
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Análisis estático (Semgrep)\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Semgrep ${{ env.SEMGREP_VERSION }}
+        if: github.event_name == 'pull_request'
+        run: python -m pip install --quiet --disable-pip-version-check "semgrep==$SEMGREP_VERSION"
+      - name: Escanear el PR
+        if: github.event_name == 'pull_request'
+        working-directory: repo
+        run: |
+          mb=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          # Sin login ni métricas: p/default es público. --baseline-commit deja sólo lo nuevo.
+          semgrep scan --config p/default --baseline-commit "$mb" --severity ERROR --metrics=off --json -o "$RUNNER_TEMP/semgrep.json" -q || true
+          node "$CHECKS/detect.mjs" semgrep-report "$RUNNER_TEMP/semgrep.json"
+
+  # ── Migraciones peligrosas (squawk, Postgres) ──
+  migrations:
+    name: migrations
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Migraciones\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: squawk ${{ env.SQUAWK_VERSION }}
+        if: github.event_name == 'pull_request'
+        run: |
+          case "$(uname -m)" in x86_64) a=x64; s=$SQUAWK_SHA256_AMD64;; aarch64|arm64) a=arm64; s=$SQUAWK_SHA256_ARM64;; *) echo "arquitectura no soportada"; exit 1;; esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/squawk" "https://github.com/sbdchd/squawk/releases/download/$SQUAWK_VERSION/squawk-linux-$a"
+          echo "$s  $RUNNER_TEMP/bin/squawk" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/squawk"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Revisar migraciones
+        if: github.event_name == 'pull_request'
+        run: node "$CHECKS/migrations.mjs" repo "$(git -C repo merge-base "$BASE_SHA" "$HEAD_SHA")" "$HEAD_SHA"
+
+  # ── Contrato OpenAPI: cambios incompatibles con oasdiff ──
+  api-contract:
+    name: api-contract
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 10
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Contrato OpenAPI\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - if: github.event_name == 'pull_request'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: ¿Cambió la spec?
+        id: spec
+        if: github.event_name == 'pull_request'
+        run: |
+          mb=$(git -C repo merge-base "$BASE_SHA" "$HEAD_SHA")
+          echo "mb=$mb" >> "$GITHUB_OUTPUT"
+          node "$CHECKS/detect.mjs" openapi repo "$mb" "$HEAD_SHA"
+      - name: No aplica sin spec cambiada
+        if: github.event_name == 'pull_request' && steps.spec.outputs.specs == ''
+        run: |
+          printf '### Contrato OpenAPI\n\nNo aplica: el PR no cambia openapi.{yaml,yml,json} (raíz, public/, docs/ ni api/).\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: oasdiff ${{ env.OASDIFF_VERSION }}
+        if: steps.spec.outputs.specs != ''
+        run: |
+          case "$(uname -m)" in x86_64) a=amd64; s=$OASDIFF_SHA256_AMD64;; aarch64|arm64) a=arm64; s=$OASDIFF_SHA256_ARM64;; *) echo "arquitectura no soportada"; exit 1;; esac
+          f="oasdiff_${OASDIFF_VERSION}_linux_$a.tar.gz"
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/$f" "https://github.com/oasdiff/oasdiff/releases/download/v$OASDIFF_VERSION/$f"
+          echo "$s  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP/bin" oasdiff
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Cambios incompatibles
+        if: steps.spec.outputs.specs != ''
+        env:
+          SPECS: ${{ steps.spec.outputs.specs }}
+          MB: ${{ steps.spec.outputs.mb }}
+        run: |
+          git -C repo worktree add --detach "$RUNNER_TEMP/base" "$MB" >/dev/null
+          fail=0
+          printf '### Contrato OpenAPI\n\n' >> "$GITHUB_STEP_SUMMARY"
+          # shellcheck disable=SC2016 # los backticks son markdown
+          for spec in $SPECS; do
+            if [ ! -f "$RUNNER_TEMP/base/$spec" ]; then
+              printf '`%s` es nuevo en este PR: nada que comparar.\n\n' "$spec" >> "$GITHUB_STEP_SUMMARY"; continue
+            fi
+            if oasdiff breaking "$RUNNER_TEMP/base/$spec" "repo/$spec" --fail-on ERR -f text > "$RUNNER_TEMP/oasdiff.txt" 2>&1; then
+              printf '✅ `%s`: sin cambios incompatibles.\n\n' "$spec" >> "$GITHUB_STEP_SUMMARY"
+            else
+              fail=1
+              echo "::error file=$spec,title=Contrato OpenAPI::cambios incompatibles con la versión de la rama base"
+              { printf '❌ `%s`: cambios incompatibles para quien ya consume la API.\n\n```\n' "$spec"; cat "$RUNNER_TEMP/oasdiff.txt"; printf '```\n\n'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit $fail
+
+  # ── Tamaño del bundle: build de base contra head (informativo) ──
+  bundle:
+    name: bundle
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Tamaño del bundle\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - name: ¿Hay build?
+        id: d
+        if: github.event_name == 'pull_request'
+        env:
+          NODE_INPUT: ${{ inputs.node-version }}
+        run: |
+          node "$CHECKS/detect.mjs" bundle repo
+          node "$CHECKS/detect.mjs" node repo "$NODE_INPUT"
+      - name: No aplica sin script de build
+        if: github.event_name == 'pull_request' && steps.d.outputs.applies != 'true'
+        run: |
+          # shellcheck disable=SC2016 # los backticks son markdown
+          printf '### Tamaño del bundle\n\nNo aplica: el repo no tiene script `build` en package.json.\n' >> "$GITHUB_STEP_SUMMARY"
+      - if: steps.d.outputs.applies == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.d.outputs.version }}
+      - name: Build del PR
+        id: head
+        if: steps.d.outputs.applies == 'true'
+        continue-on-error: true
+        working-directory: repo
+        env:
+          INSTALL: ${{ steps.d.outputs.install }}
+          BUILD: ${{ steps.d.outputs.build }}
+        run: |
+          [ "${{ steps.d.outputs.pm }}" = npm ] || corepack enable
+          $INSTALL && $BUILD
+          node "$CHECKS/detect.mjs" outdir .
+      - name: Build de la base
+        id: base
+        if: steps.d.outputs.applies == 'true' && steps.head.outputs.dir != ''
+        continue-on-error: true
+        env:
+          INSTALL: ${{ steps.d.outputs.install }}
+          BUILD: ${{ steps.d.outputs.build }}
+        run: |
+          git -C repo worktree add --detach "$RUNNER_TEMP/base" "$(git -C repo merge-base "$BASE_SHA" "$HEAD_SHA")" >/dev/null
+          cd "$RUNNER_TEMP/base" && $INSTALL && $BUILD
+      - name: Comparar
+        if: steps.d.outputs.applies == 'true'
+        env:
+          DIR: ${{ steps.head.outputs.dir }}
+        run: |
+          h=""; b=""
+          if [ -n "$DIR" ]; then
+            h=$(node "$CHECKS/detect.mjs" size "repo/$DIR")
+            [ "${{ steps.base.outcome }}" = success ] && b=$(node "$CHECKS/detect.mjs" size "$RUNNER_TEMP/base/$DIR")
+          fi
+          node "$CHECKS/detect.mjs" bundle-report "$b" "$h" "$DIR"
+
+  # ── Cobertura del parche: lcov + diff-cover (informativo, sólo si el repo ya la genera) ──
+  coverage:
+    name: coverage
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    steps:
+      - name: No aplica fuera de un PR
+        if: github.event_name != 'pull_request'
+        run: |
+          printf '### Cobertura del parche\n\nNo aplica: sólo corre en pull_request.\n' >> "$GITHUB_STEP_SUMMARY"
+      - name: Código del PR
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+      - name: Scripts de Ghosty
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: blissito/ghosty-dev
+          ref: ${{ inputs.checks-ref }}
+          path: .ghosty
+          sparse-checkout: .github/ghosty-checks
+          persist-credentials: false
+      - name: ¿Genera cobertura?
+        id: d
+        if: github.event_name == 'pull_request'
+        env:
+          NODE_INPUT: ${{ inputs.node-version }}
+        run: |
+          node "$CHECKS/detect.mjs" coverage repo
+          node "$CHECKS/detect.mjs" node repo "$NODE_INPUT"
+      - name: No aplica sin cobertura
+        if: github.event_name == 'pull_request' && steps.d.outputs.applies != 'true'
+        run: |
+          # shellcheck disable=SC2016 # los backticks son markdown
+          printf '### Cobertura del parche\n\nNo aplica: el repo no tiene script `test:coverage`/`coverage` ni vitest/jest con cobertura configurada.\n' >> "$GITHUB_STEP_SUMMARY"
+      - if: steps.d.outputs.applies == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.d.outputs.version }}
+      - if: steps.d.outputs.applies == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Pruebas con cobertura
+        id: run
+        if: steps.d.outputs.applies == 'true'
+        continue-on-error: true
+        working-directory: repo
+        env:
+          INSTALL: ${{ steps.d.outputs.install }}
+          CMD: ${{ steps.d.outputs.cmd }}
+        run: |
+          [ "${{ steps.d.outputs.pm }}" = npm ] || corepack enable
+          $INSTALL
+          $CMD
+      - name: diff-cover ${{ env.DIFF_COVER_VERSION }}
+        if: steps.d.outputs.applies == 'true'
+        continue-on-error: true
+        working-directory: repo
+        run: |
+          printf '### Cobertura del parche\n\n' >> "$GITHUB_STEP_SUMMARY"
+          report=$(find . -path ./node_modules -prune -o \( -name lcov.info -o -name cobertura-coverage.xml \) -print | head -1)
+          if [ -z "$report" ]; then
+            printf '⚠️ Las pruebas no dejaron lcov.info ni cobertura en XML (%s).\n\n_Informativo: este check nunca bloquea._\n' "${{ steps.run.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python -m pip install --quiet --disable-pip-version-check "diff-cover==$DIFF_COVER_VERSION"
+          diff-cover "$report" --compare-branch="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" --format "markdown:$RUNNER_TEMP/diff-cover.md" > /dev/null || true
+          sed 's/^# /#### /; s/^## /##### /' "$RUNNER_TEMP/diff-cover.md" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n_Informativo: este check nunca bloquea._\n' >> "$GITHUB_STEP_SUMMARY"
