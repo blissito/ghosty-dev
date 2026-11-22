@@ -116,7 +116,7 @@ export function preflightText(p) {
     lines.push('  Ghosty Studio no dijo cuántos lugares quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
     return lines.join('\n');
   }
-  const parts = [`Ocupa 1 de ${c.slots ?? '?'} lugares${c.used != null ? ` (${c.used} en uso${c.owner ? `, de ${c.owner}` : ''})` : ''}`];
+  const parts = [`Ocupa 1 de ${c.slots ?? '?'} lugares${c.used != null ? ` (${c.used} en uso${c.owner ? ` en ${c.owner}` : ''})` : ''}`];
   if (c.evicts.length) parts.push(`desaloja la preview del ${c.evicts.map((e) => `${e.repo && e.repo !== p.repo ? e.repo : ''}#${e.pr}`).join(', ')}`);
   else if (c.queued) parts.push('queda en fila hasta que se libere un lugar');
   else if (c.fits) parts.push('cabe sin desalojar nada');

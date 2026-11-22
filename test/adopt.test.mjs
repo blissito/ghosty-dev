@@ -138,7 +138,7 @@ test('claim --cloud con el repo en varios espacios pide --workspace con las opci
 });
 
 test('claim --cloud sin --yes dice antes qué ocupa la nube y qué desalojaría, y no manda nada (C26)', async () => {
-  for (const capacity of [null, { repo: 'acme/demo', owner: 'espacio acme', slots: 2, used: 2, fits: false, evicts: [{ repo: 'acme/demo', pr: 73 }], queued: false, estimate: { minutes: 18, tokens: 2400000, basedOn: 5 }, buyUrl: 'https://www.ghosty.studio/app/workspaces/acme/plan?lugar=1' }]) {
+  for (const capacity of [null, { repo: 'acme/demo', owner: 'el espacio acme', slots: 2, used: 2, fits: false, evicts: [{ repo: 'acme/demo', pr: 73 }], queued: false, estimate: { minutes: 18, tokens: 2400000, basedOn: 5 }, buyUrl: 'https://www.ghosty.studio/app/workspaces/acme/plan?lugar=1' }]) {
     const gs = await fakeGs({ capacity, boardPrs: [{ pr: 73, repo: 'acme/demo' }] });
     const s = setup({ issues: { 5: issue(5, 'Salud') } });
     const tok = gs.grant();
