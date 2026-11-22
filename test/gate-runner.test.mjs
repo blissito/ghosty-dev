@@ -73,7 +73,7 @@ test('sin script en la base pasa con aviso; con script que no carga o truena, RO
   const broken = runStep({ gate: "import './evidence.mjs';\nexport function main() {}\n" });
   assert.equal(broken.code, 1, broken.out);
   assert.match(broken.summary, /La puerta no carga su script \(ERR_MODULE_NOT_FOUND\)\. Arregla \.github\/ghosty-dev\/gate\.mjs en main; una persona puede mezclar a mano el PR que lo arregla\./);
-  assert.match(broken.out, /::error title=ghosty-dev\/evidencia::/);
+  assert.match(broken.out, /::error title=evidencia::La puerta no carga su script/);
   const throws = runStep({ gate: 'export function main() { throw new Error("boom\\x1b[31m rojo"); }\n' });
   assert.equal(throws.code, 1, throws.out);
   assert.match(throws.summary, /La puerta tronó \(boom /);
@@ -92,11 +92,11 @@ test('PR en conflicto: la puerta falla con esa causa y el comando, sin correr ga
   const dirty = runStep({ gate: 'export function main() { throw new Error("no debió correr"); }\n', pr, ghPulls: [{ mergeable: null }, { mergeable: false, mergeable_state: 'dirty', head: { ref: 'ghosty-dev/1-x' } }] });
   assert.equal(dirty.code, 1, dirty.out);
   assert.match(dirty.summary, /El PR está en conflicto con main: resuélvelo antes que nada .* git fetch origin && git switch ghosty-dev\/1-x && git merge origin\/main → resuelve/);
-  assert.match(dirty.out, /::error title=ghosty-dev\/evidencia::El PR está en conflicto/);
+  assert.match(dirty.out, /::error title=evidencia::El PR está en conflicto/);
   assert.doesNotMatch(dirty.out + dirty.summary, /no debió correr/);
   const draft = runStep({ pr: { ...pr, draft: true, mergeable: false, mergeable_state: 'dirty' } });
   assert.equal(draft.code, 0, draft.out);
-  assert.match(draft.out, /::notice title=ghosty-dev\/evidencia::El PR está en conflicto/);
+  assert.match(draft.out, /::notice title=evidencia::El PR está en conflicto/);
   const clean = runStep({ pr, ghPulls: [{ mergeable: true, mergeable_state: 'clean' }] });
   assert.equal(clean.code, 0, clean.out);
   assert.match(clean.summary, /main no tiene \.github\/ghosty-dev\/gate\.mjs/);

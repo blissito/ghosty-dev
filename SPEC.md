@@ -304,6 +304,11 @@ en segundo plano: si llega `null` se reintenta) y, si está en conflicto, dan el
 los archivos cuando ya están los dos commits en local (`git merge-tree`). La puerta, antes de cargar su script, hace
 la misma pregunta y falla con esa causa y ese comando (en borrador sólo avisa).
 
+**Anotaciones:** cada causa que falla (falta revisión, hallazgos abiertos, falta evidencia, PR sin pendiente,
+conflicto, script que no carga) sale también como `::error title=evidencia::<causa con su comando>`, una por causa y
+la principal primero; quien muestre la puerta (gs) las lee por `GET /check-runs/{id}/annotations`. El `output.title`
+del check de un job de Actions lo pone GitHub y un paso no lo puede cambiar: la causa principal es la primera anotación.
+
 ## 5d. Compartir la vista previa con alguien sin cuenta
 
 - **`preview share [<pr>]`** → `POST /api/v2/me/repos/:owner/:name/prs/:pr/share` (idempotente) → `{repo, pr, shared,

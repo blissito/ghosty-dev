@@ -53,17 +53,26 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
     const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
-    if (unlinked === 'block') return { ok: false, lines: [`El PR no cierra ningún pendiente: ${fix}.`] };
+    if (unlinked === 'block') {
+      const line = `El PR no cierra ningún pendiente: ${fix}.`;
+      return { ok: false, lines: [line], failures: [line] };
+    }
     // Sólo con "unlinked": "warn".
-    return { ok: true, informative: true, lines: [`El PR no está ligado a un pendiente: la puerta no tiene qué juzgar (informativo). Regularízalo: ${fix}.`] };
+    return { ok: true, informative: true, failures: [], lines: [`El PR no está ligado a un pendiente: la puerta no tiene qué juzgar (informativo). Regularízalo: ${fix}.`] };
   }
   const sha = pr.head?.sha || '';
   const short = sha.slice(0, 7);
   const lines = [];
+  // Cada causa que falla va también a `failures`: main() la imprime como anotación ::error (gs la lee por
+  // /check-runs/{id}/annotations; la primera es la causa principal).
+  const failures = [];
+  const fail = (line) => {
+    lines.push(line);
+    failures.push(line);
+  };
   // Rama fuera del patrón ghosty-dev/<n>-…: informativo, no cambia el veredicto (lo que juzga es el pendiente).
   const ref = pr.head?.ref;
   if (ref && !/^ghosty-dev\/\d+-/.test(ref)) lines.push(`Informativo: la rama ${ref} no sigue el patrón ghosty-dev/<n>-…; la puerta juzga ${refs.map((r) => '#' + r).join(', ')} igual.`);
-  let ok = true;
   for (const n of refs) {
     const issue = fetchIssue(n);
     // Revisión: otro agente con contexto limpio, del commit exacto que se va a mergear.
@@ -71,30 +80,29 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
     if (external?.state === 'passed') {
       lines.push(`#${n}: revisión del commit ${short} por el check «${external.name}» (${external.app}), sin hallazgos.`);
     } else if (external && external.state !== 'missing') {
-      ok = false;
-      lines.push(
+      fail(
         external.state === 'pending'
           ? `#${n}: el check «${external.name}» del commit ${short} sigue corriendo.`
           : `#${n}: el check «${external.name}» del commit ${short} dejó hallazgos abiertos.`,
       );
     } else if (!rev) {
-      ok = false;
-      lines.push(`#${n}: falta la revisión del commit ${short} (ghosty-dev review ${n}).`);
+      fail(`#${n}: falta la revisión del commit ${short} (ghosty-dev review ${n}).`);
     } else if (rev.open > 0) {
-      ok = false;
-      lines.push(`#${n}: la revisión del commit ${short} tiene ${rev.open} hallazgo(s) abierto(s).`);
+      fail(`#${n}: la revisión del commit ${short} tiene ${rev.open} hallazgo(s) abierto(s).`);
     } else {
       lines.push(`#${n}: revisión del commit ${short} sin hallazgos abiertos.`);
     }
     if (findValidEvidence(issue.comments, issue.body)) {
       lines.push(`#${n}: evidencia válida.`);
     } else {
-      ok = false;
-      lines.push(`#${n}: sin comentario de evidencia válido (ghosty-dev evidence ${n} --file evidencia.md).`);
+      fail(`#${n}: sin comentario de evidencia válido (ghosty-dev evidence ${n} --file evidencia.md).`);
     }
   }
-  return { ok, lines };
+  return { ok: failures.length === 0, lines, failures };
 }
+
+// Una anotación de GitHub (::error) en una sola línea: %, \r y \n escapados como pide su formato.
+export const annotation = (line, level = 'error') => `::${level} title=evidencia::${String(line).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`;
 
 // Un borrador todavía se está iterando: se valida al cerrar, no mientras tanto. La puerta sale en verde con la
 // explicación, y el workflow vuelve a correr con `ready_for_review` (al marcarlo listo), donde ya se exige todo.
@@ -137,8 +145,9 @@ export function main() {
     } catch {}
     external = externalReview(config, runs, pr.head.sha);
   }
-  const { ok, lines, informative } = evaluatePullRequest(pr, fetchIssue, external, { unlinked });
-  if (informative) console.log(`::warning title=ghosty-dev/evidencia::${lines[0]}`);
+  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked });
+  if (informative) console.log(annotation(lines[0], 'warning'));
+  for (const f of failures) console.log(annotation(f));
   report(lines);
   process.exit(ok ? 0 : 1);
 }

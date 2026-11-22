@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor } from '../src/evidence.mjs';
-import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview } from '../src/gate.mjs';
+import { annotation, closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview } from '../src/gate.mjs';
 import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
 const ISSUE = '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n';
@@ -56,6 +56,12 @@ test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   const r = evaluatePullRequest({ body: 'Closes #3\nCloses #4', head }, (n) => issues[n]);
   assert.equal(r.ok, false);
   assert.ok(r.lines.some((l) => /#4: sin comentario/.test(l)));
+  // Una anotación ::error por causa (gs las lee del check); sólo las fallas, no las líneas en verde.
+  assert.deepEqual(r.failures, ['#4: sin comentario de evidencia válido (ghosty-dev evidence 4 --file evidencia.md).']);
+  assert.equal(annotation(r.failures[0]), '::error title=evidencia::#4: sin comentario de evidencia válido (ghosty-dev evidence 4 --file evidencia.md).');
+  assert.equal(annotation('50% a\nb'), '::error title=evidencia::50%25 a%0Ab');
+  const none = evaluatePullRequest({ body: 'Closes #5', head }, () => ({ body: ISSUE, comments: [] }));
+  assert.deepEqual(none.failures, [`#5: falta la revisión del commit ${SHA.slice(0, 7)} (ghosty-dev review 5).`, '#5: sin comentario de evidencia válido (ghosty-dev evidence 5 --file evidencia.md).']);
   assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 

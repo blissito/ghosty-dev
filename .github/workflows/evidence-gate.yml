@@ -47,7 +47,7 @@ jobs:
             const broke = (what, e) => {
               const why = String(e?.code ?? e?.message ?? e).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200);
               const text = `- La puerta ${what} (${why}). Arregla .github/ghosty-dev/gate.mjs en ${base}; una persona puede mezclar a mano el PR que lo arregla.`;
-              console.log(`::error title=ghosty-dev/evidencia::${text.slice(2)}`);
+              console.log(`::error title=evidencia::${text.slice(2)}`);
               if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
               process.exit(1);
             };
@@ -68,7 +68,7 @@ jobs:
               const head = String(dirty.head?.ref ?? pr.head?.ref ?? "<rama-del-PR>").replace(/[^\w./-]/g, "");
               const text = `- El PR está en conflicto con ${base}: resuélvelo antes que nada (la puerta no juzga hasta entonces). git fetch origin && git switch ${head} && git merge origin/${base} → resuelve los archivos marcados, git add, git commit y git push. (ghosty-dev next lo dice con los archivos.)`;
               const draft = pr.draft === true;
-              console.log(`::${draft ? "notice" : "error"} title=ghosty-dev/evidencia::${text.slice(2)}`);
+              console.log(`::${draft ? "notice" : "error"} title=evidencia::${text.slice(2)}`);
               if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### ghosty-dev/evidencia\n${text}\n`);
               process.exit(draft ? 0 : 1);
             }
