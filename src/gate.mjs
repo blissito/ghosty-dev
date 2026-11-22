@@ -38,11 +38,24 @@ export function externalReview(config, checkRuns = [], sha = '') {
   return { state: last.conclusion === 'success' ? 'passed' : 'findings', ...config };
 }
 
+// Un PR fuera de la bitácora (no cierra ningún pendiente): por defecto la puerta lo marca INFORMATIVO, en verde con
+// el comando que lo regulariza (Formmy, fila 32: el trabajo real casi nunca nace con claim). Con
+// `"unlinked": "block"` en .github/ghosty-dev/config.json de la base, vuelve a ser rojo.
+export function unlinkedPolicy(raw) {
+  try {
+    return JSON.parse(raw || '{}').unlinked === 'block' ? 'block' : 'inform';
+  } catch {
+    return 'inform';
+  }
+}
+
 // Puro: recibe el PR y una función que trae cada issue ({ body, comments }). `external` = externalReview(…) o null.
-export function evaluatePullRequest(pr, fetchIssue, external = null) {
+export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'inform' } = {}) {
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
-    return { ok: false, lines: ['El PR no cierra ningún pendiente: agrega «Closes #n» a la descripción.'] };
+    const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
+    if (unlinked === 'block') return { ok: false, lines: [`El PR no cierra ningún pendiente: ${fix}.`] };
+    return { ok: true, informative: true, lines: [`El PR no está ligado a un pendiente: la puerta no tiene qué juzgar (informativo). Regularízalo: ${fix}.`] };
   }
   const sha = pr.head?.sha || '';
   const short = sha.slice(0, 7);
@@ -106,8 +119,11 @@ export function main() {
   });
   // La configuración sale de la rama base (el checkout de la Action), igual que este script.
   let config = null;
+  let unlinked = 'inform';
   try {
-    config = reviewCheckConfig(readFileSync(new URL('./config.json', import.meta.url), 'utf8'));
+    const raw = readFileSync(new URL('./config.json', import.meta.url), 'utf8');
+    config = reviewCheckConfig(raw);
+    unlinked = unlinkedPolicy(raw);
   } catch {}
   let external = null;
   if (config && pr.head?.sha) {
@@ -118,7 +134,8 @@ export function main() {
     } catch {}
     external = externalReview(config, runs, pr.head.sha);
   }
-  const { ok, lines } = evaluatePullRequest(pr, fetchIssue, external);
+  const { ok, lines, informative } = evaluatePullRequest(pr, fetchIssue, external, { unlinked });
+  if (informative) console.log(`::warning title=ghosty-dev/evidencia::${lines[0]}`);
   report(lines);
   process.exit(ok ? 0 : 1);
 }

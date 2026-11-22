@@ -31,7 +31,7 @@ async function withCloud(opts, fn) {
 
 test('claim --cloud manda el pendiente por la API con la sesión de ghosty-dev, sin tocar etiquetas ni worktree', () =>
   withCloud({}, async ({ gs, s, cli }) => {
-    const r = await cli(['claim', '5', '--cloud', '--json']);
+    const r = await cli(['claim', '5', '--cloud', '--yes', '--json']);
     assert.equal(r.code, 0, r.err);
     const out = JSON.parse(r.out);
     assert.equal(out.cloud, true);
@@ -42,7 +42,7 @@ test('claim --cloud manda el pendiente por la API con la sesión de ghosty-dev, 
     // El estado del issue lo mueve el escritor de la nube, no esta terminal.
     assert.deepEqual(s.read().issues[5].labels, ['ghosty-dev:por-hacer']);
     assert.deepEqual(s.read().issues[5].assignees, []);
-    const again = await cli(['claim', '5', '--cloud']);
+    const again = await cli(['claim', '5', '--cloud', '--yes']);
     assert.match(again.out, /Ya iba en la nube: #5 Salud/);
     assert.doesNotMatch(r.out + r.err + again.out + again.err, TOKENS);
   }));
@@ -52,7 +52,7 @@ test('cloud lista, stop y teleport sólo actúan sobre un pendiente que va en la
     const none = await cli(['stop', '5']);
     assert.equal(none.code, 1);
     assert.match(none.err, /no va en la nube/);
-    await cli(['claim', '5', '--cloud']);
+    await cli(['claim', '5', '--cloud', '--yes']);
     const ls = await cli(['cloud']);
     assert.match(ls.out, /#5\ttrabajando\tSalud/);
     assert.equal(gs.devCalls.find((c) => c.method === 'GET').query, '?repo=acme%2Fdemo');
@@ -66,7 +66,7 @@ test('cloud lista, stop y teleport sólo actúan sobre un pendiente que va en la
 
 test('stop detiene el pendiente en la nube', () =>
   withCloud({}, async ({ gs, cli }) => {
-    await cli(['claim', '5', '--cloud']);
+    await cli(['claim', '5', '--cloud', '--yes']);
     const r = await cli(['stop', '5']);
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /#5 detenido en la nube/);
@@ -75,7 +75,7 @@ test('stop detiene el pendiente en la nube', () =>
 
 test('claim --cloud --pr: gs responde servicios del PR sin id y no se inventa un pendiente', () =>
   withCloud({}, async ({ gs, cli }) => {
-    const r = await cli(['claim', '--cloud', '--pr', '9', '--json']);
+    const r = await cli(['claim', '--cloud', '--yes', '--pr', '9', '--json']);
     assert.equal(r.code, 0, r.err);
     const out = JSON.parse(r.out);
     assert.equal(out.services, true);
@@ -83,14 +83,14 @@ test('claim --cloud --pr: gs responde servicios del PR sin id y no se inventa un
     assert.equal(out.prUrl, 'https://github.com/acme/demo/pull/9');
     assert.equal(out.id, undefined);
     assert.deepEqual(gs.devCalls[0].body, { repo: 'acme/demo', pr: 9 });
-    const human = await cli(['claim', '--cloud', '--pr', '9']);
+    const human = await cli(['claim', '--cloud', '--yes', '--pr', '9']);
     assert.match(human.out, /PR #9: vista previa, revisión y checks/);
     assert.equal(gs.runs.length, 0);
   }));
 
 test('403 insufficient_scope: dice qué permiso falta y cómo pedirlo, sin reintentar en bucle', () =>
   withCloud({ devScope: false }, async ({ gs, cli }) => {
-    const r = await cli(['claim', '5', '--cloud']);
+    const r = await cli(['claim', '5', '--cloud', '--yes']);
     assert.equal(r.code, 1);
     assert.match(r.err, /Tu sesión no tiene el permiso dev: ghosty-dev login --force/);
     assert.equal(gs.devCalls.length, 1);
@@ -119,7 +119,7 @@ test('una redirección a otro host no se sigue: el token no sale del origen de g
   const other = await fakeGs();
   try {
     await withCloud({ redirectRunsTo: other.base }, async ({ gs, cli }) => {
-      const r = await cli(['claim', '5', '--cloud']);
+      const r = await cli(['claim', '5', '--cloud', '--yes']);
       assert.equal(r.code, 1);
       assert.match(r.err, /redirección/);
       assert.equal(gs.devCalls.length, 1);
@@ -149,13 +149,13 @@ test('la sesión guardada no se manda a otro servidor aunque GHOSTY_DEV_BASE_URL
 
 test('un error del servidor llega limpio: sin el token que se mandó ni caracteres de control', async () => {
   await withCloud({ echoToken: true }, async ({ cli }) => {
-    const r = await cli(['claim', '5', '--cloud']);
+    const r = await cli(['claim', '5', '--cloud', '--yes']);
     assert.equal(r.code, 1);
     assert.match(r.err, /token recibido: Bearer \[oculto\]/);
     assert.doesNotMatch(r.out + r.err, TOKENS);
   });
   await withCloud({ runFail: 'Conecta tu GitHub\u001b[2J\u001b]0;pwned\u0007 a tu cuenta de Ghosty' }, async ({ cli }) => {
-    const r = await cli(['claim', '5', '--cloud']);
+    const r = await cli(['claim', '5', '--cloud', '--yes']);
     assert.equal(r.code, 1);
     assert.match(r.err, /Conecta tu GitHub/);
     assert.doesNotMatch(r.err, /[\u0000-\u0009\u000b-\u001f]/);

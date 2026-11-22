@@ -5,6 +5,14 @@ description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que
 
 # Bitácora: el trabajo vive en GitHub Issues, no en tu sesión
 
+**El flujo en 5 renglones** (si sólo recuerdas esto, basta):
+
+1. `ghosty-dev next` — el siguiente paso exacto según el repo (empieza aquí siempre, también tras compactar).
+2. Trabajo nuevo: `ghosty-dev claim <n>`. Trabajo que ya existe (PR a mano, rama propia): `ghosty-dev claim --pr <m> --issue <n>`.
+3. Push → `ghosty-dev preview --wait --json` → prueba la app; si falla: `ghosty-dev box logs` / `box exec -- <cmd>` → arregla → push.
+4. CI verde → revisión de otra sesión: `ghosty-dev review <n> --pr <m>` (subagente ghosty-dev-revisor), 0 hallazgos abiertos.
+5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona mezcla. Nunca `gh issue comment` a mano.
+
 Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pendiente** (un issue con etiqueta
 `ghosty-dev:*`). Tres leyes, sin excepción:
 

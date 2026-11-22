@@ -25,14 +25,21 @@ Uso: ghosty-dev <comando> [opciones]
                                          lista los PR abiertos que quedarían bloqueados y por qué
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
-  review <n> [--file revision.md]        sin --file: el encargo para el revisor (otra sesión, contexto limpio);
+  review <n> [--pr <m>] [--file r.md]    sin --file: el encargo para el revisor (otra sesión, contexto limpio);
                                          con --file: el revisor publica su revisión atada al commit del PR
   board                                  abre en el navegador los pendientes abiertos del repo
-  ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto)
+  next (o status) [--json]               el siguiente paso correcto según el estado del repo, con el comando exacto
+                                         (empieza por aquí tras compactar o retomar una sesión)
+  ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto);
+                                         avisa los PR abiertos que no están ligados a un pendiente
   claim <n> [--no-worktree]              te asigna el pendiente, lo marca tomado y crea su rama y worktree
-  claim <n> --cloud                      lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
+  claim --pr <m> --issue <n>             adopta un PR que ya existe como el trabajo de #n (sin rama ni worktree
+                                         nuevos; agrega «Closes #n» si falta)
+  claim <n> --cloud [--yes]              lo manda a una caja de trabajo de tu cuenta de Ghosty: un agente lo
                                          construye ahí, abre el PR, espera el CI y la revisión, y te avisa
-  claim --cloud --pr <m>                 sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
+                                         (sin --yes dice antes qué ocupa la nube, qué desalojaría y el costo si
+                                         Ghosty lo sabe; sin terminal sale 75 con el comando para repetir)
+  claim --cloud --pr <m> [--yes]         sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
                                          y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
   stop <n>                               detiene #n en la nube y libera su lugar
@@ -41,7 +48,8 @@ Uso: ghosty-dev <comando> [opciones]
                                          (tope 5 min), dice si quedó verde o rojo y avisa cuando la vista previa y la
                                          revisión de Ghosty terminan (no las espera: el CI manda)
   asks <n> [--peek]                      los pedidos nuevos de la persona (@ghosty o desde Ghosty); los marca leídos
-  evidence <n> --file evidencia.md       valida y publica el comentario de evidencia
+  evidence <n> [--pr <m>] --file e.md    valida y publica la evidencia y vuelve a correr la puerta del PR que
+                                         cierra #n (también la re-dispara el workflow con issue_comment)
   evidence --check --file e.md [--issue-file pendiente.md]
   review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
   block <n> --by <m>                     #n queda bloqueado por #m
@@ -115,6 +123,7 @@ const { values, positionals } = parseArgs({
     wait: { type: 'boolean' },
     open: { type: 'boolean' },
     lines: { type: 'string' },
+    issue: { type: 'string' },
     until: { type: 'string' },
     timeout: { type: 'string' },
     replace: { type: 'boolean' },
@@ -166,6 +175,24 @@ async function showBanner(data) {
     process.stdout.write(readyBanner(data, GHOST_EYES[i]) + '\n');
     await new Promise((r) => setTimeout(r, 260));
   }
+}
+
+// Antes de gastar en la nube: qué ocupa ya, qué desalojaría y el costo si gs lo sabe. Sin --yes: con terminal pregunta;
+// sin terminal imprime el resumen y sale con 75 y el comando exacto para repetir con --yes.
+async function confirmCloud({ n, pr }, retry) {
+  if (values.yes) return true;
+  const p = await cloud.preflight({ n, pr });
+  if (process.stdin.isTTY && !values.json) {
+    console.error(cloud.preflightText(p));
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    const ok = /^(s|si|sí|y|yes)$/i.test((await rl.question('¿Sigo? [s/N] ')).trim());
+    rl.close();
+    if (!ok) throw new cmd.UserError('No se mandó nada a la nube.');
+    return true;
+  }
+  print({ status: 'confirm', ...p, next: retry }, () => `${cloud.preflightText(p)}\nSi la persona está de acuerdo: ${retry}`);
+  process.exitCode = 75;
+  return false;
 }
 
 const printCloud = (r) =>
@@ -273,6 +300,7 @@ try {
         x.blocked.length ? `Quedarían bloqueados ${x.blocked.length} PR abierto(s):` : 'Ningún PR abierto quedaría bloqueado.',
         ...x.blocked.map((b) => `  #${b.pr} ${b.title}\n${b.reasons.map((l) => `    - ${l}`).join('\n')}`),
         ...(x.drafts.length ? ['Borradores (no se bloquean hasta marcarlos listos):', ...x.drafts.map((d) => `  #${d.pr} ${d.title}`)] : []),
+        ...(x.informative.length ? ['Fuera de la bitácora (pasan con aviso; ligarlos: ghosty-dev claim --pr <m> --issue <n>):', ...x.informative.map((d) => `  #${d.pr} ${d.title}`)] : []),
         ...(x.passing.length ? [`Pasan ya: ${x.passing.map((p) => '#' + p.pr).join(', ')}`] : []),
         'No se cambió nada.',
       ].join('\n'),
@@ -289,7 +317,7 @@ try {
       `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}. No se publicó nada.`,
     );
   } else if (command === 'review') {
-    const r = cmd.review(num(arg), { file: values.file });
+    const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     if (r.brief) print(r, (x) => x.brief);
     else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}`);
   } else if (command === 'board') {
@@ -313,17 +341,26 @@ try {
       if (values.cloud) {
         const next = list.find((i) => i.state !== 'esperando');
         if (!next) throw new cmd.UserError('No hay pendientes listos para mandar a la nube.');
-        printCloud(await cloud.start(next.number));
-        process.exit(0);
+        if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud --yes`)) printCloud(await cloud.start(next.number));
+        process.exit(process.exitCode ?? 0);
       }
       const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'] });
       print(result, (r) => `Tomado #${r.number} ${r.title}${r.worktree ? `\n  worktree: ${r.worktree}\n  rama: ${r.branch}` : ''}${r.resumed ? `\n  retoma: ${r.reason}` : ''}`);
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
+      // Lo que vive fuera de la bitácora se avisa (stderr: no ensucia el --json), con el comando que lo liga.
+      for (const p of cmd.unlinkedPrs()) console.error(`Aviso: el PR #${p.number} no está ligado a un pendiente: ${cmd.linkHint(p.number)}`);
     }
   } else if (command === 'claim' && values.cloud) {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
-    printCloud(await cloud.start(arg === undefined && pr ? undefined : num(arg), { pr }));
+    const n = arg === undefined && pr ? undefined : num(arg);
+    const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''} --yes`;
+    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr }));
+  } else if (command === 'claim' && values.pr !== undefined) {
+    // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
+    const n = num(values.issue ?? arg, '--issue <n>');
+    const r = cmd.adopt(n, num(values.pr, '--pr <m>'));
+    print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
     print(await cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
   } else if (command === 'stop') {
@@ -353,7 +390,7 @@ try {
     const r = cmd.asks(num(arg), { peek: values.peek });
     print(r, (x) => (x.asks.length ? x.asks.map((a) => `- ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n') : `#${x.number}: sin pedidos nuevos.`));
   } else if (command === 'evidence') {
-    const r = cmd.evidence(num(arg), values.file);
+    const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
   } else if (command === 'block') {
     const r = cmd.block(num(arg), num(values.by, '--by <m>'));
@@ -366,7 +403,7 @@ try {
         `PR #${x.pr} ${x.title}`,
         `  estado: ${x.state}`,
         `  rama: ${x.branch ?? '—'}`,
-        `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || '—'}`,
+        `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
         `  ${x.url}`,
         ...previewLine(x.preview),
         ...servicesBlock(x.services),
@@ -381,6 +418,9 @@ try {
     if (r.url && values.open) auth.openBrowser(r.url);
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
+  } else if (command === 'next' || command === 'status') {
+    const r = cmd.next();
+    print(r, (x) => `Siguiente paso: ${x.step}${x.command ? `\n  ${x.command}` : ''}\n  por qué: ${x.why}`);
   } else if (command === 'deps') {
     const pr = arg === undefined ? previews.currentPr() : num(arg, '<pr>');
     const r = syncDeps(pr);
@@ -426,6 +466,7 @@ try {
     process.exitCode = r.exitCode;
   } else if (command === 'show') {
     const r = cmd.show(num(arg));
+    if (!r.pr && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
     r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
     print(r, (x) =>
       [
@@ -435,7 +476,7 @@ try {
         `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
         `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
         `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
-        ...(x.pr ? [`  PR: ${x.pr}`] : []),
+        ...(x.pr ? [`  PR: ${x.pr}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
         ...previewLine(x.preview),
         ...servicesBlock(x.services),
         ...(x.ficha ? ['', x.ficha] : []),

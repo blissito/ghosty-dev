@@ -5,8 +5,8 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
-import { validateEvidence, formatEvidence, findValidEvidence, validateRevision, formatRevision } from './evidence.mjs';
-import { evaluatePullRequest } from './gate.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision } from './evidence.mjs';
+import { closingRefs, evaluatePullRequest, unlinkedPolicy } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,7 +40,7 @@ const toIssue = (i) => ({
 // La lista de issues de REST incluye los PR: se quitan.
 const openIssues = () => apiAll(`${REPO}/issues?state=open`).filter((i) => !i.pull_request).map(toIssue);
 export const openPrs = () =>
-  apiAll(`${REPO}/pulls?state=open`).map((p) => ({ number: p.number, url: p.html_url, headRefName: p.head.ref, headRefOid: p.head.sha }));
+  apiAll(`${REPO}/pulls?state=open`).map((p) => ({ number: p.number, title: p.title ?? '', url: p.html_url, body: p.body ?? '', draft: Boolean(p.draft), headRefName: p.head.ref, headRefOid: p.head.sha }));
 
 export class UserError extends Error {}
 
@@ -232,6 +232,30 @@ export function claim(n, { worktree = true } = {}) {
   return { number: n, title: issue.title, branch, worktree: path };
 }
 
+// Adopta lo que ya existe (Formmy, fila 32): un PR abierto a mano o desde una rama propia queda como el trabajo del
+// pendiente #n sin rehacer rama ni worktree. Mismas reglas que claim (un solo escritor, sin bloqueos), y el PR gana
+// «Closes #n» en su descripción si no lo tenía (así la puerta, gs y `ready` lo ven).
+export function adopt(n, m) {
+  const issue = viewIssue(n);
+  if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
+  const login = me();
+  const other = issue.assignees.find((a) => a.login !== login);
+  if (other) throw new UserError(`Un solo escritor por pendiente: #${n} ya lo tiene @${other.login}.`);
+  const blockers = openBlockers(issue, new Set(openIssues().map((i) => i.number)));
+  if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map((b) => '#' + b).join(', ')}.`);
+  const pr = prOf(n, m);
+  const others = closingRefs(pr.body).filter((x) => x !== n);
+  let linked = false;
+  if (!closingRefs(pr.body).includes(n)) {
+    api('PATCH', `${REPO}/pulls/${m}`, { body: `${pr.body.replace(/\s+$/, '')}${pr.body.trim() ? '\n\n' : ''}Closes #${n}\n` });
+    linked = true;
+  }
+  const state = stateOf(issue);
+  if (state !== 'tomado' && state !== 'esperando') setState(issue, 'tomado', { assign: login });
+  else if (!issue.assignees.length) api('POST', `${API_ISSUE(n)}/assignees`, { assignees: [login] });
+  return { number: n, title: issue.title, pr: m, url: pr.url, branch: pr.headRefName, adopted: true, linked, alsoCloses: others };
+}
+
 // ---------- pedidos de la persona (Ley 1 y Ley 3: el comentario es la bitácora y el evento) ----------
 
 // Un pedido = comentario del issue o del PR que menciona a @ghosty o lleva la marca (lo que la persona escribió
@@ -342,25 +366,31 @@ export function wait(n, { watch = false, minutes = 5, onService = () => {} } = {
 }
 
 
-// PR abierto del pendiente (rama ghosty-dev/<n>-…).
-function prOf(n) {
-  return openPrs().find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`)) ?? null;
+// PR abierto del pendiente: el que se nombra (`--pr <m>`), el de su rama ghosty-dev/<n>-…, o cualquier PR abierto que lo
+// cierre («Closes #n»): el trabajo real casi nunca nace con `claim` (un PR a mano, una rama propia), y eso no debe
+// dejarlo fuera de la bitácora (Formmy, fila 32).
+export function prOf(n, m) {
+  const prs = openPrs();
+  if (m) {
+    const pr = prs.find((p) => p.number === m);
+    if (!pr) throw new UserError(`El PR #${m} no está abierto en este repo.`);
+    return pr;
+  }
+  return prs.find((p) => p.headRefName.startsWith(`ghosty-dev/${n}-`)) ?? prs.find((p) => closingRefs(p.body).includes(n)) ?? null;
 }
 
+// Los PR abiertos que no cierran ningún pendiente: fuera de la bitácora, la puerta no los puede juzgar.
+export const unlinkedPrs = () => openPrs().filter((p) => !p.draft && closingRefs(p.body).length === 0);
+export const linkHint = (m) => `ghosty-dev claim --pr ${m} --issue <n>  (sin pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim)`;
+
 // Vuelve a correr la puerta del PR del pendiente: publicar evidencia o revisión es el evento que la despierta.
-function rerunGate(n) {
-  const pr = prOf(n);
-  let rerun = null;
-  if (pr) {
-    const runs = api(
-      'GET',
-      `${REPO}/actions/workflows/evidence-gate.yml/runs?branch=${encodeURIComponent(pr.headRefName)}&per_page=1`,
-      undefined,
-      { allowFail: true },
-    )?.workflow_runs;
-    if (runs?.[0] && api('POST', `${REPO}/actions/runs/${runs[0].id}/rerun`, undefined, { allowFail: true }) !== null) rerun = runs[0].id;
-  }
-  return rerun;
+// Se busca el run de la puerta del commit HEAD del PR (head_sha), no de la rama: así sirve para un PR de cualquier rama.
+// Si el run sigue corriendo, no hace falta: lee los comentarios en vivo.
+function rerunGate(n, pr = prOf(n)) {
+  if (!pr?.headRefOid) return null;
+  const runs = api('GET', `${REPO}/actions/workflows/evidence-gate.yml/runs?head_sha=${pr.headRefOid}&per_page=1`, undefined, { allowFail: true })?.workflow_runs;
+  if (runs?.[0] && api('POST', `${REPO}/actions/runs/${runs[0].id}/rerun`, undefined, { allowFail: true }) !== null) return runs[0].id;
+  return null;
 }
 
 // ---------- evidence (Ley 2; «proof of work», Symphony) ----------
@@ -382,15 +412,17 @@ export function checkReview(file) {
   return { ok: true, open };
 }
 
-export function evidence(n, file) {
+export function evidence(n, file, { pr: m } = {}) {
   if (!file || !existsSync(file)) throw new UserError('Falta --file <evidencia.md>.');
   const md = readFileSync(file, 'utf8');
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
-  const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatEvidence(n, md, prOf(n)) }).html_url;
-  // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR.
-  const rerun = rerunGate(n);
+  const pr = prOf(n, m);
+  const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatEvidence(n, md, pr) }).html_url;
+  // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR (y el workflow también lo hace
+  // solo con issue_comment, para la evidencia que se publique por otro lado).
+  const rerun = rerunGate(n, pr);
   return { number: n, posted: true, url: url || null, rerun };
 }
 
@@ -426,16 +458,16 @@ export function reviewBrief(n) {
   return `Revisa el pendiente #${n} de este repo.\n\n${body}\n`;
 }
 
-export function review(n, { file } = {}) {
+export function review(n, { file, pr: m } = {}) {
   if (!file) return { number: n, brief: reviewBrief(n) };
   if (!existsSync(file)) throw new UserError(`No existe ${file}.`);
   const md = readFileSync(file, 'utf8');
   const { ok, errors, open } = validateRevision(md);
   if (!ok) throw new UserError(`Revisión inválida para #${n}:\n- ${errors.join('\n- ')}`);
-  const pr = prOf(n);
-  if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto: la revisión va sobre el commit del PR.`);
+  const pr = prOf(n, m);
+  if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto que lo cierre. Si el PR ya existe: ghosty-dev review ${n} --pr <m> (o ghosty-dev claim --pr <m> --issue ${n}).`);
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatRevision(n, pr.headRefOid, md, pr) }).html_url;
-  return { number: n, sha: pr.headRefOid, open, url: url || null, rerun: rerunGate(n) };
+  return { number: n, sha: pr.headRefOid, pr: pr.number, open, url: url || null, rerun: rerunGate(n, pr) };
 }
 
 // ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
@@ -528,6 +560,52 @@ export function showPr(m) {
   };
 }
 
+// ---------- next: el siguiente paso correcto, según el estado del repo (sobrevive a la compactación) ----------
+
+// Lo que se pierde al resumir una sesión es el camino («empieza por claim»), no el destino («publica evidencia»)
+// (Formmy, fila 32). `next` lo reconstruye desde la bitácora: rama actual, su PR, el pendiente que cierra, CI,
+// revisión del commit HEAD, evidencia y pedidos. Regresa { step, command, why, … }.
+export function next() {
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
+  const info = api('GET', REPO);
+  const def = info.default_branch || 'main';
+  const prs = openPrs();
+  const pr = branch && branch !== def ? prs.find((p) => p.headRefName === branch) : null;
+  const out = (step, command, why, extra = {}) => ({ step, command, why, branch, ...extra });
+  if (pr) {
+    const refs = closingRefs(pr.body);
+    if (!refs.length) return out('ligar', `ghosty-dev claim --pr ${pr.number} --issue <n>`, `el PR #${pr.number} no está ligado a un pendiente; si no hay pendiente: ghosty-dev add "título" --goal … --criteria … y luego ese claim`, { pr: pr.number });
+    const n = refs[0];
+    const extra = { pr: pr.number, issue: n };
+    const asks = unseenAsks(n);
+    if (asks.length) return out('pedido', `ghosty-dev asks ${n}`, `la persona pidió algo en #${n}: va antes que todo`, extra);
+    if (pr.draft) return out('iterar', `gh pr ready ${pr.number}`, 'el PR es borrador: la puerta no exige nada hasta marcarlo listo; termina y márcalo', extra);
+    const checks = commitChecks(pr.headRefOid);
+    const ci = ciVerdict(checks);
+    if (ci === 'pendiente' || ci === 'sin-checks') return out('esperar-ci', `ghosty-dev wait --pr ${pr.number} --until ci`, `el CI del commit ${pr.headRefOid.slice(0, 7)} no ha resuelto`, extra);
+    if (ci === 'rojo') return out('arreglar-ci', `ghosty-dev show --pr ${pr.number}`, 'el CI salió rojo: arréglalo en la rama y vuelve a subir', extra);
+    const issue = viewIssue(n, { comments: true });
+    const rev = findRevisionFor(issue.comments, pr.headRefOid);
+    if (!rev) return out('revision', `ghosty-dev review ${n} --pr ${pr.number}`, `falta la revisión del commit ${pr.headRefOid.slice(0, 7)} (otra sesión con contexto limpio: subagente ghosty-dev-revisor)`, extra);
+    if (rev.open > 0) return out('hallazgos', `ghosty-dev review ${n} --pr ${pr.number}`, `la revisión tiene ${rev.open} hallazgo(s) abierto(s): arréglalos, sube y pide revisión otra vez`, extra);
+    if (!findValidEvidence(issue.comments, issue.body))
+      return out('evidencia', `ghosty-dev evidence ${n} --pr ${pr.number} --file evidencia.md`, 'CI verde y revisión limpia: prueba la vista previa (ghosty-dev preview --wait) y publica la evidencia', extra);
+    return out('listo', null, `#${n} tiene revisión y evidencia del commit actual: la persona lee la evidencia y mezcla el PR #${pr.number}`, extra);
+  }
+  const own = branch?.match(/^ghosty-dev\/(\d+)-/);
+  if (own) return out('abrir-pr', `git push -u origin HEAD && gh pr create --fill --body "Closes #${own[1]}"`, `la rama de #${own[1]} no tiene PR abierto`, { issue: Number(own[1]) });
+  if (branch && branch !== def) return out('ligar', `gh pr create --fill --body "Closes #<n>"  (o, si es de un pendiente: ghosty-dev claim <n>)`, `la rama ${branch} no tiene PR ni pendiente: el trabajo tiene que vivir en la bitácora`);
+  const list = ready();
+  if (list.length) {
+    const first = list[0];
+    const command = first.reason === 'pedido' ? `ghosty-dev asks ${first.number}` : first.state === 'esperando' ? `ghosty-dev show ${first.number}` : `ghosty-dev claim ${first.number}`;
+    return out('tomar', command, `#${first.number} ${first.title} (${first.reason})`, { issue: first.number });
+  }
+  const loose = prs.filter((p) => !p.draft && closingRefs(p.body).length === 0);
+  if (loose.length) return out('ligar', `ghosty-dev claim --pr ${loose[0].number} --issue <n>`, `el PR #${loose[0].number} no está ligado a un pendiente`, { pr: loose[0].number });
+  return out('nada', 'ghosty-dev add "título" --goal … --criteria …', 'no hay pendientes listos: abre uno con lo que la persona pida');
+}
+
 // ---------- close (Beads: bd close, pero sólo con evidencia — Ley 2) ----------
 
 export function close(n) {
@@ -607,17 +685,23 @@ export function protectPreview(dir) {
   const blocked = [];
   const drafts = [];
   const passing = [];
+  const informative = [];
   for (const p of prs) {
     const row = { pr: p.number, title: p.title ?? '', url: p.html_url ?? null };
     if (p.draft) {
       drafts.push({ ...row, reason: 'borrador: la puerta no lo bloquea hasta marcarlo listo' });
       continue;
     }
-    const r = evaluatePullRequest(p, fetchIssue);
-    if (r.ok) passing.push(row);
+    let unlinked = 'inform';
+    try {
+      unlinked = unlinkedPolicy(readFileSync(join(dir, '.github/ghosty-dev/config.json'), 'utf8'));
+    } catch {}
+    const r = evaluatePullRequest(p, fetchIssue, null, { unlinked });
+    if (r.informative) informative.push({ ...row, reason: r.lines[0] });
+    else if (r.ok) passing.push(row);
     else blocked.push({ ...row, reasons: r.lines.filter((l) => !/válida\.$|sin hallazgos abiertos\.$|sin hallazgos\.$/.test(l)) });
   }
-  return { repo, branch, gateOnBase, already, blocked, drafts, passing };
+  return { repo, branch, gateOnBase, already, blocked, drafts, informative, passing };
 }
 
 // Antes de escribir: a qué repo y rama va, qué etiquetas faltan y qué workflows dispara un push a la rama principal.

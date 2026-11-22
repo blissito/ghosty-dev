@@ -48,10 +48,14 @@ test('en borrador la puerta sale en verde con «Borrador: la evidencia se exige 
   const r = runStep({ gate: 'real', pr: { number: 9, draft: true, body: '', head: { sha: 'abc' } } });
   assert.equal(r.code, 0, r.out);
   assert.match(r.summary, /Borrador: la evidencia se exige al marcarlo listo\./);
-  // Listo y sin «Closes #n»: ahora sí exige, en rojo.
-  const ready = runStep({ gate: 'real' });
+  // Listo y cerrando un pendiente sin evidencia: ahora sí exige, en rojo (gh falso inexistente → truena → rojo).
+  const ready = runStep({ gate: 'real', pr: { number: 9, draft: false, body: 'Closes #5', head: { sha: 'abc' } } });
   assert.equal(ready.code, 1);
-  assert.match(ready.summary, /no cierra ningún pendiente/);
+  // Listo y fuera de la bitácora: informativo, en verde con aviso y el comando.
+  const loose = runStep({ gate: 'real' });
+  assert.equal(loose.code, 0, loose.out);
+  assert.match(loose.out, /::warning title=ghosty-dev\/evidencia::El PR no está ligado a un pendiente/);
+  assert.match(loose.summary, /ghosty-dev claim --pr 9 --issue <n>/);
 });
 
 test('sin script en la base pasa con aviso; con script que no carga o truena, ROJO con el remedio (C22)', () => {

@@ -65,6 +65,42 @@ export async function start(n, { pr } = {}) {
   return view(r);
 }
 
+// Antes de gastar (Formmy, fila 32: «miedo a los costos ocultos»): qué ocupa ya la nube en este repo y, si gs lo
+// sabe, cuántos lugares tiene el espacio, qué vista previa desalojaría y el costo estimado
+// (GET /api/v2/me/dev-runs/capacity?repo=…). Si gs no tiene esa ruta, se dice con lo que hay y sin inventar números.
+export async function preflight({ n, pr } = {}) {
+  const repo = repoName();
+  const q = `?repo=${encodeURIComponent(repo)}`;
+  const board = await call('GET', `${RUNS}${q}`);
+  const live = (Array.isArray(board?.runs) ? board.runs : []).map(view).filter((r) => LIVE.has(r.phase));
+  const previews = (Array.isArray(board?.prs) ? board.prs : []).map((c) => number(c.pr)).filter(Boolean);
+  let capacity = null;
+  try {
+    const c = await call('GET', `${RUNS}/capacity${q}`);
+    const slots = number(c?.slots);
+    capacity = {
+      slots,
+      used: Number.isInteger(c?.used) && c.used >= 0 ? c.used : null,
+      evicts: Array.isArray(c?.evicts) ? c.evicts.map((e) => ({ repo: text(e?.repo, 200), pr: number(e?.pr) })).filter((e) => e.pr) : [],
+      estimate: c?.estimate != null ? text(c.estimate, 200) : null,
+    };
+  } catch {}
+  return { repo, issue: n ?? null, pr: pr ?? null, live: live.map((r) => ({ number: r.number, state: r.state })), previews, capacity };
+}
+
+export function preflightText(p) {
+  const what = p.issue ? `mandar #${p.issue} a la nube (un agente de tu plan lo construye y gasta tokens mientras trabaja)` : `darle servicios al PR #${p.pr} (vista previa, revisión y smoke en cada push)`;
+  const lines = [`Vas a ${what} en ${p.repo}.`];
+  lines.push(`  en la nube ahora: ${p.live.length ? p.live.map((r) => `#${r.number} (${r.state})`).join(', ') : 'nada'}`);
+  lines.push(`  vistas previas vivas de PR: ${p.previews.length ? p.previews.map((x) => '#' + x).join(', ') : 'ninguna'}`);
+  if (p.capacity) {
+    if (p.capacity.slots) lines.push(`  lugares del espacio: ${p.capacity.used ?? '?'} de ${p.capacity.slots} ocupados`);
+    lines.push(`  desalojaría: ${p.capacity.evicts.length ? p.capacity.evicts.map((e) => `la vista previa de ${e.repo ? `${e.repo}#` : '#'}${e.pr}`).join(', ') : 'nada'}`);
+    if (p.capacity.estimate) lines.push(`  costo estimado: ${p.capacity.estimate}`);
+  } else lines.push('  Ghosty Studio no dijo cuántos lugares quedan: si el espacio está lleno, puede desalojar la vista previa más vieja.');
+  return lines.join('\n');
+}
+
 // Los pendientes de este repo que van en la nube (vivos y cerrados recientes).
 export async function list() {
   const res = await call('GET', `${RUNS}?repo=${encodeURIComponent(repoName())}`);

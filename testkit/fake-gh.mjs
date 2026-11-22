@@ -177,8 +177,11 @@ if (group === 'label' && verb === 'create') {
     out({ check_runs: page(runs) });
   }
   else if (path.match(/commits\/([^/]+)\/status$/)) out({ statuses: [] });
-  else if (path.match(/actions\/workflows\/[^/]+\/runs$/)) out({ workflow_runs: (db.runs ?? []).map((r) => ({ id: r.databaseId })) });
-  else if (path.match(/actions\/runs\/\d+\/rerun$/)) out({});
+  else if (path.match(/actions\/workflows\/[^/]+\/runs$/)) out({ workflow_runs: (db.runs ?? []).filter((r) => !q.get('head_sha') || !r.headSha || r.headSha === q.get('head_sha')).map((r) => ({ id: r.databaseId, status: r.status ?? 'completed' })) });
+  else if ((m = path.match(/actions\/runs\/(\d+)\/rerun$/))) {
+    (db.reruns ??= []).push(Number(m[1]));
+    out({});
+  }
   else fail(`fake gh: api ${method} ${path} no soportado`);
 } else if (group === 'browse') {
   out('');

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor } from '../src/evidence.mjs';
-import { closingRefs, evaluatePullRequest, reviewCheckConfig, externalReview } from '../src/gate.mjs';
+import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview } from '../src/gate.mjs';
 import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
 const ISSUE = '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n';
@@ -59,8 +59,12 @@ test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 
-test('un PR que no cierra ningún pendiente no pasa la puerta', () => {
-  assert.equal(evaluatePullRequest({ body: 'arreglos varios' }, () => null).ok, false);
+test('un PR que no cierra ningún pendiente pasa informativo con el comando que lo liga; con unlinked: block, rojo (C9)', () => {
+  const r = evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null);
+  assert.equal(r.ok, true);
+  assert.equal(r.informative, true);
+  assert.match(r.lines[0], /no está ligado a un pendiente.*ghosty-dev claim --pr 76 --issue <n>/);
+  assert.equal(evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null, null, { unlinked: unlinkedPolicy('{"unlinked":"block"}') }).ok, false);
 });
 
 test('revisión válida: comandos con salida, ataques y hallazgos que cuadran', () => {

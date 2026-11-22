@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
 // `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined } = {}) {
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [] } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -124,7 +124,8 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
         s.runs.push(run({ issue: body.issue }));
         return send(res, 200, s.runs.at(-1));
       }
-      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
+      if (url.pathname === '/api/v2/me/dev-runs/capacity' && req.method === 'GET') return capacity ? send(res, 200, capacity) : send(res, 404, { error: 'not_found' });
+      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { prs: boardPrs, runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
       const id = decodeURIComponent(url.pathname.split('/')[5] ?? '');
       const r = s.runs.find((x) => x.id === id);
       if (!r) return send(res, 404, { error: 'not_found', message: 'No existe ese pendiente' });

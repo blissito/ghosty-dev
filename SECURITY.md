@@ -36,6 +36,13 @@ script existe pero no carga o truena, la puerta sale en **rojo** (nunca deja pas
 y el remedio: arreglar `.github/ghosty-dev/gate.mjs` en la base; una persona puede mezclar a mano el PR que lo arregla.
 Sólo un repo que todavía no instala ghosty-dev (sin script en la base) pasa, con aviso.
 
+### El job que re-dispara la puerta
+
+`ghosty-dev/redisparo` corre con `issue_comment` y tiene permiso `actions: write`, sólo para volver a correr el último
+run de la puerta del commit de un PR abierto. No hace checkout ni corre código del PR, y sólo actúa si el comentario
+lleva la marca de evidencia o de revisión; la decisión la sigue tomando la puerta, con su script de la base. Lo peor
+que puede provocar un comentario ajeno es volver a correr una puerta.
+
 ### La caja de la vista previa (`box`)
 
 `ghosty-dev box exec -- <comando>` corre ese comando **en la caja de la vista previa de tu PR** (no en tu compu):

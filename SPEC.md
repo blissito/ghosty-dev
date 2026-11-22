@@ -160,6 +160,8 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
                   └── descubre trabajo → pendiente nuevo (+ block si lo frena)
 ```
 
+0. **next.** `ghosty-dev next` (o `status`) reconstruye desde la bitácora el siguiente paso correcto con su comando
+   (ligar, tomar, esperar CI, revisión, evidencia, listo): el camino sobrevive a la compactación de la sesión.
 1. **ready.** El agente pide `ghosty-dev ready --json`: pendientes `listo`/`bloqueado` sin bloqueos abiertos, y los
    `esperando` suyos cuyo CI ya resolvió (`ci-verde`, `ci-rojo`, `sin-pr`).
 2. **claim.** `ghosty-dev claim <n>` asigna al agente, pone `tomado` y crea la rama `ghosty-dev/<n>-<slug>` en su propio
@@ -190,6 +192,20 @@ instalado), pasa con aviso (`::notice`); si el script existe pero no carga o tru
 limpio y el remedio («arregla `.github/ghosty-dev/gate.mjs` en <base>; una persona puede mezclar a mano el PR que lo
 arregla»). Una puerta rota nunca deja pasar.
 
+**Lo que ya existe se adopta, no se rehace.** El PR de un pendiente es el de su rama `ghosty-dev/<n>-…` o cualquier PR
+abierto que lo cierre (`Closes #n`). `claim --pr <m> --issue <n>` adopta un PR abierto a mano (asigna, pone `tomado`,
+agrega `Closes #n` si falta; sin rama ni worktree nuevos); `review <n> --pr <m>` y `evidence <n> --pr <m>` lo nombran.
+Un PR sin `Closes #n` (fuera de la bitácora) la puerta lo marca **informativo**: verde con `::warning` y el comando que
+lo liga; `ready` y `show` también lo avisan. Con `"unlinked": "block"` en `.github/ghosty-dev/config.json` de la base,
+vuelve a ser rojo.
+
+**Publicar evidencia re-dispara la puerta.** `evidence` (y `review --file`) re-corren el último run de la puerta del
+commit HEAD del PR. Para lo que se publique por otro lado, el workflow escucha `issue_comment` (`created`, `edited`):
+el job `ghosty-dev/redisparo` (otro nombre: no es la puerta) sólo actúa si el comentario lleva la marca de evidencia o
+de revisión, busca los PR abiertos que cierran ese issue (o el PR mismo) y re-corre el run de la puerta de su commit
+si ya terminó (si sigue corriendo, lee los comentarios en vivo). Un run de `issue_comment` no cuelga del commit del
+PR: por eso re-corre el de `pull_request` en vez de juzgar él.
+
 **Instalar sin sorpresas** (un repo de producción). `init` imprime el repo remoto y la rama antes de escribir y, fuera
 de la rama principal, no escribe sin `--yes`. Las etiquetas se crean en GitHub en el acto: se confirman (o `--yes`);
 sin terminal y sin `--yes` no se crean y se dice. El plan termina con los workflows que dispara un push a la rama
@@ -201,6 +217,10 @@ abiertos que quedarían bloqueados al volver obligatorio el check, y por qué (l
 El mismo pendiente lo puede construir un agente en una caja de trabajo en vez de tu compu. El contrato no cambia:
 issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada al commit y la misma puerta.
 
+- **Antes de gastar:** `claim <n> --cloud` (y `--pr`) sin `--yes` dice qué va ya en la nube del repo, sus vistas previas
+  vivas y, si la plataforma responde `GET /api/v2/me/dev-runs/capacity?repo=` → `{slots, used, evicts:[{repo, pr}],
+  estimate}`, cuántos lugares quedan, qué vista previa desalojaría y el costo estimado; con terminal pregunta, sin
+  terminal sale con **75** y el comando exacto con `--yes`. Sin esa ruta lo dice, sin inventar números.
 - `claim <n> --cloud` entrega el pendiente a la nube; `cloud` lista los del repo; `stop <n>` lo detiene;
   `teleport <n>` lo detiene y trae su rama para seguir en tu compu (un solo escritor: nunca los dos a la vez).
 - La nube trabaja sobre lo que está en GitHub, nunca sobre cambios locales sin subir.
@@ -285,7 +305,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C6 | `evidence` rechaza lo inválido sin publicar y publica lo válido con la marca | `evidence rechaza lo inválido…` |
 | C7 | `close` se niega sin evidencia válida | `close sin evidencia se niega…` |
 | C8 | la evidencia exige comandos con salida, CI en verde y todos los criterios marcados | `evidence.test.mjs` |
-| C9 | la puerta falla sin `Closes #n` o con un pendiente sin evidencia | `la puerta encuentra…`, `un PR que no cierra…` |
+| C9 | la puerta falla con un pendiente sin evidencia; un PR sin `Closes #n` pasa informativo con el comando que lo liga (`"unlinked": "block"` lo vuelve rojo) | `la puerta encuentra…`, `un PR que no cierra…` |
 | C11 | con `reviewCheck`, la puerta acepta el check de esa app sobre el commit exacto y nada más | `revisión por check externo…` |
 | C12 | `--check` valida evidencia y revisión sin `gh` y no publica | `evidence --check y review --check…` |
 | C13 | `claim --cloud` va por la API con la sesión de ghosty-dev sin tocar etiquetas, asignación ni worktree; `stop` y `teleport` sólo sobre lo que va en la nube; `--pr` sin id no inventa pendiente; 403 `insufficient_scope` pide `login --force`; base sin https, redirección a otro host y sesión de otro servidor no mandan el token; ninguna salida lleva tokens | `test/cloud.test.mjs` |
@@ -300,6 +320,8 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C22 | la puerta en borrador sale verde con su nota y corre con `ready_for_review`; sin script en la base pasa con aviso; con script que no carga o truena, rojo con el error limpio y el remedio (falla cerrada); un `gate.mjs` viejo se corre como antes | `test/gate-runner.test.mjs` |
 | C23 | `Depende de #N`: apilado sobre la rama de otro PR o con su commit → se agrega una vez; lo que escribió una persona no se duplica ni se toca; al entrar ese PR, se quita | `test/deps.test.mjs` |
 | C24 | `init` imprime repo y rama antes de escribir y, fuera de la rama principal, no escribe sin `--yes`; sin terminal y sin `--yes` no crea etiquetas y lo dice; lista los workflows que dispara un push a la rama principal; `protect --dry-run` lista los PR abiertos que quedarían bloqueados y por qué, sin escribir | `test/install.test.mjs` |
+| C25 | `evidence` re-corre la puerta del PR que cierra #n (cualquier rama, por `head_sha`); el workflow con `issue_comment` (sólo comentarios con marca) re-corre el run de la puerta del PR que cierra el issue, si ya terminó | `test/adopt.test.mjs` |
+| C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
