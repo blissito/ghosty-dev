@@ -39,6 +39,18 @@ export function shellJoin(parts) {
 const sha = (v) => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
 const code = (v) => (Number.isInteger(v) ? Math.max(0, Math.min(255, v)) : null);
 
+// La sonda de memoria de gs (logs/restart): cuántas veces mató algo el oom-killer y qué hacer.
+const memoryOf = (m) =>
+  m && typeof m === 'object'
+    ? {
+        trouble: m.trouble === true,
+        oomKills: Number.isInteger(m.oomKills) ? m.oomKills : 0,
+        memoryMb: Number.isInteger(m.memoryMb) ? m.memoryMb : null,
+        availableMb: Number.isInteger(m.availableMb) ? m.availableMb : null,
+        advice: typeof m.advice === 'string' ? cleanOutput(m.advice, 400) : null,
+      }
+    : null;
+
 const view = (repo, pr, op, r) => ({
   repo,
   pr,
@@ -47,7 +59,18 @@ const view = (repo, pr, op, r) => ({
   sha: sha(r?.sha),
   exitCode: code(r?.exitCode),
   text: r?.text == null ? '' : cleanOutput(r.text),
+  memory: memoryOf(r?.memory),
 });
+
+// Caja colgada (503 box_unresponsive de gs, casi siempre sin memoria): la causa y el arreglo, no «respondió 503».
+async function boxRequest(...args) {
+  try {
+    return await request(...args);
+  } catch (e) {
+    if (e?.status === 503 && e?.code === 'box_unresponsive') throw new UserError(cleanOutput(e.data?.message || e.message, 600));
+    throw e;
+  }
+}
 
 // op: logs | exec | restart | rebuild. `cmd` sólo con exec; `lines` sólo con logs.
 export async function box(op, pr, { cmd, lines } = {}) {
@@ -57,14 +80,14 @@ export async function box(op, pr, { cmd, lines } = {}) {
   if (op === 'logs') {
     const n = lines === undefined ? 200 : Number(lines);
     if (!Number.isInteger(n) || n <= 0 || n > 5000) throw new UserError('--lines va de 1 a 5000.');
-    return view(repo, pr, op, await request('GET', `${path}?lines=${n}`, undefined, { scope: 'dev' }));
+    return view(repo, pr, op, await boxRequest('GET', `${path}?lines=${n}`, undefined, { scope: 'dev' }));
   }
   if (op === 'exec') {
     if (!cmd || !cmd.trim()) throw new UserError('Falta el comando: ghosty-dev box exec [<pr>] -- <comando…>');
     if (cmd.length > 4000) throw new UserError('El comando pasa de 4000 caracteres.');
-    return view(repo, pr, op, await request('POST', path, { op: 'exec', cmd }, { scope: 'dev' }));
+    return view(repo, pr, op, await boxRequest('POST', path, { op: 'exec', cmd }, { scope: 'dev' }));
   }
-  return view(repo, pr, op, await request('POST', path, { op }, { scope: 'dev' }));
+  return view(repo, pr, op, await boxRequest('POST', path, { op }, { scope: 'dev' }));
 }
 
 // exec sale con el código del comando (sin código: 1); logs y restart con 0 si respondieron; rebuild con 0.

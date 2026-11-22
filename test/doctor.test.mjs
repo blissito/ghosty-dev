@@ -89,3 +89,13 @@ test('fetchCatalog baja el catálogo público de gs sin sesión y sin seguir red
   assert.equal(c.providers.length, 2);
   assert.equal(await fetchCatalog({ fetchImpl: async () => ({ ok: false }) }), null);
 });
+
+test('doctor sugiere la identidad de Ghosty en previews si la app tiene login y no la lee (Formmy, fila 40)', () => {
+  const sin = diagnose(repo({ 'package.json': {}, 'app/session.server.ts': 'export const { getSession, commitSession } = createCookieSessionStorage({})' }), { catalog: null });
+  const c = sin.checks.find((x) => x.name === 'login-en-previews');
+  assert.equal(c.ok, null);
+  assert.match(c.fix, /Login en previews/);
+  const con = diagnose(repo({ 'package.json': {}, 'app/session.server.ts': 'getSession(); const jwks = process.env.GS_PREVIEW_IDENTITY_JWKS_URL' }), { catalog: null });
+  assert.equal(con.checks.find((x) => x.name === 'login-en-previews').ok, true);
+  assert.equal(diagnose(repo({ 'package.json': {} }), { catalog: null }).checks.find((x) => x.name === 'login-en-previews'), undefined);
+});

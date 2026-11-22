@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
-import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision } from './evidence.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
@@ -44,6 +44,9 @@ export const openPrs = () =>
   apiAll(`${REPO}/pulls?state=open`).map((p) => ({ number: p.number, title: p.title ?? '', url: p.html_url, body: p.body ?? '', draft: Boolean(p.draft), headRefName: p.head.ref, headRefOid: p.head.sha }));
 
 export class UserError extends Error {}
+
+// Los shas de los commits de un PR (null = no se pudo leer).
+export const prCommits = (n) => apiAll(`${REPO}/pulls/${n}/commits`, { allowFail: true })?.map((c) => c.sha) ?? null;
 
 // ---------- lectura ----------
 
@@ -520,6 +523,10 @@ export function evidence(n, file, { pr: m } = {}) {
   const { ok, errors } = validateEvidence(md, issue.body);
   if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
   const pr = prOf(n, m);
+  // «Probado en la preview del PR #N» sólo vale si #N trae este mismo commit (Formmy, fila 40).
+  const sha = pr?.headRefOid || git(['rev-parse', 'HEAD'], { allowFail: true })?.trim() || '';
+  const cross = crossPreviewProblems(md, { pr: pr?.number, sha }, (k) => prCommits(k));
+  if (cross.length) throw new UserError(`Evidencia inválida para #${n}:\n- ${cross.join('\n- ')}`);
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatEvidence(n, md, pr) }).html_url;
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR (y el workflow también lo hace
   // solo con issue_comment, para la evidencia que se publique por otro lado).

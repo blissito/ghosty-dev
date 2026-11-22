@@ -134,3 +134,19 @@ test('wait: checks de la plataforma en curso con la vista previa lista se dicen 
   assert.equal(stuckChecks({ ...base, previewCheck: 'listo', smoke: { status: 'listo' } }), null);
   assert.deepEqual(stuckChecks({ ...base, previewCheck: 'listo' }).checks, ['Ghosty · Smoke']);
 });
+
+test('caja sin memoria: box logs/exec dicen la causa y el arreglo, no «respondió 503» (Formmy, fila 39)', () =>
+  withPreview([], async ({ gs, cli }) => {
+    gs.box.hung = 'la caja no responde, casi siempre porque se quedó sin memoria durante el build (tope 4 GB; sube a 8 GB con `.ghosty/factory.md` → `memory: 8gb`)';
+    for (const args of [['box', 'logs', '73'], ['box', 'exec', '73', '--', 'ls']]) {
+      const r = await cli(args);
+      assert.equal(r.code, 1);
+      assert.match(r.err, /se quedó sin memoria.*memory: 8gb/);
+      assert.doesNotMatch(r.err, /respondió 503/);
+    }
+    gs.box.hung = null;
+    gs.box.memory = { trouble: true, oomKills: 2, memoryMb: 4096, availableMb: 90, advice: 'La caja se quedó sin memoria (el kernel mató 2 procesos): tope 4 GB; sube a 8 GB' };
+    const j = JSON.parse((await cli(['box', 'logs', '73', '--json'])).out);
+    assert.deepEqual([j.memory.trouble, j.memory.oomKills, j.memory.memoryMb], [true, 2, 4096]);
+    assert.match(j.memory.advice, /sube a 8 GB/);
+  }));

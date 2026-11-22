@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor } from '../src/evidence.mjs';
+import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor, previewPrRefs, crossPreviewProblems } from '../src/evidence.mjs';
 import { annotation, closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview } from '../src/gate.mjs';
 import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
@@ -139,4 +139,23 @@ test('revisión por check externo: otra identidad, atada al commit exacto', () =
   assert.equal(gate([check({ conclusion: 'neutral', completed_at: '2026-11-21T09:00:00Z' }), check()]).ok, true);
   // Sin check todavía, la revisión por comentario sigue valiendo (camino local).
   assert.equal(gate([], [{ body: formatRevision(3, SHA, revisionMd()) }, evid]).ok, true);
+});
+
+test('«probado en la preview del PR #N» sólo vale si #N contiene el mismo commit (Formmy, fila 40)', () => {
+  assert.deepEqual(previewPrRefs('Probado en la preview del PR #73 y en la vista previa de #80; preview #73'), [73, 80]);
+  const sha = 'abc1234def5678';
+  const commits = { 73: ['abc1234def5678', 'fff'], 80: ['999'] };
+  assert.deepEqual(crossPreviewProblems('probado en la preview del PR #73', { pr: 81, sha }, (n) => commits[n]), []);
+  const bad = crossPreviewProblems('lo haré en la preview del #80', { pr: 81, sha }, (n) => commits[n]);
+  assert.equal(bad.length, 1);
+  assert.match(bad[0], /#80 no contiene el commit abc1234/);
+  assert.deepEqual(crossPreviewProblems('en la preview del PR #81', { pr: 81, sha }, () => null), []); // la propia
+  assert.match(crossPreviewProblems('preview del PR #5', { pr: 81, sha }, () => null)[0], /no pude leer/);
+  // La puerta: evidencia válida que cita otra preview sin el commit → falla con la causa.
+  const ev = { body: `${VALID_EVIDENCE}\nProbado en la preview del PR #80.` };
+  const r = evaluatePullRequest({ number: 81, body: 'Closes #3', head: { sha: SHA } }, () => ({ body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, ev.body) }] }), null, { prCommits: () => ['otro'] });
+  assert.equal(r.ok, false);
+  assert.match(r.failures.join('\n'), /#3: La evidencia cita la preview del PR #80/);
+  const ok = evaluatePullRequest({ number: 81, body: 'Closes #3', head: { sha: SHA } }, () => ({ body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, ev.body) }] }), null, { prCommits: () => [SHA] });
+  assert.equal(ok.ok, true, ok.failures.join('; '));
 });

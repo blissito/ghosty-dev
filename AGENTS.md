@@ -36,6 +36,29 @@ La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van 
 - Una sola vez, el dueño registra `https://www.ghosty.studio/preview-oauth/callback` en el proveedor (GitHub: un OAuth App aparte para previews).
 - `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos.
 
+**Login en previews sin OAuth** (identidad de Ghosty, como Cloudflare Access): quien abre la vista previa desde Ghosty
+(dueño, miembro o invitado aceptado) llega con el header `X-Ghosty-Identity` (JWT EdDSA de 12 h, atado al host de la
+preview). La app lo verifica con el JWKS de Ghosty y crea su sesión; súbelo a main una vez y cualquier PR prueba logueado:
+```js
+// app/preview-identity.server.js — sólo en vistas previas de Ghosty (en producción la variable no existe)
+import { createRemoteJWKSet, jwtVerify } from "jose";
+const JWKS_URL = process.env.GS_PREVIEW_IDENTITY_JWKS_URL;
+const jwks = JWKS_URL ? createRemoteJWKSet(new URL(JWKS_URL)) : null;
+export async function previewIdentity(request) {
+  const token = request.headers.get("x-ghosty-identity");
+  if (!jwks || !token) return null;
+  try {
+    const { payload } = await jwtVerify(token, jwks, { issuer: process.env.GS_PREVIEW_IDENTITY_ISSUER, audience: process.env.PREVIEW_HOST, algorithms: ["EdDSA"] });
+    return { id: payload.sub, email: payload.email, name: payload.name ?? null, role: payload.role };
+  } catch {
+    return null;
+  }
+}
+```
+En el loader de sesión: sin sesión y con `previewIdentity(request)` → busca o crea al usuario por `email` y crea la
+sesión. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
+evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
+
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Los identificadores van siempre en inglés (variables, funciones, llaves, archivos); en

@@ -155,7 +155,30 @@ export function parsePreviewOAuth(o) {
 
 // Los chequeos. `saved`: nombres guardados en gs para la preview (null si no se pudieron leer). `catalog`: el de gs
 // (null si no llegó). `previewOAuth`: el `oauth` de la preview del PR, si hay.
-export function diagnose(dir, { saved = null, catalog = null, previewOAuth = null } = {}) {
+export function diagnose(dir, opts = {}) {
+  const r = diagnoseOAuth(dir, opts);
+  const id = identityCheck(dir);
+  if (id) r.checks.push(id);
+  return r;
+}
+
+// Identidad de Ghosty en previews (Formmy, fila 40): el proxy de la preview manda `X-Ghosty-Identity` (JWT de quien la
+// abre, verificado con el JWKS de gs). Si la app tiene login y no lo lee, un PR basado en main no prueba logueado.
+const LOGIN_HINT = /createCookieSessionStorage|getSession\(|commitSession|next-auth|@auth\/|better-auth|lucia|passport|signIn\(|\/login\b/g;
+// La variable cuenta sólo en el código (grepRepo no cuenta AGENTS.md ni .claude, donde viene la receta).
+export function identityCheck(dir) {
+  const { tokens: login, usesProxy: uses } = grepRepo(dir, LOGIN_HINT, 'GS_PREVIEW_IDENTITY_JWKS_URL');
+  if (!login.length) return null;
+  if (uses) return { name: 'login-en-previews', ok: true, detail: 'la app crea sesión con la identidad de Ghosty en la vista previa (X-Ghosty-Identity)', fix: null };
+  return {
+    name: 'login-en-previews',
+    ok: null,
+    detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa',
+    fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL) y súbela a main',
+  };
+}
+
+function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null } = {}) {
   const checks = [];
   const lock = checkLock(dir);
   checks.push(lock.lock ? { name: 'lock', ok: lock.ok, detail: lock.ok ? `${lock.lock} coincide con package.json` : lock.message, fix: lock.ok ? null : lock.fix } : { name: 'lock', ok: true, detail: 'sin lock que comparar', fix: null });

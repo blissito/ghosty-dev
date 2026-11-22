@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { findValidEvidence, findRevisionFor } from './evidence.mjs';
+import { findValidEvidence, findRevisionFor, crossPreviewProblems } from './evidence.mjs';
 
 const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi;
 
@@ -49,7 +49,8 @@ export function unlinkedPolicy(raw) {
 }
 
 // Puro: recibe el PR y una función que trae cada issue ({ body, comments }). `external` = externalReview(…) o null.
-export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block' } = {}) {
+// `prCommits(n)` = shas del PR n (null = no se pudo): valida «probado en la preview del PR #N» (Formmy, fila 40).
+export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block', prCommits = null } = {}) {
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
     const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
@@ -92,7 +93,11 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
     } else {
       lines.push(`#${n}: revisión del commit ${short} sin hallazgos abiertos.`);
     }
-    if (findValidEvidence(issue.comments, issue.body)) {
+    const ev = findValidEvidence(issue.comments, issue.body);
+    const cross = ev && prCommits ? crossPreviewProblems(ev.body || '', { pr: pr.number, sha }, prCommits) : [];
+    if (ev && cross.length) {
+      for (const c of cross) fail(`#${n}: ${c}`);
+    } else if (ev) {
       lines.push(`#${n}: evidencia válida.`);
     } else {
       fail(`#${n}: sin comentario de evidencia válido (ghosty-dev evidence ${n} --file evidencia.md).`);
@@ -145,7 +150,14 @@ export function main() {
     } catch {}
     external = externalReview(config, runs, pr.head.sha);
   }
-  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked });
+  const prCommits = (n) => {
+    try {
+      return get(`repos/{owner}/{repo}/pulls/${n}/commits?per_page=100`).map((c) => c.sha);
+    } catch {
+      return null;
+    }
+  };
+  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked, prCommits });
   if (informative) console.log(annotation(lines[0], 'warning'));
   for (const f of failures) console.log(annotation(f));
   report(lines);

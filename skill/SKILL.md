@@ -55,6 +55,12 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   canjearlo); el `state` va con `previewOAuthState(state, '/ruta/callback')` (snippet de los docs de Ghosty Studio,
   fabrica/oauth-en-previews). El dueño registra una vez `https://www.ghosty.studio/preview-oauth/callback`.
   `ghosty-dev doctor` dice qué falta.
+- **Login en previews sin OAuth**: la vista previa abierta desde Ghosty trae `X-Ghosty-Identity` (JWT EdDSA, 12 h, `aud` =
+  `PREVIEW_HOST`, JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`). Receta de ~15 líneas con `jose` en AGENTS.md («Login en
+  previews»): si existe esa variable, verifica el header y crea la sesión por `email`. Va a main una vez; `doctor` lo
+  sugiere. «Probado en la preview del PR #N» sólo vale si #N contiene el mismo commit.
+- **Caja sin memoria** (`box logs` termina en «⚠ La caja se quedó sin memoria», o `box`/`preview` dicen «la caja no
+  responde»): agrega `.ghosty/factory.md` con `memory: 8gb` en el frontmatter (bajo `setup:`), commit y push.
 - **PR en conflicto con main**: `ghosty-dev next` lo pone primero con el comando (`git fetch origin && git switch <rama>
   && git merge origin/main`, resuelve, `git add`, `git commit`, `git push`); la puerta falla con esa causa hasta entonces.
 - **Enseñarle la vista previa a alguien sin cuenta** (clienta, revisor): `ghosty-dev preview share` da la liga

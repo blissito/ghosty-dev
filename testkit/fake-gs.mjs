@@ -128,9 +128,11 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       s.boxCalls.push({ method: req.method, pr: Number(pm[3]), query: url.search, body });
       if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
       if (!s.box) return send(res, 404, { error: 'not_found', message: 'Este PR no tiene caja de preview: se arma sola con el siguiente push (PR no borrador).' });
+      // Caja colgada (sin memoria): gs contesta 503 box_unresponsive con la causa.
+      if (s.box.hung) return send(res, 503, { error: 'box_unresponsive', message: s.box.hung });
       if (req.method !== 'GET' && s.box.seat === false) return send(res, 403, { error: 'forbidden', message: 'sólo el dueño o un miembro del espacio opera la caja' });
       const sha = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
-      if (req.method === 'GET') return send(res, 200, { phase: 'failed', sha, text: s.box.log, exitCode: 0 });
+      if (req.method === 'GET') return send(res, 200, { phase: 'failed', sha, text: s.box.log, exitCode: 0, ...(s.box.memory ? { memory: s.box.memory } : {}) });
       if (body?.op === 'exec') return send(res, 200, { phase: 'ready', sha, text: s.box.execText ?? `$ ${body.cmd}\n200`, exitCode: s.box.execCode });
       if (body?.op === 'restart') return send(res, 200, { phase: 'ready', sha, text: 'reiniciada\n', exitCode: 0 });
       if (body?.op === 'rebuild') return send(res, 200, { phase: 'building', sha });

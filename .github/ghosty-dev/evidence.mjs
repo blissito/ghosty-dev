@@ -84,6 +84,31 @@ export function validateEvidence(md, issueBody = '') {
   return { ok: errors.length === 0, errors };
 }
 
+// ---------- «probado en la preview del PR #N» (Formmy, fila 40) ----------
+// Un PR basado en main a veces no puede probar logueado en su propia preview y la prueba se hace en la de otro PR.
+// Esa referencia vale SÓLO si el otro PR contiene el mismo commit que se va a mergear: si no, lo probado es otro código.
+
+const PREVIEW_REF = /(?:preview|vista previa)\s+(?:del?\s+)?(?:PR\s*)?#(\d+)/gi;
+
+// Los números de PR que la evidencia cita como «preview del PR #N». Puro.
+export function previewPrRefs(md = '') {
+  return [...new Set([...String(md).matchAll(PREVIEW_REF)].map((m) => Number(m[1])))];
+}
+
+// Puro: los problemas de esas referencias. `commitsOf(n)` = shas del PR n (null = no se pudo leer).
+export function crossPreviewProblems(md, { pr, sha }, commitsOf) {
+  const problems = [];
+  if (!sha) return problems;
+  for (const n of previewPrRefs(md)) {
+    if (pr && n === pr) continue;
+    const shas = commitsOf(n);
+    if (shas == null) problems.push(`La evidencia cita la preview del PR #${n}, pero no pude leer sus commits.`);
+    else if (!shas.some((s) => s === sha || s.startsWith(sha) || sha.startsWith(s)))
+      problems.push(`La evidencia cita la preview del PR #${n}, pero #${n} no contiene el commit ${sha.slice(0, 7)}: lo probado ahí es otro código. Prueba en la preview de este PR (login: identidad de Ghosty en previews u OAuth de previews, ver ghosty-dev doctor) o quita esa referencia.`);
+  }
+  return problems;
+}
+
 // Arma el comentario que se publica en el issue.
 // El PR va enlazado arriba para que la persona llegue al merge desde el issue.
 export function formatEvidence(number, md, pr = null) {
