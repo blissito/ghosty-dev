@@ -511,7 +511,7 @@ export function checkEvidence(file, issueFile) {
   if (!file || !existsSync(file)) throw new UserError('Falta --file <evidencia.md>.');
   if (issueFile && !existsSync(issueFile)) throw new UserError(`No existe ${issueFile}.`);
   const { ok, errors } = validateEvidence(readFileSync(file, 'utf8'), issueFile ? readFileSync(issueFile, 'utf8') : '');
-  if (!ok) throw new UserError(`Evidencia inválida:\n- ${errors.join('\n- ')}`);
+  if (!ok) throw new UserError(`Evidencia inválida:\n- ${errors.join('\n- ')}${errors.some((e) => UNMET.test(e)) ? `\n${blockHint()}` : ''}`);
   return { ok: true, criteriaChecked: Boolean(issueFile), warnings: mainFlowWarnings(readFileSync(file, 'utf8')) };
 }
 
@@ -531,7 +531,7 @@ export function evidence(n, file, { pr: m } = {}) {
   if (lock && !lock.ok) throw new UserError(lock.message);
   const issue = viewIssue(n);
   const { ok, errors } = validateEvidence(md, issue.body);
-  if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}`);
+  if (!ok) throw new UserError(`Evidencia inválida para #${n}:\n- ${errors.join('\n- ')}${errors.some((e) => UNMET.test(e)) ? `\n${blockHint(n)}` : ''}`);
   const pr = prOf(n, m);
   // «Probado en la preview del PR #N» sólo vale si #N trae este mismo commit (Formmy, fila 40).
   const sha = pr?.headRefOid || git(['rev-parse', 'HEAD'], { allowFail: true })?.trim() || '';
@@ -585,7 +585,7 @@ export function review(n, { file, pr: m } = {}) {
   const pr = prOf(n, m);
   if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto que lo cierre. Si el PR ya existe: ghosty-dev review ${n} --pr <m> (o ghosty-dev claim --pr <m> --issue ${n}).`);
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatRevision(n, pr.headRefOid, md, pr) }).html_url;
-  return { number: n, sha: pr.headRefOid, pr: pr.number, open, url: url || null, rerun: rerunGate(n, pr) };
+  return { number: n, sha: pr.headRefOid, pr: pr.number, open, url: url || null, rerun: rerunGate(n, pr), hint: open > 0 ? blockHint(n) : null };
 }
 
 // ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
@@ -614,8 +614,15 @@ export function board(repoUrl) {
 
 // ---------- block (dependencias nativas de GitHub; Beads: bd dep add) ----------
 
-export function block(n, by) {
-  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n).');
+// Cuando la verificación real falla (un criterio sin cumplir, un hallazgo abierto) el camino es bloquear con motivo, no
+// publicar ni dejar el PR en borrador sin explicación (Formmy, fila 45).
+export function blockHint(n) {
+  return `Si la verificación real falló: abre el pendiente que lo arregla (ghosty-dev add "…" --goal "…" --criteria "…") y bloquea este con motivo: ghosty-dev block ${n ?? '<n>'} --by <m> --reason "qué falló".`;
+}
+const UNMET = /^Criterio sin cumplir/;
+
+export function block(n, by, { reason } = {}) {
+  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n) [--reason "texto"].');
   const issue = viewIssue(n);
   const blocker = api('GET', API_ISSUE(by));
   const native = api('POST', `${API_ISSUE(n)}/dependencies/blocked_by`, { issue_id: blocker.id }, { allowFail: true });
@@ -625,7 +632,10 @@ export function block(n, by) {
   } else if (stateOf(issue) !== 'listo') {
     setState(issue, 'listo'); // GitHub ya lo marca «Blocked»: la etiqueta sigue en «por hacer»
   }
-  return { number: n, blockedBy: by, via: native === null ? 'cuerpo' : 'github' };
+  // El motivo queda como comentario del pendiente: el tablero y quien llegue después ven por qué se bloqueó.
+  const text = reason?.trim();
+  const url = text ? api('POST', `${API_ISSUE(n)}/comments`, { body: `**Bloqueado por #${by}:** ${text}` }).html_url || null : null;
+  return { number: n, blockedBy: by, via: native === null ? 'cuerpo' : 'github', reason: text || null, commentUrl: url };
 }
 
 // ---------- show (Beads: bd show) ----------

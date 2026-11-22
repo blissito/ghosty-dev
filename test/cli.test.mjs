@@ -504,3 +504,30 @@ test('evidence --check imprime el aviso de flujo principal sin bloquear (filas 4
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Aviso: La evidencia no menciona ninguna acción real/);
 });
+
+test('block --reason deja el motivo como comentario del pendiente (fila 45)', () => {
+  const s = setup({ issues: { 1: issue(1, 'Arreglo'), 2: issue(2, 'Chat', { body: '## Objetivo\nx\n' }) } });
+  const r = s.run('block', '2', '--by', '1', '--reason', 'el chat responde «Falta la credencial»', '--json');
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.reason, 'el chat responde «Falta la credencial»');
+  assert.match(s.read().issues[2].comments.at(-1).body, /Bloqueado por #1:\*\* el chat responde «Falta la credencial»/);
+  // Sin --reason no comenta.
+  const t = setup({ issues: { 1: issue(1, 'A'), 2: issue(2, 'B') } });
+  assert.equal(t.run('block', '2', '--by', '1').code, 0);
+  assert.equal(t.read().issues[2].comments.length, 0);
+});
+
+test('evidence con un criterio sin cumplir y review con hallazgos abiertos sugieren ghosty-dev block (fila 45)', () => {
+  const s = setup({
+    issues: { 5: issue(5, 'X', { body: '## Criterios de aceptación\n- [ ] /health responde 200\n', labels: ['ghosty-dev:esperando-ci'], assignees: ['agente-a'] }) },
+    prs: [{ number: 9, url: 'https://github.com/acme/demo/pull/9', headRefName: 'ghosty-dev/5-x', headRefOid: SHA }],
+  });
+  const bad = s.run('evidence', '5', '--file', s.write('e.md', VALID_EVIDENCE.replace('- [x] /health', '- [ ] /health')));
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.err, /Criterio sin cumplir/);
+  assert.match(bad.err, /ghosty-dev block 5 --by <m> --reason "qué falló"/);
+  const rev = s.run('review', '5', '--file', s.write('rev.md', revisionMd(1)));
+  assert.match(rev.out, /ghosty-dev block 5 --by <m> --reason/);
+  assert.doesNotMatch(s.run('review', '5', '--file', s.write('rev0.md', revisionMd(0))).out, /ghosty-dev block/);
+});

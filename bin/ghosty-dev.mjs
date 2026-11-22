@@ -55,7 +55,7 @@ Uso: ghosty-dev <comando> [opciones]
                                          cierra #n (también la re-dispara el workflow con issue_comment)
   evidence --check --file e.md [--issue-file pendiente.md]
   review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
-  block <n> --by <m>                     #n queda bloqueado por #m
+  block <n> --by <m> [--reason "texto"]  #n queda bloqueado por #m; --reason deja el motivo como comentario
   show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
                                          (vista previa, revisión, smoke y CI del commit actual)
   show --pr <m> [--json]                 lo mismo para un PR sin pendiente (p. ej. escrito desde la terminal)
@@ -119,6 +119,7 @@ const { values, positionals } = parseArgs({
     check: { type: 'boolean' },
     'issue-file': { type: 'string' },
     by: { type: 'string' },
+    reason: { type: 'string' },
     watch: { type: 'boolean' },
     peek: { type: 'boolean' },
     minutes: { type: 'string' },
@@ -368,7 +369,7 @@ try {
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     if (r.brief) print(r, (x) => x.brief);
-    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}`);
+    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.hint ? `\n  ${x.hint}` : ''}`);
   } else if (command === 'board') {
     const r = cmd.board();
     print(r, (x) => `Pendientes abiertos en el navegador: ${x.url}`);
@@ -459,8 +460,8 @@ try {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => [`Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`, ...x.warnings.map((w) => `Aviso: ${w}`)].join('\n'));
   } else if (command === 'block') {
-    const r = cmd.block(num(arg), num(values.by, '--by <m>'));
-    print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).`);
+    const r = cmd.block(num(arg), num(values.by, '--by <m>'), { reason: values.reason });
+    print(r, (x) => `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? `\n  Motivo dejado en el pendiente${x.commentUrl ? `: ${x.commentUrl}` : '.'}` : ''}`);
   } else if (command === 'show' && values.pr !== undefined) {
     await printPr(cmd.showPr(num(values.pr, '--pr <m>')));
   } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
