@@ -9,6 +9,7 @@ import * as envVars from '../src/env.mjs';
 import * as previews from '../src/preview.mjs';
 import * as shares from '../src/share.mjs';
 import * as boxes from '../src/box.mjs';
+import * as writer from '../src/writer.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
@@ -409,8 +410,13 @@ try {
   } else if (command === 'wait' && values.pr === undefined) {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
+    // Esperar = ya empujó: la tarjeta regresa a «En revisión».
+    await writer.beat(num(arg), 'pushed');
     const r = cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
     if (r.pr) autoDeps(Number(String(r.pr).split('/').pop()));
+    // Lo despertó un pedido o el CI salió rojo: le toca corregir (la tarjeta vuelve a «Escribiendo»).
+    if (r.asks?.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
+    else if (values.watch && !r.timedOut && r.ci && !['verde', 'sin-pr', 'sin-checks'].includes(r.ci)) await writer.beat(num(arg), 'working', `CI ${r.ci}`);
     print(r, (x) =>
       x.asks?.length
         ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
@@ -424,6 +430,8 @@ try {
     );
   } else if (command === 'asks') {
     const r = cmd.asks(num(arg), { peek: values.peek });
+    // Tomó el pedido: está corrigiendo.
+    if (!values.peek && r.asks.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
     print(r, (x) =>
       [x.asks.length ? x.asks.map((a) => `- ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n') : `#${x.number}: sin pedidos nuevos.`]
         .concat(x.stale.length ? [`Obsoletos (avisos del bot que ya no aplican a la cabeza del PR; no hay que hacerlos):`, ...x.stale.map((a) => `  - ${a.reason}: ${a.text.split('\n')[0].slice(0, 120)}`)] : [])
