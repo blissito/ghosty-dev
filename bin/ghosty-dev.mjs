@@ -69,6 +69,7 @@ Uso: ghosty-dev <comando> [opciones]
   preview unshare [<pr>]                 la revoca; quien la abra puede pedir acceso
   preview requests [<pr>] [--status pending|accepted|rejected|all]
   preview accept|reject <id> [--pr <m>]  decide una solicitud de acceso
+  doctor                                 lo que va a fallar en la vista previa: lock, llaves y callback de OAuth
   check-lock                             ¿el lock (npm/pnpm/yarn) coincide con package.json en HEAD? Lo corre el pre-push
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
   deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
@@ -452,6 +453,25 @@ try {
     if (r.url && values.open) auth.openBrowser(r.url);
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
+  } else if (command === 'doctor') {
+    const doctor = await import('../src/doctor.mjs');
+    const top = cmd.repoTop();
+    if (!top) throw new cmd.UserError('doctor se corre dentro de un clon de git.');
+    // Sólo nombres de gs; sin sesión o sin el repo conectado se sigue sin ellos (y se dice).
+    let saved = null;
+    try {
+      saved = (await envVars.ls()).saved;
+    } catch {}
+    // Lo que vio la caja de la preview del PR de esta rama (con `registered`), si hay.
+    let previewOAuth = null;
+    try {
+      const pr = values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr();
+      if (pr) previewOAuth = doctor.parsePreviewOAuth((await previews.fetchPreview(pr)).oauth);
+    } catch {}
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog: await doctor.fetchCatalog(), previewOAuth }) };
+    if (r.oauth) delete r.oauth.helperJs;
+    print(r, doctor.doctorText);
+    if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;
   } else if (command === 'check-lock') {
     // Lo corre el hook pre-push (ghosty-dev init): bloquea el push si el lock no coincide con package.json.
     const r = cmd.repoLock() ?? { ok: true, problems: [] };

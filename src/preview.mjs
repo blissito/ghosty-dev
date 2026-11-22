@@ -48,6 +48,8 @@ export async function fetchPreview(pr, { repo = repoFullName() } = {}) {
     page: signedUrl(r?.page) && !new URL(r.page).search ? r.page : null,
     error,
     message: r?.message ? cleanMessage(r.message) : null,
+    // OAuth que vio la caja (proveedores, si ya se registró, llaves faltantes): sin secretos; lo valida doctor.
+    oauth: r?.oauth && typeof r.oauth === 'object' ? r.oauth : null,
   };
 }
 

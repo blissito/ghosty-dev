@@ -51,6 +51,10 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   lo verifica y el pre-push lo exige (si no, la preview truena en `npm ci`).
 - **Pedidos automáticos de gs** (comentario del bot en el PR, «La vista previa no arma…»): `next` los pone primero;
   léelos con `ghosty-dev asks <n>`.
+- **OAuth en previews**: si existe `GS_PREVIEW_OAUTH_REDIRECT_URI`, es el `redirect_uri` (al pedir el código y al
+  canjearlo); el `state` va con `previewOAuthState(state, '/ruta/callback')` (snippet de los docs de Ghosty Studio,
+  fabrica/oauth-en-previews). El dueño registra una vez `https://www.ghosty.studio/preview-oauth/callback`.
+  `ghosty-dev doctor` dice qué falta.
 - **PR en conflicto con main**: `ghosty-dev next` lo pone primero con el comando (`git fetch origin && git switch <rama>
   && git merge origin/main`, resuelve, `git add`, `git commit`, `git push`); la puerta falla con esa causa hasta entonces.
 - **Enseñarle la vista previa a alguien sin cuenta** (clienta, revisor): `ghosty-dev preview share` da la liga

@@ -30,6 +30,12 @@ La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van 
 `ghosty-dev login --wait` (sólo si `whoami` no encuentra sesión, y preguntando antes) y `ghosty-dev env ls | push <archivo>`
 (sesión propia de Ghosty Studio; GitHub sigue siendo `gh`). El archivo lo nombra la persona y ningún valor se imprime.
 
+**OAuth en previews** (entrar con Google/GitHub en la vista previa):
+- Si existe `GS_PREVIEW_OAUTH_REDIRECT_URI`, úsalo como `redirect_uri` al pedir el código **y al canjearlo** (si no, `redirect_uri_mismatch`).
+- Arma el `state` con `previewOAuthState(state, '/ruta/del/callback')` (snippet de 10 líneas: docs de Ghosty Studio, fabrica/oauth-en-previews; usa `GS_PREVIEW_OAUTH_STATE_KEY`).
+- Una sola vez, el dueño registra `https://www.ghosty.studio/preview-oauth/callback` en el proveedor (GitHub: un OAuth App aparte para previews).
+- `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos.
+
 Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a un pendiente nuevo
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Los identificadores van siempre en inglés (variables, funciones, llaves, archivos); en

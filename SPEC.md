@@ -315,6 +315,21 @@ package.json (…): corre `npm install` (o pnpm/yarn) y súbelo». Lo corren `ch
 `init` en `.git/hooks` o `core.hooksPath`; sin ghosty-dev en el PATH no bloquea; `git push --no-verify` lo salta),
 `evidence` (se niega), `ready` (avisa) y `next` (paso `lock`, después de los pedidos).
 
+## 5e. OAuth en previews y `doctor`
+
+gs inyecta en cada preview `GS_PREVIEW_OAUTH_REDIRECT_URI` y `GS_PREVIEW_OAUTH_STATE_KEY` (y `PREVIEW_URL`,
+`PREVIEW_HOST`): implícitas, `env ls` no las lista y nadie las exige. El proveedor regresa a
+`https://www.ghosty.studio/preview-oauth/callback` (lo registra el dueño una vez) y gs reenvía (302) a la ruta de la
+app que va firmada en el `state` (`previewOAuthState(state, '/ruta')`, snippet de gs; Shopify: `previewOAuthUnwrap`).
+Al canjear el code, el mismo `redirect_uri`.
+
+`ghosty-dev doctor [--pr <m>] [--json]` no tiene catálogo propio: baja `GET /api/v2/preview-oauth/providers`
+(público) y detecta igual que la caja. Por proveedor: llaves que le faltan a la preview; «Para entrar con <X> en tus
+vistas previas falta un paso único: registrar esta URL en tu proyecto de <X>» con la URL sola en su renglón (para
+copiar; `copy` en `--json`), la consola y los 3 pasos, y «o pídeselo a Ghosty con ghosty-browser»; y si el código no
+usa `GS_PREVIEW_OAUTH_REDIRECT_URI`. Si el PR de la rama tiene preview, manda su `oauth` (`registered`: ya volvió un
+login por el proxy). Sale 1 si algo está MAL (lock, llaves, callback); el registro pendiente sólo avisa.
+
 ## 5c-bis. Conflicto con la base
 
 Un PR en conflicto no se mezcla aunque CI, revisión y evidencia estén verdes, así que es lo primero que se dice
@@ -375,6 +390,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C28 | PR en conflicto con su base (`mergeable:false`/`mergeable_state:dirty`, reintento si llega `null`): `next`/`status` lo ponen como primer paso con `git fetch origin && git switch <rama> && git merge origin/<base>` y los archivos (git merge-tree); `show --pr` y `ready` lo avisan; la puerta falla con esa causa sin correr gate.mjs (en borrador sólo avisa) | `test/adopt.test.mjs`, `test/gate-runner.test.mjs` |
 | C29 | `claim <n>` crea la rama desde `origin/<principal>` (o `--base`), nunca desde la rama actual, y avisa antes si el clon está en otra; `show <m>` con m PR lo dice («es un PR, no un pendiente: cierra #n»); `asks`/`next` dejan fuera, marcados «obsoletos», los avisos del bot de otro commit, de un check que ya no existe, anteriores a la cabeza o de un PR cerrado | `test/adopt.test.mjs` |
 | C30 | El lock (npm/pnpm/yarn) coincide con package.json en HEAD: `check-lock` sale 1 con «… no coincide: corre `npm install` y súbelo»; el pre-push que instala `init` lo corre (sin pisar un hook ajeno); `evidence` se niega, `ready` avisa y `next` da el paso `lock`. `next` pone primero los pedidos (de la persona o el automático de gs en el PR) | `test/lock.test.mjs` |
+| C31 | `doctor`: baja el catálogo público de gs (`GET /api/v2/preview-oauth/providers`, sin sesión, sin redirecciones; no hay catálogo propio), detecta como la caja (grepPattern, codeHints, alias de env), dice llaves faltantes (`env ls`), la URL a registrar sola en su renglón + consola + 3 pasos + «pídeselo a Ghosty con ghosty-browser», y si el código no usa `GS_PREVIEW_OAUTH_REDIRECT_URI`; prefiere `preview.oauth` del PR (`registered`). Sin catálogo no inventa | `test/doctor.test.mjs` |
 | C26 | `claim --pr <m> --issue <n>` adopta sin rama ni worktree y agrega `Closes #n`; `review/evidence --pr`; `ready`/`show` avisan del PR sin pendiente con el comando; `next` da el paso; `claim --cloud` sin `--yes` dice qué ocupa y qué desalojaría y no manda nada (75) | `test/adopt.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 

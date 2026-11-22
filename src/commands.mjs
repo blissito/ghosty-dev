@@ -676,8 +676,9 @@ export function showPr(m) {
 // (Formmy, fila 32). `next` lo reconstruye desde la bitácora: rama actual, su PR, el pendiente que cierra, CI,
 // revisión del commit HEAD, evidencia y pedidos. Regresa { step, command, why, … }.
 // Chequeo del lock en la raíz del clon (null fuera de un repo).
+export const repoTop = () => git(['rev-parse', '--show-toplevel'], { allowFail: true })?.trim() || null;
 export function repoLock() {
-  const top = git(['rev-parse', '--show-toplevel'], { allowFail: true })?.trim();
+  const top = repoTop();
   return top ? checkLock(top) : null;
 }
 
