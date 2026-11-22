@@ -479,6 +479,45 @@ export function protect(dir) {
   return { ok: true, repo: repo.nameWithOwner, branch };
 }
 
+// ---------- manifiesto de la fábrica: .ghosty/factory.md con la memoria de la caja ----------
+
+// gs lee `memory:` del frontmatter (4gb la de siempre, 8gb el tope, múltiplos de 1 GB) y Teams lee del mismo
+// archivo los roles y el cuerpo. Sin el archivo, la caja nace con 4 GB y un build pesado revienta (Formmy, 22-nov).
+export const FACTORY_FILE = '.ghosty/factory.md';
+const MONOREPO_FILES = ['pnpm-workspace.yaml', 'lerna.json', 'turbo.json', 'nx.json', 'rush.json'];
+
+// Valor inicial sin correr nada: sólo mira archivos. Devuelve { memory, why }.
+export function detectBoxMemory(dir) {
+  let pkg = null;
+  try {
+    pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+  } catch {}
+  const signals = [];
+  if (pkg?.workspaces) signals.push('package.json declara workspaces (monorepo)');
+  for (const f of MONOREPO_FILES) if (existsSync(join(dir, f))) signals.push(`hay ${f} (monorepo)`);
+  const heavy = Object.entries(pkg?.scripts ?? {}).find(([, s]) => /--max[-_]old[-_]space[-_]size/.test(String(s)));
+  if (heavy) signals.push(`el script «${heavy[0]}» sube el heap de Node (--max-old-space-size)`);
+  if (signals.length) return { memory: '8gb', why: signals.join('; ') };
+  return { memory: '4gb', why: 'no hay señales de monorepo ni de build pesado (la caja de siempre)' };
+}
+
+export function factoryManifest({ memory, why }) {
+  return `---
+# Memoria de la caja de trabajo de Ghosty (instalar, construir y probar): de 4gb a 8gb, múltiplos de 1 GB.
+memory: ${memory}
+---
+Configuración de la fábrica de Ghosty Studio para este repo.
+
+- \`memory:\` es la memoria de la caja donde los agentes instalan, construyen y prueban este repo (y la de su
+  preview). Va de 4gb (la de siempre) a 8gb (el tope), en múltiplos de 1 GB; una caja de 8gb ocupa dos lugares
+  del plan. \`ghosty-dev init\` eligió ${memory} porque ${why}.
+- Si el build revienta por memoria («JavaScript heap out of memory», «Killed», código 137), mide el pico con
+  \`/usr/bin/time -v npm run build\` en Linux («Maximum resident set size») o \`/usr/bin/time -l npm run build\`
+  en macOS, deja ~1 GB de holgura y sube \`memory:\`. El cambio aplica a la siguiente caja que nazca.
+- Abajo de esta lista van las convenciones del repo que deben saber los agentes (pruebas, estilo, qué no tocar).
+`;
+}
+
 export function init(dir, { dryRun = false, force = false, protectBranch = true } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
@@ -501,6 +540,15 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
   const agentsAction =
     agentsText === null ? 'write' : !agentsText.includes(AGENTS_MARK) ? 'append' : force ? 'update' : 'skip';
   plan.push({ action: agentsAction, path: 'AGENTS.md' });
+  // El manifiesto es configuración del repo (memoria, equipo, setup): ni --force lo pisa, porque la persona
+  // pudo haberlo ajustado a mano y un --force al actualizar ghosty-dev se lo borraría.
+  const factoryPath = join(dir, FACTORY_FILE);
+  const box = existsSync(factoryPath) ? null : detectBoxMemory(dir);
+  plan.push(
+    box
+      ? { action: 'write', path: FACTORY_FILE, memory: box.memory, why: box.why, name: `${FACTORY_FILE} (memory: ${box.memory}: ${box.why})` }
+      : { action: 'skip', path: FACTORY_FILE, name: `${FACTORY_FILE} (ya existe: no se toca, ni con --force)` },
+  );
   if (protectBranch) plan.push({ action: 'gate', name: `${GATE_CHECK} obligatorio en la rama principal` });
   if (dryRun) return plan;
 
@@ -516,6 +564,10 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
     if (existsSync(target) && !force) continue;
     mkdirSync(dirname(target), { recursive: true });
     copyFileSync(join(ROOT, from), target);
+  }
+  if (box) {
+    mkdirSync(dirname(factoryPath), { recursive: true });
+    writeFileSync(factoryPath, factoryManifest(box));
   }
   const agentsSection = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8');
   if (agentsAction === 'write') writeFileSync(agentsPath, agentsSection);

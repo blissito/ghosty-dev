@@ -41,11 +41,29 @@ ghosty-dev init
 - `.claude/skills/ghosty-dev/SKILL.md`: la skill que te dice cómo trabajar los pendientes.
 - `.claude/agents/ghosty-dev-revisor.md`: el revisor con contexto limpio (subagente de Claude Code).
 - `AGENTS.md`: las tres reglas para cualquier agente. Si ya existe, `init` agrega una sección al final.
+- `.ghosty/factory.md`: la memoria de la caja donde Ghosty instala, construye y prueba el repo (`memory:`, de 4gb a
+  8gb). `init` imprime qué valor eligió y por qué: 8gb en un monorepo o si algún script usa `--max-old-space-size`,
+  4gb si no. Si el archivo ya existe, no se toca (ni con `--force`).
 
 El check obligatorio se pone en el paso 4, después del push: la Action corre la puerta desde la rama principal, así
 que primero tiene que estar ahí.
 
 Si un archivo ya existía, `init` no lo toca. Usa `--force` sólo si la persona te lo pide.
+
+### Mide el build una vez
+
+El valor de `memory:` que eligió `init` es una conjetura. Mídelo antes del commit del paso 4 (si el repo no tiene
+build, sáltate esto):
+
+```sh
+/usr/bin/time -v npm run build 2>&1 | grep "Maximum resident set size"   # Linux, en KB
+/usr/bin/time -l npm run build 2>&1 | grep "maximum resident set size"   # macOS, en bytes
+```
+
+Usa el script de build del repo si no es `npm run build`. Si el pico más ~1 GB de holgura pasa de 4 GB, o si el
+build revienta por memoria («JavaScript heap out of memory», «Killed»), pon `memory:` en el múltiplo de 1 GB que
+alcance (tope 8gb) en `.ghosty/factory.md`. Va en ese mismo primer commit: la caja lee el archivo de la rama
+principal.
 
 ## 4. Súbelo directo a la rama principal y protégela
 
@@ -54,11 +72,13 @@ pasar, porque la Action la corre desde la rama principal y ahí todavía no exis
 
 ```sh
 git switch <rama principal>          # main, casi siempre
-git add .github .claude AGENTS.md
+git add .github .claude .ghosty AGENTS.md
 git commit -m "ghosty-dev: pendientes en GitHub Issues que se cierran con evidencia"
 ```
 
-**Pregunta a la persona antes del push.** Enséñale la lista de archivos de `git show --stat`. Con su sí:
+**Pregunta a la persona antes del push.** Enséñale la lista de archivos de `git show --stat` y avísale que un push
+a la rama principal puede disparar los workflows de deploy del repo (revisa `.github/workflows/` y dile cuáles corren
+con `push` a esa rama). Con su sí:
 
 ```sh
 git push

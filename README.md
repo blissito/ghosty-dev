@@ -45,7 +45,7 @@ A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh
 npm install -g github:blissito/ghosty-dev
-cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Actions (puerta y revisiones), skill y AGENTS.md
+cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Actions (puerta y revisiones), skill, AGENTS.md y .ghosty/factory.md
 git add -A && git commit -m "ghosty-dev" && git push   # directo a main: la puerta corre desde ahí
 ghosty-dev protect                     # ghosty-dev/evidencia obligatorio en main
 ```

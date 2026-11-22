@@ -411,3 +411,40 @@ test('show trae la ficha del comentario fijo más reciente, sin el pie (C15)', a
   assert.ok(!f.includes('<sub>'));
   assert.equal(fichaOf([{ body: 'nada' }]), null);
 });
+
+test('init crea .ghosty/factory.md con 4gb en un repo sin señales de build pesado', () => {
+  const { run, repo } = setup();
+  const dry = JSON.parse(run('init', '--dry-run', '--json').out);
+  const step = dry.find((p) => p.path === '.ghosty/factory.md');
+  assert.equal(step.action, 'write');
+  assert.equal(step.memory, '4gb');
+  assert.equal(existsSync(join(repo, '.ghosty')), false);
+  const r = run('init');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\.ghosty\/factory\.md \(memory: 4gb: no hay señales/);
+  const md = readFileSync(join(repo, '.ghosty/factory.md'), 'utf8');
+  assert.match(md, /^---\n(?:#.*\n)*memory: 4gb\n---\n/);
+  assert.doesNotMatch(md, /^## @/m); // el cuerpo no abre secciones de rol de Teams
+});
+
+test('init pide 8gb en un monorepo o con --max-old-space-size, y nunca pisa el manifiesto', () => {
+  const mono = setup();
+  writeFileSync(join(mono.repo, 'package.json'), JSON.stringify({ workspaces: ['app', 'sdk'] }));
+  assert.equal(mono.run('init').code, 0);
+  assert.match(readFileSync(join(mono.repo, '.ghosty/factory.md'), 'utf8'), /^memory: 8gb$/m);
+
+  const heavy = setup();
+  writeFileSync(join(heavy.repo, 'package.json'), JSON.stringify({ scripts: { build: 'NODE_OPTIONS=--max-old-space-size=6144 vite build' } }));
+  const plan = JSON.parse(heavy.run('init', '--json').out);
+  const step = plan.find((p) => p.path === '.ghosty/factory.md');
+  assert.equal(step.memory, '8gb');
+  assert.match(step.why, /«build».*max-old-space-size/);
+
+  const own = '---\nmemory: 6gb\nbuild: { model: claude-opus-5 }\n---\nmío\n';
+  writeFileSync(join(heavy.repo, '.ghosty/factory.md'), own);
+  for (const args of [['init'], ['init', '--force']]) {
+    const again = JSON.parse(heavy.run(...args, '--json').out).find((p) => p.path === '.ghosty/factory.md');
+    assert.equal(again.action, 'skip');
+    assert.equal(readFileSync(join(heavy.repo, '.ghosty/factory.md'), 'utf8'), own);
+  }
+});
