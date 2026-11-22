@@ -159,7 +159,22 @@ export function diagnose(dir, opts = {}) {
   const r = diagnoseOAuth(dir, opts);
   const id = identityCheck(dir);
   if (id) r.checks.push(id);
+  const env = missingEnvCheck(opts.previewMissingEnv ?? null, opts.previewMissingEnvTouched ?? []);
+  if (env) r.checks.push(env);
   return r;
+}
+
+// Variables que el código lee y la vista previa del PR no tiene (lo vio la caja; sólo nombres). null = sin preview.
+export function missingEnvCheck(names, touched = []) {
+  if (!Array.isArray(names)) return null;
+  if (!names.length) return { name: 'env-faltantes', ok: true, detail: 'la vista previa tiene todas las variables que lee el código', fix: null };
+  const t = touched.filter((n) => names.includes(n));
+  return {
+    name: 'env-faltantes',
+    ok: false,
+    detail: `a la vista previa le faltan ${names.slice(0, 8).join(', ')}${names.length > 8 ? ` y ${names.length - 8} más` : ''}${t.length ? ` (las lee este PR: ${t.join(', ')})` : ''}: lo que las use falla aunque las páginas abran`,
+    fix: 'ghosty-dev env push <archivo con esas variables> (se toman en el siguiente armado: box rebuild o un push)',
+  };
 }
 
 // Identidad de Ghosty en previews (Formmy, fila 40): el proxy de la preview manda `X-Ghosty-Identity` (JWT de quien la

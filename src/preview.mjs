@@ -30,6 +30,10 @@ function signedUrl(v) {
   }
 }
 
+// Sólo nombres de variable válidos (nunca valores): lo demás se descarta.
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+export const envNames = (v) => (Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && ENV_NAME.test(x)))].slice(0, 50) : null);
+
 // Lo que se puede enseñar en cualquier lado (show, avisos): fase y commit, nunca la liga.
 export const publicPreview = (p) => (p ? { phase: p.phase, sha: p.sha } : null);
 
@@ -50,6 +54,9 @@ export async function fetchPreview(pr, { repo = repoFullName() } = {}) {
     message: r?.message ? cleanMessage(r.message) : null,
     // OAuth que vio la caja (proveedores, si ya se registró, llaves faltantes): sin secretos; lo valida doctor.
     oauth: r?.oauth && typeof r.oauth === 'object' ? r.oauth : null,
+    // Variables que el código lee y la vista previa no tiene (sólo nombres; las que lee el PR primero). null = no se sabe.
+    missingEnv: envNames(r?.missingEnv),
+    missingEnvTouched: envNames(r?.missingEnvTouched) ?? [],
   };
 }
 

@@ -264,8 +264,9 @@ const prStateLine = (s) => {
 
 function previewText(x, { opened } = {}) {
   const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
+  const env = x.missingEnv?.length ? `\n  Faltan variables: ${x.missingEnv.slice(0, 8).join(', ')}${x.missingEnv.length > 8 ? ` y ${x.missingEnv.length - 8} más` : ''}. Súbelas con ghosty-dev env push (entran en el siguiente armado).` : '';
   if (x.phase === 'ready')
-    return x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`;
+    return (x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`) + env;
   if (x.phase === 'failed') return `${head}${x.error ? `\n  ${x.error}` : ''}${x.page ? `\n  Detalle: ${x.page}` : ''}`;
   if (x.phase === 'none') return `${head}. ${x.message ?? 'Se arma sola con el siguiente push (PR no borrador).'}`;
   return `${head}. Espérala: ghosty-dev preview ${x.pr} --wait`;
@@ -490,11 +491,18 @@ try {
     } catch {}
     // Lo que vio la caja de la preview del PR de esta rama (con `registered`), si hay.
     let previewOAuth = null;
+    let previewMissingEnv = null;
+    let previewMissingEnvTouched = [];
     try {
       const pr = values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr();
-      if (pr) previewOAuth = doctor.parsePreviewOAuth((await previews.fetchPreview(pr)).oauth);
+      if (pr) {
+        const p = await previews.fetchPreview(pr);
+        previewOAuth = doctor.parsePreviewOAuth(p.oauth);
+        previewMissingEnv = p.missingEnv;
+        previewMissingEnvTouched = p.missingEnvTouched;
+      }
     } catch {}
-    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog: await doctor.fetchCatalog(), previewOAuth }) };
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog: await doctor.fetchCatalog(), previewOAuth, previewMissingEnv, previewMissingEnvTouched }) };
     if (r.oauth) delete r.oauth.helperJs;
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;

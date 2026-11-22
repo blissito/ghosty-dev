@@ -99,3 +99,22 @@ test('doctor sugiere la identidad de Ghosty en previews si la app tiene login y 
   assert.equal(con.checks.find((x) => x.name === 'login-en-previews').ok, true);
   assert.equal(diagnose(repo({ 'package.json': {} }), { catalog: null }).checks.find((x) => x.name === 'login-en-previews'), undefined);
 });
+
+test('doctor: variables faltantes de la preview del PR → check env-faltantes con nombres y sin valores', async () => {
+  const { missingEnvCheck } = await import('../src/doctor.mjs');
+  assert.equal(missingEnvCheck(null), null);
+  assert.equal(missingEnvCheck([]).ok, true);
+  const c = missingEnvCheck(['FORMMY_MCP_TOKEN_SECRET', 'GHOSTY_PARTNER_KEY'], ['FORMMY_MCP_TOKEN_SECRET']);
+  assert.equal(c.name, 'env-faltantes');
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /FORMMY_MCP_TOKEN_SECRET, GHOSTY_PARTNER_KEY \(las lee este PR: FORMMY_MCP_TOKEN_SECRET\)/);
+  assert.match(c.fix, /ghosty-dev env push/);
+  const d = diagnose(repo({ 'app/x.ts': 'export const x = 1;\n' }), { catalog: CAT, previewMissingEnv: ['FOO_SECRET'] });
+  assert.equal(d.checks.find((k) => k.name === 'env-faltantes').ok, false);
+});
+
+test('envNames: sólo nombres de variable válidos', async () => {
+  const { envNames } = await import('../src/preview.mjs');
+  assert.deepEqual(envNames(['A_B', 'A_B', 'mal valor', 'x=1', 3, 'OK']), ['A_B', 'OK']);
+  assert.equal(envNames(undefined), null);
+});
