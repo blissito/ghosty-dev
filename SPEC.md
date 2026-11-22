@@ -190,6 +190,12 @@ instalado), pasa con aviso (`::notice`); si el script existe pero no carga o tru
 limpio y el remedio («arregla `.github/ghosty-dev/gate.mjs` en <base>; una persona puede mezclar a mano el PR que lo
 arregla»). Una puerta rota nunca deja pasar.
 
+**Instalar sin sorpresas** (un repo de producción). `init` imprime el repo remoto y la rama antes de escribir y, fuera
+de la rama principal, no escribe sin `--yes`. Las etiquetas se crean en GitHub en el acto: se confirman (o `--yes`);
+sin terminal y sin `--yes` no se crean y se dice. El plan termina con los workflows que dispara un push a la rama
+principal (`.github/workflows` que escuchan `push` a esa rama: suele ser el deploy). `protect --dry-run` lista los PR
+abiertos que quedarían bloqueados al volver obligatorio el check, y por qué (los borradores, aparte), sin escribir.
+
 ## 5b. La nube (opcional)
 
 El mismo pendiente lo puede construir un agente en una caja de trabajo en vez de tu compu. El contrato no cambia:
@@ -293,6 +299,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C21 | `wait --pr --until preview|ci|any`: un renglón JSON por cambio sin la liga; CI verde 0, rojo 1; tope → 75; una vista previa de un commit viejo no cuenta como lista | `test/box.test.mjs` |
 | C22 | la puerta en borrador sale verde con su nota y corre con `ready_for_review`; sin script en la base pasa con aviso; con script que no carga o truena, rojo con el error limpio y el remedio (falla cerrada); un `gate.mjs` viejo se corre como antes | `test/gate-runner.test.mjs` |
 | C23 | `Depende de #N`: apilado sobre la rama de otro PR o con su commit → se agrega una vez; lo que escribió una persona no se duplica ni se toca; al entrar ese PR, se quita | `test/deps.test.mjs` |
+| C24 | `init` imprime repo y rama antes de escribir y, fuera de la rama principal, no escribe sin `--yes`; sin terminal y sin `--yes` no crea etiquetas y lo dice; lista los workflows que dispara un push a la rama principal; `protect --dry-run` lista los PR abiertos que quedarían bloqueados y por qué, sin escribir | `test/install.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1

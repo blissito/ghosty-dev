@@ -30,11 +30,14 @@ Si `npm install -g` no tiene permisos, no uses `sudo`: usa `npx -y github:blissi
 ## 3. Prepara el repo
 
 ```sh
-ghosty-dev init --dry-run   # muestra qué va a crear, sin escribir nada
-ghosty-dev init
+ghosty-dev init --dry-run   # repo, rama, etiquetas que faltan, archivos y workflows que dispara el push; no escribe
+ghosty-dev init --yes       # sólo con el sí de la persona (crea las etiquetas en GitHub en el acto)
 ```
 
-`init` crea las etiquetas `ghosty-dev:*` en GitHub y agrega estos archivos:
+`init` imprime primero el repo remoto y la rama: si no estás en la rama principal (otra sesión, un worktree de otra
+rama), se niega sin `--yes`; cámbiate a la principal. Crea las etiquetas `ghosty-dev:*` **en GitHub en el acto**:
+enséñale a la persona el `--dry-run` («voy a crear N etiquetas en <repo>») y con su sí corre `init --yes`; sin
+`--yes` y sin terminal, `init` no las crea y lo dice. Agrega estos archivos:
 
 - `.github/ISSUE_TEMPLATE/pendiente.md`: la plantilla de pendiente.
 - `.github/workflows/evidence-gate.yml` y `.github/ghosty-dev/`: la Action que no deja mergear sin evidencia.
@@ -76,9 +79,11 @@ git add .github .claude .ghosty AGENTS.md
 git commit -m "ghosty-dev: pendientes en GitHub Issues que se cierran con evidencia"
 ```
 
-**Pregunta a la persona antes del push.** Enséñale la lista de archivos de `git show --stat` y avísale que un push
-a la rama principal puede disparar los workflows de deploy del repo (revisa `.github/workflows/` y dile cuáles corren
-con `push` a esa rama). Con su sí:
+**Pregunta a la persona antes del push.** Enséñale la lista de archivos de `git show --stat` y dile, con nombre, qué
+dispara el push: «el push a <rama principal> dispara tus workflows …» con la lista que imprimió `init` (el renglón
+`push`, también en `init --dry-run --json`: lee `.github/workflows` y lista los que escuchan `push` a esa rama). En un
+repo de producción suele ser el deploy, aunque la instalación no cambie código. Antes de `protect`, corre
+`ghosty-dev protect --dry-run` y enséñale qué PR abiertos quedarían bloqueados y por qué. Con su sí:
 
 ```sh
 git push

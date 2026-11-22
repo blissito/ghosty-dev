@@ -91,14 +91,15 @@ if (group === 'label' && verb === 'create') {
   }
   else if ((m = path.match(/\/labels(?:\/(.+))?$/)) && !path.includes('/issues/')) {
     const name = m[1] ? decodeURIComponent(m[1]) : null;
-    if (method === 'POST') {
+    if (method === 'GET' && !name) out(page(db.labels.map((l) => ({ name: l }))));
+    else if (method === 'POST') {
       if (db.labels.includes(body.name)) fail('HTTP 422: already_exists');
       db.labels.push(body.name);
     } else if (method === 'PATCH') {
       if (!db.labels.includes(name)) fail('HTTP 404: Not Found');
       if (body.new_name) db.labels = db.labels.map((l) => (l === name ? body.new_name : l));
     }
-    out({});
+    if (method !== 'GET' || name) out({});
   }
   else if ((m = path.match(/issues\/(\d+)\/dependencies\/blocked_by$/))) {
     if (!db.depsApi) fail('HTTP 404: Not Found');
@@ -161,7 +162,7 @@ if (group === 'label' && verb === 'create') {
     }
     out({ base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: false, merged_at: null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
   }
-  else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === 'open').map((p) => ({ number: p.number, html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
+  else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === 'open').map((p) => ({ number: p.number, title: p.title ?? `PR ${p.number}`, draft: Boolean(p.draft), html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
   else if ((m = path.match(/compare\/([^.]+)\.\.\.(.+)$/))) out({ status: (db.ancestors ?? []).includes(`${m[1]}...${m[2]}`) ? 'ahead' : 'diverged' });
   else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {
     const p = prBySha(m[1]);

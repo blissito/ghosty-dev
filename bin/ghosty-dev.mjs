@@ -16,10 +16,13 @@ const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
 
-  init [--dir D] [--dry-run] [--force] [--no-protect]
+  init [--dir D] [--dry-run] [--force] [--no-protect] [--yes]
                                          etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
-                                         (protege la rama sólo si la puerta ya está en ella)
-  protect                                vuelve obligatorio ghosty-dev/evidencia en la rama principal
+                                         (protege la rama sólo si la puerta ya está en ella). Dice repo y rama antes
+                                         de escribir (fuera de la rama principal pide --yes), confirma las etiquetas
+                                         (sin terminal, sólo con --yes) y lista los workflows que dispara el push
+  protect [--dry-run]                    vuelve obligatorio ghosty-dev/evidencia en la rama principal; --dry-run
+                                         lista los PR abiertos que quedarían bloqueados y por qué
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
   review <n> [--file revision.md]        sin --file: el encargo para el revisor (otra sesión, contexto limpio);
@@ -231,11 +234,48 @@ try {
     console.log(HELP);
   } else if (command === 'init') {
     const dir = resolve(values.dir ?? process.cwd());
-    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'] });
+    // Antes de escribir nada: a qué repo y rama va (con --json, a stderr para no ensuciar la salida).
+    const t = cmd.initTarget(dir);
+    const say = values.json ? console.error : console.log;
+    say(`Repo: ${t.repo} · rama actual: ${t.branch ?? '?'} (principal: ${t.defaultBranch})`);
+    if (!values['dry-run'] && t.branch !== t.defaultBranch && !values.yes)
+      throw new cmd.UserError(`Estás en la rama ${t.branch ?? '(sin rama)'}, no en ${t.defaultBranch}: la instalación va directo a la rama principal. Cámbiate (git switch ${t.defaultBranch}) o, si es a propósito, ghosty-dev init --yes.`);
+    // Las etiquetas se crean en GitHub en el acto: se confirman (o --yes). Sin terminal y sin --yes, no se crean.
+    let labels = true;
+    if (t.labelsToCreate.length && !values['dry-run'] && !values.yes) {
+      const what = `${t.labelsToCreate.length} etiqueta(s) en ${t.repo} (${t.labelsToCreate.join(', ')})`;
+      if (process.stdin.isTTY && !values.json) {
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        labels = /^(s|si|sí|y|yes)$/i.test((await rl.question(`Voy a crear ${what}. ¿Sigo? [s/N] `)).trim());
+        rl.close();
+      } else labels = false;
+      if (!labels) console.error(`No creé ${what}: confírmalo con ghosty-dev init --yes.`);
+    } else if (t.labelsToCreate.length) say(`${values['dry-run'] ? 'Crearía' : 'Creo'} ${t.labelsToCreate.length} etiqueta(s) en ${t.repo}.`);
+    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'], labels });
+    // El push de la instalación va a la rama principal: qué workflows dispara (en un repo de producción, el deploy).
+    plan.push({
+      action: 'push',
+      name: t.pushWorkflows.length
+        ? `un push a ${t.defaultBranch} dispara: ${t.pushWorkflows.map((w) => `${w.file}${w.name ? ` («${w.name}»)` : ''}${w.paths ? ' si cambian sus paths' : ''}`).join(', ')}`
+        : `un push a ${t.defaultBranch} no dispara ningún workflow de .github/workflows`,
+      workflows: t.pushWorkflows,
+    });
     print(plan, (p) =>
       [values['dry-run'] ? `Ensayo en seco en ${dir} (no se escribe nada):` : `Bitácora instalada en ${dir}:`]
         .concat(p.map((x) => `  ${x.action.padEnd(6)} ${x.name ?? x.path}`))
         .join('\n'),
+    );
+  } else if (command === 'protect' && values['dry-run']) {
+    const r = cmd.protectPreview(process.cwd());
+    print(r, (x) =>
+      [
+        `${x.repo}: ghosty-dev/evidencia ${x.already ? 'ya es obligatorio' : 'se volvería obligatorio'} en ${x.branch}.${x.gateOnBase ? '' : ` Todavía no se puede: la puerta no está en ${x.branch}.`}`,
+        x.blocked.length ? `Quedarían bloqueados ${x.blocked.length} PR abierto(s):` : 'Ningún PR abierto quedaría bloqueado.',
+        ...x.blocked.map((b) => `  #${b.pr} ${b.title}\n${b.reasons.map((l) => `    - ${l}`).join('\n')}`),
+        ...(x.drafts.length ? ['Borradores (no se bloquean hasta marcarlos listos):', ...x.drafts.map((d) => `  #${d.pr} ${d.title}`)] : []),
+        ...(x.passing.length ? [`Pasan ya: ${x.passing.map((p) => '#' + p.pr).join(', ')}`] : []),
+        'No se cambió nada.',
+      ].join('\n'),
     );
   } else if (command === 'protect') {
     const r = cmd.protect(process.cwd());

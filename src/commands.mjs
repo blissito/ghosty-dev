@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
 import { validateEvidence, formatEvidence, findValidEvidence, validateRevision, formatRevision } from './evidence.mjs';
+import { evaluatePullRequest } from './gate.mjs';
+import { pushWorkflows } from './workflows.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -587,6 +589,53 @@ export function protect(dir) {
   return { ok: true, repo: repo.nameWithOwner, branch };
 }
 
+// `protect --dry-run`: qué PR abiertos quedarían bloqueados si el check se vuelve obligatorio, y por qué. No escribe
+// nada. Un borrador no bloquea (la puerta lo deja pasar hasta marcarlo listo), pero se lista aparte.
+export function protectPreview(dir) {
+  const info = api('GET', REPO, undefined, { cwd: dir, allowFail: true });
+  if (!info) throw new UserError('No se pudo leer el repo con gh.');
+  const repo = info.full_name;
+  const branch = info.default_branch || 'main';
+  const gateOnBase = api('GET', `repos/${repo}/contents/.github/ghosty-dev/gate.mjs?ref=${branch}`, undefined, { cwd: dir, allowFail: true }) != null;
+  const protection = api('GET', `repos/${repo}/branches/${branch}/protection`, undefined, { cwd: dir, allowFail: true });
+  const already = Boolean(protection?.required_status_checks?.contexts?.includes(GATE_CHECK));
+  const fetchIssue = (n) => ({
+    body: api('GET', API_ISSUE(n), undefined, { cwd: dir, allowFail: true })?.body || '',
+    comments: apiAll(`${API_ISSUE(n)}/comments`, { cwd: dir, allowFail: true }) ?? [],
+  });
+  const prs = (apiAll(`${REPO}/pulls?state=open`, { cwd: dir, allowFail: true }) ?? []).filter((p) => p.base?.ref === undefined || p.base.ref === branch);
+  const blocked = [];
+  const drafts = [];
+  const passing = [];
+  for (const p of prs) {
+    const row = { pr: p.number, title: p.title ?? '', url: p.html_url ?? null };
+    if (p.draft) {
+      drafts.push({ ...row, reason: 'borrador: la puerta no lo bloquea hasta marcarlo listo' });
+      continue;
+    }
+    const r = evaluatePullRequest(p, fetchIssue);
+    if (r.ok) passing.push(row);
+    else blocked.push({ ...row, reasons: r.lines.filter((l) => !/válida\.$|sin hallazgos abiertos\.$|sin hallazgos\.$/.test(l)) });
+  }
+  return { repo, branch, gateOnBase, already, blocked, drafts, passing };
+}
+
+// Antes de escribir: a qué repo y rama va, qué etiquetas faltan y qué workflows dispara un push a la rama principal.
+export function initTarget(dir) {
+  const info = api('GET', REPO, undefined, { cwd: dir, allowFail: true });
+  if (!info) throw new UserError('No se pudo leer el repo con gh: ¿esta carpeta tiene un remoto de GitHub?');
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, allowFail: true })?.trim() || null;
+  const defaultBranch = info.default_branch || 'main';
+  const have = (apiAll(`${REPO}/labels`, { cwd: dir, allowFail: true }) ?? []).map((l) => l.name);
+  return {
+    repo: info.full_name,
+    branch,
+    defaultBranch,
+    labelsToCreate: STATES.map(label).filter((n) => !have.includes(n)),
+    pushWorkflows: pushWorkflows(dir, defaultBranch),
+  };
+}
+
 // ---------- manifiesto de la fábrica: .ghosty/factory.md con la memoria de la caja ----------
 
 // gs lee `memory:` del frontmatter (4gb la de siempre, 8gb el tope, múltiplos de 1 GB) y Teams lee del mismo
@@ -626,7 +675,8 @@ Configuración de la fábrica de Ghosty Studio para este repo.
 `;
 }
 
-export function init(dir, { dryRun = false, force = false, protectBranch = true } = {}) {
+// `labels: false`: no crea las etiquetas en GitHub (la persona no lo confirmó); quedan en el plan como «skip».
+export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
@@ -638,7 +688,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
     ['agents/ghosty-dev-revisor.md', '.claude/agents/ghosty-dev-revisor.md'],
   ];
   const plan = [];
-  for (const state of STATES) plan.push({ action: 'label', name: label(state) });
+  for (const state of STATES) plan.push(labels ? { action: 'label', name: label(state) } : { action: 'skip', name: `${label(state)} (etiqueta no creada: confirma con ghosty-dev init --yes)` });
   for (const [, to] of files) {
     const exists = existsSync(join(dir, to));
     plan.push({ action: exists && !force ? 'skip' : 'write', path: to });
@@ -660,7 +710,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true 
   if (protectBranch) plan.push({ action: 'gate', name: `${GATE_CHECK} obligatorio en la rama principal` });
   if (dryRun) return plan;
 
-  for (const state of STATES) {
+  for (const state of labels ? STATES : []) {
     const [color, description] = LABEL_STYLE[state];
     if (LEGACY[state]) api('PATCH', `${REPO}/labels/${encodeURIComponent(LEGACY[state])}`, { new_name: label(state) }, { cwd: dir, allowFail: true });
     // Crear; si ya existe (422), actualizar color y descripción.

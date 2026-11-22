@@ -15,22 +15,23 @@ test('--help corre', () => {
   assert.match(r.out, /ghosty-dev ready|ready \[--json\]/);
 });
 
-test('init --dry-run no escribe ni llama a gh', () => {
+test('init --dry-run no escribe nada (en gh sólo lee)', () => {
   const { run, read, repo } = setup();
   const r = run('init', '--dry-run', '--json');
   assert.equal(r.code, 0, r.err);
   const plan = JSON.parse(r.out);
   assert.equal(plan.filter((p) => p.action === 'label').length, 4);
   assert.ok(plan.some((p) => p.action === 'gate'));
-  assert.equal(read().calls.length, 0);
+  assert.ok(read().calls.every((c) => c[0] === 'api' && c[2] === 'GET'), JSON.stringify(read().calls));
   assert.equal(existsSync(join(repo, '.github')), false);
 });
 
 test('init instala etiquetas, plantilla, Action, scripts de la puerta, skill y AGENTS.md', () => {
   const { run, read, repo } = setup();
   writeFileSync(join(repo, 'AGENTS.md'), '# Reglas del repo\n');
-  const r = run('init');
+  const r = run('init', '--yes');
   assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /^Repo: acme\/demo · rama actual: main \(principal: main\)/);
   assert.deepEqual(read().labels.sort(), ['ghosty-dev:bloqueado', 'ghosty-dev:en-curso', 'ghosty-dev:esperando-ci', 'ghosty-dev:por-hacer']);
   for (const f of [
     '.github/ISSUE_TEMPLATE/pendiente.md',

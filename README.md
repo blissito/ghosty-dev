@@ -45,8 +45,10 @@ A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh
 npm install -g github:blissito/ghosty-dev
-cd ~/tu-repo && ghosty-dev init        # etiquetas, plantilla, Actions (puerta y revisiones), skill, AGENTS.md y .ghosty/factory.md
+cd ~/tu-repo && ghosty-dev init --dry-run   # repo, rama, etiquetas, archivos y los workflows que dispara el push
+ghosty-dev init --yes                  # etiquetas, plantilla, Actions (puerta y revisiones), skill, AGENTS.md y .ghosty/factory.md
 git add -A && git commit -m "ghosty-dev" && git push   # directo a main: la puerta corre desde ahí
+ghosty-dev protect --dry-run           # qué PR abiertos quedarían bloqueados y por qué
 ghosty-dev protect                     # ghosty-dev/evidencia obligatorio en main
 ```
 
@@ -99,7 +101,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 
 ## Comandos
 
-`init` · `protect` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
+`init [--yes]` · `protect [--dry-run]` · `add "título" --goal … --criteria …` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 `show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
