@@ -71,11 +71,15 @@ Uso: ghosty-dev <comando> [opciones]
                                          del build y del servidor (200 renglones por defecto)
   box exec [<pr>] -- <comando…>          corre el comando en el checkout de la caja (/app/src, 60 s); sale con su código
   box restart [<pr>]                     reinicia la app de la caja sin rearmar
+  preview [<pr>] --login [--path /x] [--open]  liga de UN solo uso (10 min) que entra con sesión de prueba
+                                         (identidad de servicio de Ghosty); con --check, prueba de punta a punta
   preview share [<pr>]                   liga pública para alguien sin cuenta (la única vez que se imprime)
   preview unshare [<pr>]                 la revoca; quien la abra puede pedir acceso
   preview requests [<pr>] [--status pending|accepted|rejected|all]
   preview accept|reject <id> [--pr <m>]  decide una solicitud de acceso
-  doctor                                 lo que va a fallar en la vista previa: lock, llaves y callback de OAuth
+  doctor [--path /x]                     lo que va a fallar en la vista previa: lock, llaves y callback de OAuth;
+                                         con la vista previa lista, prueba de verdad el login (ruta: --path o
+                                         login_path: de .ghosty/factory.md, si no /dashboard)
   check-lock                             ¿el lock (npm/pnpm/yarn) coincide con package.json en HEAD? Lo corre el pre-push
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
   deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
@@ -141,6 +145,8 @@ const { values, positionals } = parseArgs({
     'no-wait': { type: 'boolean' },
     pr: { type: 'string' },
     wait: { type: 'boolean' },
+    login: { type: 'boolean' },
+    path: { type: 'string' },
     open: { type: 'boolean' },
     lines: { type: 'string' },
     issue: { type: 'string' },
@@ -277,6 +283,12 @@ const prStateLine = (s) => {
   const miss = missingOf(s);
   return `${head}\n  ${miss.length ? `falta: ${miss.join(', ')}` : 'no falta nada: listo para merge'}`;
 };
+
+const LOGIN_WORD = { session: 'ok: entra con sesión', no_session: 'MAL: no entra con sesión', public_path: 'sin probar: ruta que no exige sesión', app_error: 'MAL: la app truena', unreachable: 'MAL: no se pudo abrir' };
+const hopText = (h) => (h ? `${h.status}${h.location ? ` → ${h.location}` : ''}` : '—');
+function loginCheckText(x) {
+  return `Login en la vista previa del PR #${x.pr} (${x.path}): ${LOGIN_WORD[x.verdict] ?? x.verdict}\n  con identidad ${hopText(x.withIdentity)} · sin identidad ${hopText(x.withoutIdentity)}${x.message ? `\n  ${x.message}` : ''}`;
+}
 
 function previewText(x, { opened } = {}) {
   const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
@@ -513,6 +525,19 @@ try {
     if (arg === 'share' || arg === 'unshare') print(await shares.share(arg, pr), shares.shareText);
     else if (arg === 'requests') print(await shares.requests(pr, { status: values.status ?? 'pending' }), shares.requestsText);
     else print(await shares.decide(arg, pr, arg2), shares.decideText);
+  } else if (command === 'preview' && values.login) {
+    // Login de prueba (Formmy filas 53–54): liga de un solo uso con la identidad de servicio, o con --check la prueba
+    // de punta a punta (misma ruta con y sin identidad).
+    const pr = arg === undefined ? undefined : num(arg, '<pr>');
+    if (values.check) {
+      const r = await previews.previewLoginCheck(pr, { path: values.path });
+      print(r, loginCheckText);
+      process.exitCode = r.verdict === 'session' ? 0 : 1;
+    } else {
+      const r = await previews.previewLogin(pr, { path: values.path });
+      if (values.open) auth.openBrowser(r.url);
+      print(r, (x) => `Login de prueba en la vista previa del PR #${x.pr} como ${x.identity?.email || 'la identidad de servicio'} (un solo uso, ${Math.round(x.expiresIn / 60)} min, aterriza en ${x.path}):\n${values.open ? '  Abierta en tu navegador.' : `  ${x.url}\n  Con curl: curl -sL -c jar "<liga>" -o /dev/null && curl -s -b jar <host de la preview>${x.path}`}`);
+    }
   } else if (command === 'preview') {
     const pr = arg === undefined ? undefined : num(arg, '<pr>');
     // Los avisos (commit viejo, falta push) van a stderr y nunca llevan la liga.
@@ -535,6 +560,7 @@ try {
     let previewMissingEnv = null;
     let previewMissingEnvTouched = [];
     let previewMissingEnvPriority = [];
+    let loginProbe = null;
     try {
       const pr = values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr();
       if (pr) {
@@ -543,6 +569,9 @@ try {
         previewMissingEnv = p.missingEnv;
         previewMissingEnvTouched = p.missingEnvTouched;
         previewMissingEnvPriority = p.missingEnvPriority;
+        // Petición real (filas 53–54): ¿la app de la vista previa entra con la identidad? Sólo si está lista.
+        if (p.phase === 'ready' && doctor.identityCheck(top)?.ok)
+          loginProbe = await previews.previewLoginCheck(pr, { path: values.path ?? doctor.loginPathOf(top) }).catch(() => null);
       }
     } catch {}
     const catalog = await doctor.fetchCatalog();
@@ -550,7 +579,7 @@ try {
     const probes = await doctor.probeProviders(top, catalog).catch(() => ({}));
     // Sólo si el código llama a un agente de partner: ¿existe en Ghosty Studio? (fila 50)
     const partnerAgents = doctor.partnerAgentRefs(top).length ? await doctor.fetchPartnerAgents(cmd.repoFullName()) : null;
-    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes, partnerAgents }) };
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes, partnerAgents, loginProbe }) };
     if (r.oauth) delete r.oauth.helperJs;
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;

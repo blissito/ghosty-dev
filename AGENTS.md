@@ -67,6 +67,16 @@ personales de Google. La base de la vista previa tiene que ser desechable (copia
 producción: `ghosty-dev doctor` avisa si la preview trae `DATABASE_URL`, `MONGO_*`, etc. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
 evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
 
+- **Sin proveedor OAuth en la vista previa** (lo normal: no se copian las llaves de producción), «Iniciar sesión» no
+  truena con un error genérico: en la ruta de login, `if (process.env.GS_PREVIEW_IDENTITY_JWKS_URL && !process.env.GOOGLE_CLIENT_ID)`
+  (o el id del proveedor que use la app) responde «Esta es una vista previa: ábrela desde Ghosty («Abrir preview») y
+  entrarás con tu cuenta» en vez de llamar al proveedor.
+- **Entrar como agente**: `ghosty-dev preview <pr> --login [--path /dashboard]` da una liga de UN solo uso (10 min) con
+  la identidad de servicio (`smoke@ghosty.studio`); síguela con `curl -sL -c jar "<liga>" -o /dev/null` y usa `-b jar`,
+  o ábrela en el navegador. `ghosty-dev preview <pr> --login --check --path /ruta/con/sesion` (y `doctor`) prueba de
+  verdad que la app entra: misma ruta con y sin identidad. Pon la ruta protegida en `.ghosty/factory.md` como
+  `login_path: /dashboard`.
+
 **API de partner en previews sin llaves** (identidad de la caja, como el OIDC de GitHub Actions): cada vista previa trae
 `GHOSTY_PREVIEW_TOKEN` (JWT de Ghosty, `aud` = `ghosty-api`) y `/api/v2/partner/*` lo acepta como Bearer, sólo para
 pruebas (turnos, AG-UI, páginas, lecturas). Nunca copies `GHOSTY_PARTNER_KEY` a la preview; donde la app firma:

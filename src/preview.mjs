@@ -129,6 +129,44 @@ export async function preview(prArg, { wait = false, onNote = () => {} } = {}) {
   return { ...p, head: h.local, prHead: h.remote, stale: notes.length > 0 };
 }
 
+// Login de prueba (Formmy filas 53–54): una liga de UN SOLO USO (10 min) que entra a la vista previa con la identidad
+// de servicio de Ghosty (smoke@ghosty.studio) y aterriza en `path`. Se sigue con un cookie jar (curl -L -c) o en un
+// navegador. La liga sólo sale por stdout cuando se pide, igual que la de `preview`.
+const ROUTE_PATH = /^\/[^\s\\]{0,300}$/;
+const routePath = (v) => (typeof v === 'string' && ROUTE_PATH.test(v) && !v.startsWith('//') ? v : null);
+const IDENTITY = (x) => (x && typeof x === 'object' ? { email: plain(x.email ?? '', 200), name: plain(x.name ?? '', 200) } : null);
+
+export async function previewLogin(prArg, { path } = {}) {
+  const pr = prArg ?? currentPr();
+  const repo = repoFullName();
+  const want = routePath(path ?? '/') ?? '/';
+  const r = await request('POST', `${previewPath(repo, pr)}/login`, { path: want }, { scope: 'dev' });
+  const url = signedUrl(r?.url);
+  if (!url || !new URL(url).pathname.startsWith('/preview/login/')) throw new UserError(`Ghosty Studio no mandó una liga de login válida para el PR #${pr}.`);
+  return { repo, pr, url, path: routePath(r?.path) ?? want, expiresIn: Number(r?.expiresIn) || 600, oneTime: true, identity: IDENTITY(r?.identity) };
+}
+
+// Comprobación de punta a punta: Ghosty Studio pide `path` a la vista previa con y sin la identidad y compara. No
+// regresa llaves ni tokens. verdict: session | no_session | public_path | app_error | unreachable.
+const VERDICTS = new Set(['session', 'no_session', 'public_path', 'app_error', 'unreachable']);
+const hopOf = (h) => (h && typeof h === 'object' ? { status: Number(h.status) || 0, location: routePath(h.location) } : null);
+export async function previewLoginCheck(prArg, { path } = {}) {
+  const pr = prArg ?? currentPr();
+  const repo = repoFullName();
+  const want = routePath(path ?? '/dashboard') ?? '/dashboard';
+  const r = await request('GET', `${previewPath(repo, pr)}/login?path=${encodeURIComponent(want)}`, undefined, { scope: 'dev' });
+  return {
+    repo,
+    pr,
+    verdict: VERDICTS.has(r?.verdict) ? r.verdict : 'unreachable',
+    path: routePath(r?.path) ?? want,
+    message: r?.message ? cleanMessage(r.message) : null,
+    withIdentity: hopOf(r?.withIdentity),
+    withoutIdentity: hopOf(r?.withoutIdentity),
+    identity: IDENTITY(r?.identity),
+  };
+}
+
 export const exitCodeOf = (p) => (p.phase === 'ready' ? 0 : p.phase === 'failed' ? 1 : PREVIEW_PENDING_EXIT);
 
 export { AuthError };

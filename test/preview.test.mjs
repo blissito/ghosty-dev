@@ -163,3 +163,31 @@ test('preview --wait sin caja: a los 30 s sugiere box rebuild; sin --wait, tambi
     gs.previews.splice(0, gs.previews.length, { phase: 'none', sha: null });
     assert.match((await cli(['preview', '73'])).out, /sin vista previa\. .*\n  Para armarla sin push: ghosty-dev box rebuild 73/);
   }));
+
+test('preview <pr> --login: liga de un solo uso con la identidad de servicio, sólo en stdout (filas 53–54)', () =>
+  withPreview([{ phase: 'ready', sha: null, url: LINK }], async ({ gs, cli }) => {
+    const r = await cli(['preview', '73', '--login', '--path', '/dashboard', '--json']);
+    assert.equal(r.code, 0, r.err);
+    const out = JSON.parse(r.out);
+    assert.match(out.url, /^https:\/\/www\.ghosty\.studio\/preview\/login\//);
+    assert.equal(out.path, '/dashboard');
+    assert.equal(out.oneTime, true);
+    assert.equal(out.identity.email, 'smoke@ghosty.studio');
+    assert.deepEqual(gs.loginCalls[0], { method: 'POST', pr: 73, query: '', body: { path: '/dashboard' } });
+    assert.doesNotMatch(r.err, /nonce_SECRETO/);
+    const human = await cli(['preview', '73', '--login']);
+    assert.match(human.out, /Login de prueba en la vista previa del PR #73 como smoke@ghosty\.studio \(un solo uso, 10 min, aterriza en \/\)/);
+  }));
+
+test('preview <pr> --login --check: prueba de punta a punta; sale 0 con sesión y 1 sin ella', () =>
+  withPreview([{ phase: 'ready', sha: null, url: LINK }], async ({ gs, cli }) => {
+    const ok = await cli(['preview', '73', '--login', '--check', '--path', '/dashboard/chat']);
+    assert.equal(ok.code, 0, ok.err);
+    assert.match(ok.out, /Login en la vista previa del PR #73 \(\/dashboard\/chat\): ok: entra con sesión\n  con identidad 200 · sin identidad 302 → \//);
+    assert.equal(gs.loginCalls[0].method, 'GET');
+    assert.equal(gs.loginCalls[0].query, '?path=%2Fdashboard%2Fchat');
+    gs.loginProbe = { verdict: 'no_session', path: '/dashboard', message: 'la app no aceptó X-Ghosty-Identity', withIdentity: { status: 302, location: '/' }, withoutIdentity: { status: 302, location: '/' } };
+    const bad = await cli(['preview', '73', '--login', '--check', '--json']);
+    assert.equal(bad.code, 1);
+    assert.equal(JSON.parse(bad.out).verdict, 'no_session');
+  }));

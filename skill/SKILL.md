@@ -55,6 +55,9 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   canjearlo); el `state` va con `previewOAuthState(state, '/ruta/callback')` (snippet de los docs de Ghosty Studio,
   fabrica/oauth-en-previews). El dueño registra una vez `https://www.ghosty.studio/preview-oauth/callback`.
   `ghosty-dev doctor` dice qué falta.
+- **Entrar con sesión como agente**: `ghosty-dev preview <pr> --login [--path /x]` → liga de UN solo uso con la identidad
+  de servicio (síguela con `curl -sL -c jar`); `--login --check --path /x` y `doctor` prueban de verdad que la app
+  entra. Sin proveedor OAuth en la preview, la ruta de login dice «ábrela desde Ghosty» (receta en AGENTS.md).
 - **Login en previews sin OAuth**: la vista previa abierta desde Ghosty trae `X-Ghosty-Identity` (JWT EdDSA, 12 h, `aud` =
   `PREVIEW_HOST`, JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`). Receta de ~15 líneas con `jose` en AGENTS.md («Login en
   previews»): si existe esa variable, verifica el header y entra como un usuario de prueba sembrado en la base de la

@@ -216,3 +216,27 @@ test('agentes de partner: el código llama a uno que no existe → MAL con el co
   const r = diagnose(dir, { partnerAgents: { partners: [{ workspace: 'formmy', disabled: false, agents: [] }] } });
   assert.equal(r.checks.find((c) => c.name === 'agentes-de-partner').ok, false);
 });
+
+test('doctor: la prueba real de login (filas 53–54) — ok con sesión, MAL sin ella, sin probar en ruta pública', async () => {
+  const { loginProbeCheck } = await import('../src/doctor.mjs');
+  assert.equal(loginProbeCheck(null), null);
+  const ok = loginProbeCheck({ pr: 101, verdict: 'session', path: '/dashboard', message: 'con identidad /dashboard responde 200; sin ella, 302 → /' });
+  assert.equal(ok.name, 'login-en-previews-de-verdad');
+  assert.equal(ok.ok, true);
+  const bad = loginProbeCheck({ pr: 101, verdict: 'no_session', path: '/dashboard/chat', message: 'la app no aceptó X-Ghosty-Identity' });
+  assert.equal(bad.ok, false);
+  assert.match(bad.fix, /ghosty-dev preview 101 --login --check --path \/dashboard\/chat/);
+  assert.equal(loginProbeCheck({ pr: 1, verdict: 'public_path', path: '/', message: 'x' }).ok, null);
+});
+
+test('doctor: login_path de .ghosty/factory.md, si no /dashboard', async () => {
+  const { loginPathOf } = await import('../src/doctor.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'gd-login-'));
+  assert.equal(loginPathOf(dir), '/dashboard');
+  mkdirSync(join(dir, '.ghosty'));
+  writeFileSync(join(dir, '.ghosty', 'factory.md'), '---\nmemory: 4gb\nlogin_path: /dashboard/chat\n---\n# x\n');
+  assert.equal(loginPathOf(dir), '/dashboard/chat');
+});

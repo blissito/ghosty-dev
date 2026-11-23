@@ -202,7 +202,9 @@ export function diagnose(dir, opts = {}) {
   const r = diagnoseOAuth(dir, { ...opts, identity: id?.ok === true });
   const lock = r.checks.shift();
   const db = databaseCheck(opts.saved);
-  r.checks.unshift(...[lock, id, db].filter(Boolean));
+  // La prueba de punta a punta va junto a la identidad: el código la lee (estático) y la app entra (real).
+  const live = id?.ok ? loginProbeCheck(opts.loginProbe ?? null) : null;
+  r.checks.unshift(...[lock, id, live, db].filter(Boolean));
   const partner = partnerTokenCheck(dir);
   if (partner) r.checks.push(partner);
   const agents = partnerAgentsCheck(partnerAgentRefs(dir), opts.partnerAgents ?? null, factoryPartner(dir));
@@ -266,6 +268,30 @@ export function identityCheck(dir) {
     detail: 'la app tiene login pero no lee X-Ghosty-Identity: un PR basado en main no puede probar con sesión en su vista previa. Es el camino recomendado: sin OAuth, sin tocar tus clientes de producción ni copiar secretos',
     fix: 'adopta la receta «Login en previews» de AGENTS.md (≈15 líneas con jose; sólo actúa si existe GS_PREVIEW_IDENTITY_JWKS_URL; la identidad entra como un usuario de prueba de la base de la preview) y súbela a main',
   };
+}
+
+// Formmy filas 53–54: «login-en-previews: ok» se daba por bueno leyendo el código y la vista previa seguía sin sesión.
+// Con la vista previa del PR lista, gs pide una ruta protegida con y sin la identidad (petición real). null = no hubo
+// prueba (sin PR, sin vista previa lista o sin sesión de ghosty-dev).
+export function loginProbeCheck(probe) {
+  if (!probe) return null;
+  const name = 'login-en-previews-de-verdad';
+  const fix = `revisa que el loader de ${probe.path} lea X-Ghosty-Identity, que el proceso tenga GS_PREVIEW_IDENTITY_JWKS_URL y PREVIEW_HOST, y repite: ghosty-dev preview ${probe.pr ?? '<pr>'} --login --check --path ${probe.path}`;
+  if (probe.verdict === 'session') return { name, ok: true, detail: `petición real a la vista previa: ${probe.message}`, fix: null };
+  if (probe.verdict === 'public_path')
+    return { name, ok: null, detail: `sin probar: ${probe.message}`, fix: 'pon en .ghosty/factory.md «login_path: /una/ruta/con/sesion» o corre doctor --path /una/ruta/con/sesion' };
+  return { name, ok: false, detail: `petición real a la vista previa: ${probe.message ?? probe.verdict}`, fix };
+}
+
+// La ruta protegida para la prueba de login: `login_path:` del frontmatter de .ghosty/factory.md; si no, /dashboard.
+export function loginPathOf(dir) {
+  try {
+    const front = readFileSync(join(dir, '.ghosty', 'factory.md'), 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const m = front.match(/^login_path:\s*["']?(\/[^\s"']*)/m);
+    return m ? m[1] : '/dashboard';
+  } catch {
+    return '/dashboard';
+  }
 }
 
 // Identidad de la caja (22-nov): cada vista previa trae `GHOSTY_PREVIEW_TOKEN` y la API de partner de Ghosty lo acepta

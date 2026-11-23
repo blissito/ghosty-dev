@@ -24,6 +24,9 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     devCalls: [],
     previews: [...previews],
     previewCalls: [],
+    loginCalls: [],
+    // La prueba de login de la vista previa (GET …/preview/login): lo que contesta gs.
+    loginProbe: { verdict: 'session', path: '/dashboard', message: 'con identidad /dashboard responde 200; sin ella, 302 → /', withIdentity: { status: 200, location: null }, withoutIdentity: { status: 302, location: '/' } },
     // La caja de la vista previa: null = el PR no tiene caja (404); { seat: false } = sin asiento (403).
     box: box === undefined ? { log: 'npm run build\nlisto en :3000\n', execText: null, execCode: 0, seat: true } : box,
     boxCalls: [],
@@ -97,6 +100,16 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       const next = s.previews.length > 1 ? s.previews.shift() : s.previews[0] ?? { phase: 'none' };
       const page = `https://www.ghosty.studio/c/dev/pr/${pm[1]}/${pm[2]}/${pm[3]}/preview`;
       return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), sha: null, url: null, error: null, page, ...next });
+    }
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/preview\/login$/))) {
+      s.loginCalls.push({ method: req.method, pr: Number(pm[3]), query: url.search, body: raw ? JSON.parse(raw) : null });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      const identity = { email: 'smoke@ghosty.studio', name: 'Ghosty Smoke' };
+      if (req.method === 'POST') {
+        const body = raw ? JSON.parse(raw) : {};
+        return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), identity, url: 'https://www.ghosty.studio/preview/login/nonce_SECRETO0123456789abcdef', path: body.path ?? '/', expiresIn: 600, oneTime: true });
+      }
+      return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), identity, ...s.loginProbe, path: url.searchParams.get('path') ?? s.loginProbe.path });
     }
     if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/(share|access-requests)$/))) {
       const body = raw ? JSON.parse(raw) : null;
