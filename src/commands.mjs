@@ -998,9 +998,12 @@ export function factoryManifest({ memory, why }) {
   return `---
 # Memoria de la caja de trabajo de Ghosty (instalar, construir y probar): de 4gb a 8gb, múltiplos de 1 GB.
 memory: ${memory}
-# Rutas que Ghosty abre en la vista previa de cada PR («Ghosty · Smoke», hasta 5). Pon la de la FUNCIÓN PRINCIPAL,
-# no sólo /login: un smoke de /login pasó en verde con el chat roto (Formmy #73). Quita el # y cámbiala:
-# smoke: [/ruta-de-la-funcion-principal]
+# «Ghosty · Smoke»: páginas o pasos (con método y cuerpo JSON) que deben dar 2xx en la vista previa de cada PR, ya con
+# sesión (identidad ghosty-smoke). Pon la FUNCIÓN PRINCIPAL, no sólo /login: un smoke de /login pasó en verde con el
+# chat roto (Formmy #73). Quita los # y cámbialos:
+# smoke:
+#   - /ruta-de-la-funcion-principal
+#   - POST /api/accion-principal {"campo":"valor"}
 ---
 Configuración de la fábrica de Ghosty Studio para este repo.
 
@@ -1021,7 +1024,7 @@ const MAIN_FLOW_LINE = 'Flujo principal probado con sesión:';
 function smokeHint(path) {
   try {
     const front = readFileSync(path, 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
-    return /^smoke:/m.test(front) ? '' : '; sin smoke: agrega a su frontmatter «smoke: [/ruta-de-la-funcion-principal]» (no sólo /login)';
+    return /^smoke:/m.test(front) ? '' : '; sin smoke: agrega a su frontmatter «smoke:» con la función principal (p. ej. «- POST /api/accion {"x":1}»), no sólo /login';
   } catch {
     return '';
   }

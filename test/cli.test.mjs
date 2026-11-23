@@ -395,7 +395,7 @@ test('init crea .ghosty/factory.md con 4gb en un repo sin señales de build pesa
   const md = readFileSync(join(repo, '.ghosty/factory.md'), 'utf8');
   assert.match(md, /^---\n(?:#.*\n)*memory: 4gb\n(?:#.*\n)*---\n/);
   // Fila 44: sugiere el smoke de la función principal (comentado: la ruta la elige la persona).
-  assert.match(md, /^# smoke: \[\/ruta-de-la-funcion-principal\]$/m);
+  assert.match(md, /^# smoke:\n#   - \/ruta-de-la-funcion-principal\n#   - POST /m);
   assert.doesNotMatch(md, /^## @/m); // el cuerpo no abre secciones de rol de Teams
 });
 
