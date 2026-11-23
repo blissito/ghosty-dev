@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
 import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
-import { closingRefs, evaluatePullRequest, unlinkedPolicy } from './gate.mjs';
+import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
 
@@ -1192,6 +1192,9 @@ function prePushTarget(dir) {
 }
 
 // `labels: false`: no crea las etiquetas en GitHub (la persona no lo confirmó); quedan en el plan como «skip».
+const REVIEW_CONFIG_PATH = '.github/ghosty-dev/config.json';
+const REVIEW_CHECK_DEFAULT = { name: 'Ghosty Review', app: 'ghosty-studio' };
+
 export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
@@ -1216,6 +1219,19 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
     prTemplate && !(force && prTemplate === PR_TEMPLATE_PATHS[0])
       ? { action: 'skip', path: prTemplate, name: `${prTemplate} (ya existe: agrégale el renglón «${MAIN_FLOW_LINE} <qué y cómo>»)` }
       : { action: 'write', path: PR_TEMPLATE_PATHS[0] },
+  );
+  // La revisión del pendiente en la nube la hace Ghosty Review (otra identidad: el check «Ghosty Review» de la app
+  // ghosty-studio). Sin `reviewCheck` la puerta sólo acepta `ghosty-dev review` y NINGÚN PR de la nube pasa (Formmy, 23-nov:
+  // la evidencia fallaba en todos). Si el check no existe en el repo, la puerta cae a la revisión por comentario: es inocuo.
+  // Es configuración del repo: no se pisa (ni con --force); si ya existe sin `reviewCheck`, se dice qué agregarle.
+  const configPath = join(dir, REVIEW_CONFIG_PATH);
+  const configText = existsSync(configPath) ? readFileSync(configPath, 'utf8') : null;
+  plan.push(
+    configText === null
+      ? { action: 'write', path: REVIEW_CONFIG_PATH, name: `${REVIEW_CONFIG_PATH} (acepta el check «Ghosty Review» como revisor)` }
+      : reviewCheckConfig(configText)
+        ? { action: 'skip', path: REVIEW_CONFIG_PATH, name: `${REVIEW_CONFIG_PATH} (ya tiene reviewCheck)` }
+        : { action: 'skip', path: REVIEW_CONFIG_PATH, name: `${REVIEW_CONFIG_PATH} (ya existe sin reviewCheck: agrégale ${JSON.stringify({ reviewCheck: REVIEW_CHECK_DEFAULT })} o los PR de la nube no pasarán la puerta)` },
   );
   const agentsPath = join(dir, 'AGENTS.md');
   const agentsText = existsSync(agentsPath) ? readFileSync(agentsPath, 'utf8') : null;
@@ -1260,6 +1276,10 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
   if (box) {
     mkdirSync(dirname(factoryPath), { recursive: true });
     writeFileSync(factoryPath, factoryManifest(box));
+  }
+  if (configText === null) {
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, `${JSON.stringify({ reviewCheck: REVIEW_CHECK_DEFAULT }, null, 2)}\n`);
   }
   const agentsSection = readFileSync(join(ROOT, 'AGENTS.md'), 'utf8');
   if (agentsAction === 'write') writeFileSync(agentsPath, agentsSection);

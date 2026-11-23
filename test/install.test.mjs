@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setup, issue, VALID_EVIDENCE, revisionMd, SHA } from '../testkit/helpers.mjs';
 import { formatEvidence, formatRevision } from '../src/evidence.mjs';
@@ -83,4 +83,17 @@ test('protect --dry-run lista los PR abiertos que quedarían bloqueados y por qu
   assert.equal(s.read().protection, undefined);
   assert.ok(s.read().calls.every((c) => c[0] === 'api' && c[2] === 'GET'));
   assert.match(s.run('protect', '--dry-run').out, /Quedarían bloqueados 2 PR abierto\(s\):\n {2}#10 Le falta\n {4}- #6: falta la revisión/);
+});
+
+test('init escribe config.json con reviewCheck «Ghosty Review» (sin él ningún PR de la nube pasaba la puerta) y no pisa uno existente', () => {
+  const s = setup();
+  assert.equal(s.run('init', '--yes', '--no-protect').code, 0);
+  const path = join(s.repo, '.github/ghosty-dev/config.json');
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { reviewCheck: { name: 'Ghosty Review', app: 'ghosty-studio' } });
+  // Con config propia (otra política), --force no la toca y dice qué agregarle.
+  writeFileSync(path, JSON.stringify({ unlinked: 'warn' }));
+  const r = s.run('init', '--yes', '--no-protect', '--force', '--dry-run');
+  assert.match(r.out, /config\.json \(ya existe sin reviewCheck: agrégale/);
+  assert.equal(s.run('init', '--yes', '--no-protect', '--force').code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { unlinked: 'warn' });
 });
