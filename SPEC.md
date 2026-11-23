@@ -191,6 +191,13 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
    (lo leído se guarda en el clon, `.git/ghosty-dev/`). La evidencia y la revisión nunca cuentan como pedido.
 9. **block.** `ghosty-dev block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
    `## Bloqueado por` en el cuerpo. El pendiente queda `bloqueado`.
+   `block <n> --reason "…" [--person]` pone la etiqueta `ghosty-dev:bloqueado` y un comentario
+   `<!-- ghosty-dev:bloqueo -->\n**Bloqueado[ (te necesita)]:** <motivo>` en el issue y su PR. Ghosty Studio lo lee del
+   último comentario con marca: **bloqueado gana sobre «Escribiendo» y sobre el estado del PR** (la tarjeta se queda en
+   su columna con el chip «Bloqueado: <motivo>» o «Bloqueado por #n»); si el motivo pide a la persona (`--person`, o
+   credencial/acceso/decisión en el texto) dice «Te necesita» y le manda push una vez por motivo. Bloquear no es
+   columna. `unblock <n>` quita la etiqueta (vuelve a `tomado` con PR o asignado; si no, a `listo`) y deja
+   `<!-- ghosty-dev:desbloqueo -->`, que anula el bloqueo anterior.
 
 **La puerta** (`.github/workflows/evidence-gate.yml`, check `ghosty-dev/evidencia`): falla si el PR no cierra ningún
 pendiente o si alguno de los que cierra no tiene evidencia válida. Su script se lee de la rama base, para que un PR

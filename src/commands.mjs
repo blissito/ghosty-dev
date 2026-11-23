@@ -680,7 +680,9 @@ export function board(repoUrl) {
 export const BLOCK_MARK = '<!-- ghosty-dev:bloqueo -->';
 export const blockHint = (n) => `Si la función principal no funciona y no lo puedes arreglar ahora, no lo marques listo: ghosty-dev block ${n} --reason "qué falla y qué falta" (queda «Bloqueado» con su motivo en el tablero) y avísale a la persona.`;
 
-export function block(n, by, { reason } = {}) {
+export const UNBLOCK_MARK = '<!-- ghosty-dev:desbloqueo -->';
+
+export function block(n, by, { reason, person = false } = {}) {
   const why = typeof reason === 'string' ? reason.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim() : '';
   if (reason !== undefined && !why) throw new UserError('--reason va con el motivo: qué falla y qué falta.');
   if (why.length > 1000) throw new UserError('--reason: máximo 1000 caracteres.');
@@ -688,12 +690,14 @@ export function block(n, by, { reason } = {}) {
     const issue = viewIssue(n);
     if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
     setState(issue, 'bloqueado');
-    const body = `${BLOCK_MARK}\n**Bloqueado:** ${why}`;
+    // `--person`: le toca a la persona (credencial, acceso, decisión): el tablero dice «Te necesita» y manda push.
+    const body = `${BLOCK_MARK}\n**Bloqueado${person ? ' (te necesita)' : ''}:** ${why}`;
     api('POST', `${API_ISSUE(n)}/comments`, { body });
     const pr = prOf(n);
     if (pr) api('POST', `${API_ISSUE(pr.number)}/comments`, { body: `${body}\n\n(#${n})` }, { allowFail: true });
-    return { number: n, blockedBy: null, reason: why, pr: pr?.number ?? null, via: 'motivo' };
+    return { number: n, blockedBy: null, reason: why, pr: pr?.number ?? null, via: 'motivo', person: !!person };
   }
+  if (person) throw new UserError('--person va con --reason "…" (qué necesitas de la persona).');
   if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n) o ghosty-dev block <n> --reason "…".');
   if (why) api('POST', `${API_ISSUE(n)}/comments`, { body: `${BLOCK_MARK}\n**Bloqueado por #${by}:** ${why}` });
   const issue = viewIssue(n);
@@ -706,6 +710,21 @@ export function block(n, by, { reason } = {}) {
     setState(issue, 'listo'); // GitHub ya lo marca «Blocked»: la etiqueta sigue en «por hacer»
   }
   return { number: n, blockedBy: by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
+}
+
+// Quita el bloqueo con motivo: etiqueta fuera (vuelve a «tomado» si tiene PR o asignado; si no, a «listo») y una marca
+// de desbloqueo en el issue y su PR, para que el tablero deje de decir «Bloqueado». Un --by nativo se quita solo al
+// cerrarse el que bloquea.
+export function unblock(n) {
+  const issue = viewIssue(n);
+  if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
+  const labeled = (issue.labels || []).some((l) => l.name === label('bloqueado'));
+  const pr = prOf(n);
+  if (labeled) setState(issue, pr || (issue.assignees || []).length ? 'tomado' : 'listo');
+  const body = `${UNBLOCK_MARK}\n**Desbloqueado.**`;
+  api('POST', `${API_ISSUE(n)}/comments`, { body });
+  if (pr) api('POST', `${API_ISSUE(pr.number)}/comments`, { body: `${body} (#${n})` }, { allowFail: true });
+  return { number: n, wasLabeled: labeled, pr: pr?.number ?? null };
 }
 
 // ---------- show (Beads: bd show) ----------

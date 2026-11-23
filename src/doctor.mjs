@@ -3,7 +3,11 @@
 // (GET /api/v2/preview-oauth/providers, público) y se detecta igual que la caja: el `grepPattern` sobre el repo, un
 // proveedor si casa alguna de sus `codeHints`, y una llave falta si el código cita un alias y ninguno está en el env de
 // la preview. Si el PR de la rama ya tiene vista previa, manda lo que ella vio (`preview.oauth`, con `registered`).
-// Sólo NOMBRES de variables: los valores no se leen ni del disco ni de gs.
+// Sólo NOMBRES de variables: los valores no se leen ni del disco ni de gs. Única excepción: el CLIENT ID de OAuth
+// (público, va en la URL de login de cualquier app) se lee del .env local para preguntarle a gs
+// (GET /api/v2/preview-oauth/probe) si el proveedor ya acepta el callback; nunca un secreto.
+// Sólo cuentan los proveedores con los que la app INICIA SESIÓN (`loginHints`): Shopify de tienda o el diálogo de
+// Facebook de WhatsApp son integraciones y no se avisan. Registro: true = ok; false = falta el paso; null = no se dice.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { checkLock } from './lock.mjs';
@@ -54,10 +58,22 @@ export function parseCatalog(c) {
           return [];
         }
       });
+      // Catálogo viejo (sin loginHints): toda pista cuenta como login, como antes.
+      const login = Array.isArray(p?.loginHints)
+        ? strs(p.loginHints, 300).flatMap((h) => {
+            try {
+              return [new RegExp(h)];
+            } catch {
+              return [];
+            }
+          })
+        : hints;
       return {
         id: plain(p?.id ?? '', 40),
         name: plain(p?.name ?? '', 60),
         hints,
+        login,
+        probe: typeof p?.probe === 'string' ? plain(p.probe, 20) : null,
         env: Array.isArray(p?.env) ? p.env.map((g) => (Array.isArray(g) ? g.filter(envName) : [])).filter((g) => g.length) : [],
         consoleUrl: httpsUrl(p?.consoleUrl),
         steps: strs(p?.steps, 400).slice(0, 5),
@@ -128,7 +144,8 @@ export function detectProviders(catalog, tokens, envKeys) {
       const cited = aliases.filter((a) => seen.has(a));
       return cited.length && !aliases.some((a) => have.has(a)) ? [cited[0]] : [];
     });
-    out.push({ id: p.id, name: p.name, registered: null, consoleUrl: p.consoleUrl, steps: p.steps.map((s) => s.replaceAll('{uri}', uri)), missingEnv, signsCallback: p.signsCallback });
+    const login = [...seen].some((t) => p.login.some((re) => re.test(t)));
+    out.push({ id: p.id, name: p.name, registered: null, login, consoleUrl: p.consoleUrl, steps: p.steps.map((s) => s.replaceAll('{uri}', uri)), missingEnv, signsCallback: p.signsCallback });
   }
   return out;
 }
@@ -144,6 +161,7 @@ export function parsePreviewOAuth(o) {
         id: plain(p?.id ?? '', 40),
         name: plain(p?.name ?? '', 60),
         registered: typeof p?.registered === 'boolean' ? p.registered : null,
+        login: p?.login !== false,
         consoleUrl: httpsUrl(p?.consoleUrl),
         steps: strs(p?.steps, 400).slice(0, 5),
         missingEnv: Array.isArray(p?.missingEnv) ? p.missingEnv.filter(envName) : [],
@@ -233,7 +251,7 @@ export function partnerTokenCheck(dir) {
   };
 }
 
-function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null, identity = false } = {}) {
+function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null, identity = false, probes = {} } = {}) {
   const checks = [];
   const lock = checkLock(dir);
   checks.push(lock.lock ? { name: 'lock', ok: lock.ok, detail: lock.ok ? `${lock.lock} coincide con package.json` : lock.message, fix: lock.ok ? null : lock.fix } : { name: 'lock', ok: true, detail: 'sin lock que comparar', fix: null });
@@ -242,13 +260,16 @@ function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null,
     return { checks, oauth: null };
   }
   const { tokens, usesProxy } = grepRepo(dir, catalog.pattern, catalog.env.redirectUri);
-  const local = detectProviders(catalog, tokens, saved);
-  // La caja manda (vio el env real y sabe si ya volvió un code por el proxy); lo local cubre lo que ella no listó.
-  const providers = previewOAuth ? [...previewOAuth.providers, ...local.filter((l) => !previewOAuth.providers.some((p) => p.id === l.id))] : local;
+  const local = detectProviders(catalog, tokens, saved)
+    .filter((p) => p.login)
+    .map((p) => ({ ...p, registered: typeof probes[p.id] === 'boolean' ? probes[p.id] : null }));
+  // La caja manda (vio el env real, sondeó al proveedor y sabe si ya volvió un code por el proxy); lo local cubre lo
+  // que ella no listó.
+  const providers = previewOAuth ? [...previewOAuth.providers.filter((p) => p.login), ...local.filter((l) => !previewOAuth.providers.some((p) => p.id === l.id))] : local;
   const redirectUri = previewOAuth?.redirectUri ?? catalog.redirectUri;
   const oauth = { redirectUri, providers, agentPrompt: previewOAuth?.agentPrompt ?? null, env: catalog.env, docs: catalog.docs, helperJs: catalog.helperJs };
   if (!providers.length) {
-    checks.push({ name: 'oauth', ok: true, detail: 'el repo no usa OAuth de un proveedor conocido', fix: null });
+    checks.push({ name: 'oauth', ok: true, detail: 'la app no inicia sesión con OAuth de un proveedor conocido', fix: null });
     return { checks, oauth };
   }
   // Con la identidad de Ghosty adoptada, OAuth no hace falta en la vista previa: nada de llaves ni callback (fila 47).
@@ -262,8 +283,9 @@ function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null,
     if (p.missingEnv === null) checks.push({ name: `oauth-${p.id}-llaves`, ok: null, detail: `${p.name}: no pude leer las variables de la vista previa (ghosty-dev login)`, fix: 'ghosty-dev env ls' });
     else if (p.missingEnv.length) checks.push({ name: `oauth-${p.id}-llaves`, ok: null, detail: `${p.name}: a la vista previa le faltan ${p.missingEnv.join(', ')}. No copies ahí el secreto de producción`, fix: `primero la identidad de Ghosty (receta «Login en previews» de AGENTS.md, sin OAuth); ${separate}, y sus llaves con ghosty-dev env push <archivo>` });
     else checks.push({ name: `oauth-${p.id}-llaves`, ok: true, detail: `${p.name}: la vista previa tiene sus llaves`, fix: null });
-    if (p.registered === true) checks.push({ name: `oauth-${p.id}-registro`, ok: true, detail: `${p.name}: ya regresó un login por el callback de Ghosty`, fix: null });
-    else
+    if (p.registered === true) checks.push({ name: `oauth-${p.id}-registro`, ok: true, detail: `${p.name}: el callback de Ghosty ya está registrado`, fix: null });
+    // Si no se pudo saber (sin client id, proveedor que pide login antes de validar), no se avisa.
+    else if (p.registered === false)
       checks.push({
         name: `oauth-${p.id}-registro`,
         ok: null,
@@ -301,4 +323,40 @@ export function doctorText(x) {
     if (c.fix) lines.push(`      → ${c.fix}`);
   }
   return lines.join('\n');
+}
+
+// Pregunta a gs si cada proveedor de login ya acepta el callback, con el client id del .env local (público).
+// { [id]: true | false | null }. Sin red o sin client id: nada (no se avisa).
+export async function probeProviders(dir, catalog, { fetchImpl = fetch } = {}) {
+  if (!catalog) return {};
+  const vals = new Map();
+  for (const f of ['.env', '.env.local', '.env.development']) {
+    let text = '';
+    try {
+      text = readFileSync(join(dir, f), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n')) {
+      const m = /^(?:export\s+)?([A-Z][A-Z0-9_]*)=["']?([A-Za-z0-9._-]{4,120})["']?\s*$/.exec(line.trim());
+      if (m && !vals.has(m[1])) vals.set(m[1], m[2]);
+    }
+  }
+  const { tokens } = grepRepo(dir, catalog.pattern, catalog.env.redirectUri);
+  const out = {};
+  await Promise.all(
+    detectProviders(catalog, tokens, [])
+      .filter((p) => p.login)
+      .map(async (d) => {
+        const p = catalog.providers.find((x) => x.id === d.id);
+        const id = (p?.env[0] ?? []).map((a) => vals.get(a)).find(Boolean);
+        if (!p?.probe || !id) return;
+        try {
+          const res = await fetchImpl(`${baseUrl()}/api/v2/preview-oauth/probe?provider=${encodeURIComponent(p.id)}&client_id=${encodeURIComponent(id)}`, { redirect: 'error', signal: AbortSignal.timeout(10_000) });
+          const j = res.ok ? await res.json() : null;
+          out[p.id] = typeof j?.registered === 'boolean' ? j.registered : null;
+        } catch {}
+      }),
+  );
+  return out;
 }

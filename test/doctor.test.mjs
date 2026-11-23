@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectProviders, diagnose, doctorText, fetchCatalog, parseCatalog, parsePreviewOAuth } from '../src/doctor.mjs';
+import { detectProviders, diagnose, doctorText, fetchCatalog, parseCatalog, parsePreviewOAuth, probeProviders } from '../src/doctor.mjs';
 
 const URI = 'https://www.ghosty.studio/preview-oauth/callback';
 // Forma real de GET /api/v2/preview-oauth/providers (recortada a dos proveedores).
@@ -54,7 +54,10 @@ test('diagnose: llaves faltantes, registro con URL para copiar + consola + 3 pas
     'app/auth.server.ts': 'new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET })',
     'node_modules/x/i.js': 'admin/oauth/authorize SHOPIFY_API_KEY',
   });
-  const r = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT });
+  // Sin poder saber si está registrado no se avisa del registro; con el proveedor rechazando el callback, sí.
+  assert.ok(!diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT }).checks.some((c) => c.name === 'oauth-google-registro'));
+  assert.equal(diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT, probes: { google: true } }).checks.find((c) => c.name === 'oauth-google-registro').ok, true);
+  const r = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: CAT, probes: { google: false } });
   // Fila 47: sin llaves en la preview, OAuth es aviso (no MAL) y el camino recomendado es la identidad de Ghosty.
   assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['oauth-google-llaves', null], ['oauth-google-registro', null], ['oauth-callback', null]]);
   assert.match(r.checks[1].fix, /^primero la identidad de Ghosty .*cliente OAuth APARTE sólo para previews .*nunca el de producción/);
@@ -69,7 +72,7 @@ test('diagnose: llaves faltantes, registro con URL para copiar + consola + 3 pas
   assert.equal(diagnose(d, { saved: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], catalog: CAT }).checks.find((c) => c.name === 'oauth-callback').ok, false);
   // Con el proxy en el código y las llaves: sólo queda el registro (aviso, no falla).
   writeFileSync(join(d, 'app/auth.server.ts'), 'new GoogleStrategy({ clientID: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET, callbackURL: process.env.GS_PREVIEW_OAUTH_REDIRECT_URI })');
-  const ok = diagnose(d, { saved: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], catalog: CAT });
+  const ok = diagnose(d, { saved: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], catalog: CAT, probes: { google: false } });
   assert.ok(ok.checks.every((c) => c.ok !== false));
   // La preview del PR ya vio un login por el proxy: registrado.
   const pv = parsePreviewOAuth({ redirectUri: URI, agentPrompt: 'Registra la URL en Google', providers: [{ id: 'google', name: 'Google', registered: true, consoleUrl: 'https://console.cloud.google.com/apis/credentials', steps: [], missingEnv: [] }] });
@@ -77,7 +80,7 @@ test('diagnose: llaves faltantes, registro con URL para copiar + consola + 3 pas
   assert.equal(done.checks.find((c) => c.name === 'oauth-google-registro').ok, true);
   // Sin catálogo: no se inventa nada.
   assert.equal(diagnose(d, { saved: [], catalog: null }).checks[1].ok, null);
-  assert.equal(diagnose(repo({ 'package.json': {} }), { saved: [], catalog: CAT }).checks[1].detail, 'el repo no usa OAuth de un proveedor conocido');
+  assert.equal(diagnose(repo({ 'package.json': {} }), { saved: [], catalog: CAT }).checks[1].detail, 'la app no inicia sesión con OAuth de un proveedor conocido');
 });
 
 test('fetchCatalog baja el catálogo público de gs sin sesión y sin seguir redirecciones (C31)', async () => {
@@ -151,4 +154,31 @@ test('doctor: la identidad de Ghosty va primero; adoptada, OAuth deja de pedir l
   assert.deepEqual(r.checks.map((c) => [c.name, c.ok]), [['lock', true], ['login-en-previews', true], ['oauth', true]]);
   assert.match(r.checks[2].detail, /no hace falta, la app entra con la identidad de Ghosty/);
   assert.ok(r.checks.every((c) => c.ok !== false));
+});
+
+test('sólo proveedores de LOGIN: Shopify de tienda y el diálogo de Facebook no se avisan (Formmy)', () => {
+  const cat = parseCatalog({
+    grepPattern: 'GoogleStrategy|admin/oauth/authorize|facebook\\.com/v[0-9.]+/dialog/oauth',
+    redirectUri: URI,
+    providers: [
+      { id: 'google', name: 'Google', codeHints: ['GoogleStrategy'], loginHints: ['GoogleStrategy'], probe: 'google', env: [['GOOGLE_CLIENT_ID']], consoleUrl: 'https://console.cloud.google.com/apis/credentials', steps: [] },
+      { id: 'shopify', name: 'Shopify', codeHints: ['admin/oauth/authorize'], loginHints: [], env: [], consoleUrl: 'https://partners.shopify.com', steps: [] },
+      { id: 'facebook', name: 'Facebook', codeHints: ['facebook\\.com/v[0-9.]+/dialog/oauth'], loginHints: ['FacebookStrategy'], env: [], consoleUrl: 'https://developers.facebook.com/apps', steps: [] },
+    ],
+  });
+  const d = repo({ 'package.json': {}, 'a.ts': 'GoogleStrategy admin/oauth/authorize https://www.facebook.com/v19.0/dialog/oauth' });
+  const names = diagnose(d, { saved: ['GOOGLE_CLIENT_ID'], catalog: cat, probes: { google: true } }).checks.map((c) => c.name);
+  assert.ok(names.includes('oauth-google-registro'));
+  assert.ok(!names.some((n) => n.includes('shopify') || n.includes('facebook')));
+});
+
+test('probeProviders: lee sólo el client id del .env y pregunta a gs', async () => {
+  const cat = parseCatalog({ grepPattern: 'GoogleStrategy', redirectUri: URI, providers: [{ id: 'google', name: 'Google', codeHints: ['GoogleStrategy'], loginHints: ['GoogleStrategy'], probe: 'google', env: [['GOOGLE_CLIENT_ID'], ['GOOGLE_CLIENT_SECRET']], consoleUrl: 'https://x.test', steps: [] }] });
+  const d = repo({ 'package.json': {}, 'a.ts': 'GoogleStrategy', '.env': 'GOOGLE_CLIENT_ID=123-abc.apps.googleusercontent.com\nGOOGLE_CLIENT_SECRET=shh' });
+  const seen = [];
+  const out = await probeProviders(d, cat, { fetchImpl: async (u) => { seen.push(String(u)); return { ok: true, json: async () => ({ registered: true }) }; } });
+  assert.deepEqual(out, { google: true });
+  assert.equal(seen.length, 1);
+  assert.match(seen[0], /provider=google&client_id=123-abc\.apps\.googleusercontent\.com$/);
+  assert.ok(!seen[0].includes('shh'));
 });

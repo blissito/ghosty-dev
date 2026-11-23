@@ -111,3 +111,17 @@ test('evidencia sin flujo principal: dice qué falta y ofrece block --reason', (
   assert.match(r.err, /Falta «Flujo principal probado con sesión/);
   assert.match(r.err, /ghosty-dev block 5 --reason/);
 });
+
+test('block --reason --person y unblock: marca «te necesita», luego la etiqueta sale y queda la marca de desbloqueo', () => {
+  const s = withPr(pr({ draft: true }));
+  let r = s.run('block', '5', '--reason', 'falta la credencial de Ghosty en la preview', '--person');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /«Te necesita»/);
+  assert.match(s.read().issues[5].comments.at(-1).body, /^<!-- ghosty-dev:bloqueo -->\n\*\*Bloqueado \(te necesita\):\*\* falta la credencial/);
+  r = s.run('unblock', '5');
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /#5 desbloqueado \(también en el PR #81\)/);
+  const db = s.read();
+  assert.ok(!db.issues[5].labels.includes('ghosty-dev:bloqueado'));
+  assert.match(db.issues[5].comments.at(-1).body, /^<!-- ghosty-dev:desbloqueo -->/);
+});

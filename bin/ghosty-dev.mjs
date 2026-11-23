@@ -57,7 +57,9 @@ Uso: ghosty-dev <comando> [opciones]
   review --check --file revision.md      sólo validan el formato, sin gh ni red (no publican nada)
   block <n> --by <m>                     #n queda bloqueado por #m
   block <n> --reason "…"                 #n queda bloqueado con su motivo (comentario en el issue y su PR; el tablero
-                                         lo enseña). Úsalo si la verificación real falla y no lo puedes arreglar ahora
+                                         lo enseña). Úsalo si la verificación real falla y no lo puedes arreglar ahora.
+                                         --person: le toca a la persona (credencial, acceso, decisión) → «Te necesita»
+  unblock <n>                            quita el bloqueo con motivo (el tablero vuelve a su estado)
   add … --flow "qué y cómo"              el flujo principal que se probará con sesión (va en la evidencia)
   show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
                                          (vista previa, revisión, smoke y CI del commit actual)
@@ -152,6 +154,7 @@ const { values, positionals } = parseArgs({
     'no-deploy': { type: 'boolean' },
     flow: { type: 'string' },
     reason: { type: 'string' },
+    person: { type: 'boolean' },
     yes: { type: 'boolean', short: 'y' },
   },
 });
@@ -477,12 +480,15 @@ try {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
   } else if (command === 'block') {
-    const r = cmd.block(num(arg), values.by === undefined ? undefined : num(values.by, '--by <m>'), { reason: values.reason });
+    const r = cmd.block(num(arg), values.by === undefined ? undefined : num(values.by, '--by <m>'), { reason: values.reason, person: values.person === true });
     print(r, (x) =>
       x.via === 'motivo'
-        ? `#${x.number} bloqueado: ${x.reason}${x.pr ? ` (también en el PR #${x.pr})` : ''}. El tablero lo enseña como «Bloqueado».`
+        ? `#${x.number} bloqueado: ${x.reason}${x.pr ? ` (también en el PR #${x.pr})` : ''}. El tablero lo enseña como «Bloqueado»${x.person ? ' y le avisa a la persona («Te necesita»)' : ''}. Al resolverlo: ghosty-dev unblock ${x.number}.`
         : `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? ` Motivo: ${x.reason}` : ''}`,
     );
+  } else if (command === 'unblock') {
+    const r = cmd.unblock(num(arg));
+    print(r, (x) => `#${x.number} desbloqueado${x.pr ? ` (también en el PR #${x.pr})` : ''}.${x.wasLabeled ? '' : ' No tenía la etiqueta: sólo se dejó la marca.'}`);
   } else if (command === 'show' && values.pr !== undefined) {
     await printPr(cmd.showPr(num(values.pr, '--pr <m>')));
   } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
@@ -523,7 +529,10 @@ try {
         previewMissingEnvTouched = p.missingEnvTouched;
       }
     } catch {}
-    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog: await doctor.fetchCatalog(), previewOAuth, previewMissingEnv, previewMissingEnvTouched }) };
+    const catalog = await doctor.fetchCatalog();
+    // ¿El proveedor ya acepta el callback de Ghosty? Con el client id (público) del .env local; la preview del PR manda.
+    const probes = await doctor.probeProviders(top, catalog).catch(() => ({}));
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, probes }) };
     if (r.oauth) delete r.oauth.helperJs;
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;
