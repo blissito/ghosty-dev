@@ -296,7 +296,7 @@ function previewText(x, { opened } = {}) {
   const rest = (x.missingEnv ?? []).filter((n) => !top.includes(n));
   const list = (l) => `${l.slice(0, 8).join(', ')}${l.length > 8 ? ` y ${l.length - 8} más` : ''}`;
   const env =
-    (top.length ? `\n  Faltan ${top.length} que usa este PR o el arranque: ${list(top)}. Súbelas con ghosty-dev env push (entran en el siguiente armado).` : '') +
+    (top.length ? `\n  ${top.length === 1 ? 'Falta 1' : `Faltan ${top.length}`} que usa este PR o el arranque: ${list(top)}. Súbelas con ghosty-dev env push (entran en el siguiente armado).` : '') +
     (rest.length ? `\n  ${top.length ? 'Y' : 'Informativo: faltan'} ${rest.length} más del resto de la app (ghosty-dev doctor las lista).` : '');
   if (x.phase === 'ready')
     return (x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`) + env;

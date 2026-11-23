@@ -41,7 +41,7 @@ test('preview <pr>: con variables faltantes las dice por nombre (stdout y --json
     const out = JSON.parse((await cli(['preview', '73', '--json'])).out);
     assert.deepEqual(out.missingEnv, ['FORMMY_MCP_TOKEN_SECRET', 'GHOSTY_PARTNER_KEY']);
     assert.deepEqual(out.missingEnvTouched, ['FORMMY_MCP_TOKEN_SECRET']);
-    assert.match((await cli(['preview', '73'])).out, /Faltan 1 que usa este PR o el arranque: FORMMY_MCP_TOKEN_SECRET\. Súbelas con ghosty-dev env push[\s\S]*Y 1 más del resto de la app/);
+    assert.match((await cli(['preview', '73'])).out, /Falta 1 que usa este PR o el arranque: FORMMY_MCP_TOKEN_SECRET\. Súbelas con ghosty-dev env push[\s\S]*Y 1 más del resto de la app/);
   }));
 
 test('preview --wait: armándose → lista, con backoff; sin --wait sale 75 y sin liga (C19)', () =>
