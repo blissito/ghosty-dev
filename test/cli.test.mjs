@@ -72,8 +72,8 @@ test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierr
   const { run, read, root } = setup({ issues: { 1: issue(1, 'Base'), 2: issue(2, 'Encima') } });
   assert.equal(run('block', '2', '--by', '1').code, 0);
   assert.deepEqual(read().issues[2].blockedBy, [1]);
-  // Con dependencias nativas GitHub ya muestra «Blocked»: la etiqueta se queda en por-hacer.
-  assert.deepEqual(read().issues[2].labels, ['ghosty-dev:por-hacer']);
+  // Con dependencias nativas GitHub ya muestra «Blocked» y la etiqueta lo dice igual (el tablero no lo pinta «Escribiendo»).
+  assert.deepEqual(read().issues[2].labels, ['ghosty-dev:bloqueado']);
   let list = JSON.parse(run('ready', '--json').out);
   assert.deepEqual(list.map((i) => i.number), [1]);
 
@@ -81,7 +81,7 @@ test('ready ofrece los listos y oculta los bloqueados hasta que su bloqueo cierr
   db.issues[1].state = 'closed';
   writeFileSync(join(root, 'gh.json'), JSON.stringify(db));
   list = JSON.parse(run('ready', '--json').out);
-  assert.deepEqual(list.map((i) => [i.number, i.reason]), [[2, 'por-hacer']]);
+  assert.deepEqual(list.map((i) => [i.number, i.reason]), [[2, 'desbloqueado']]);
 });
 
 test('block sin API de dependencias escribe «Bloqueado por» en el cuerpo', () => {
@@ -216,7 +216,7 @@ test('add abre un pendiente con la plantilla y, con --by, lo bloquea con la depe
   assert.match(i.body, /## Objetivo\nGET \/version responde la versión/);
   assert.match(i.body, /- \[ \] responde 200\n- \[ \] hay un test/);
   assert.deepEqual(i.blockedBy, [1]);
-  assert.deepEqual(i.labels, ['ghosty-dev:por-hacer']);
+  assert.deepEqual(i.labels, ['ghosty-dev:bloqueado']);
 });
 
 test('add sin criterios se niega', () => {

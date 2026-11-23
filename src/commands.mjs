@@ -706,8 +706,11 @@ export function block(n, by, { reason, person = false } = {}) {
   if (native === null) {
     api('PATCH', API_ISSUE(n), { body: addBlockedBy(issue.body, by) });
     setState(issue, 'bloqueado');
-  } else if (stateOf(issue) !== 'listo') {
-    setState(issue, 'listo'); // GitHub ya lo marca «Blocked»: la etiqueta sigue en «por hacer»
+  } else if (stateOf(issue) !== 'bloqueado') {
+    // GitHub ya lo marca «Blocked»; la etiqueta también dice bloqueado para que GitHub y el tablero digan lo mismo
+    // (bliss, 22-nov: #77 salía «Escribiendo» con «Blocked by #90»). Al cerrarse el que bloquea, `ready` lo ofrece
+    // otra vez y el tablero lo suelta (la dependencia nativa manda).
+    setState(issue, 'bloqueado');
   }
   return { number: n, blockedBy: by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
 }

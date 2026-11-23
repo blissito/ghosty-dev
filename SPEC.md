@@ -190,7 +190,9 @@ ready → claim → work → PR (Closes #n) → wait ──evento CI──→ re
    `reason: pedido`, `wait --watch` despierta con él antes que con el CI, y `asks <n>` lo lee y lo marca leído
    (lo leído se guarda en el clon, `.git/ghosty-dev/`). La evidencia y la revisión nunca cuentan como pedido.
 9. **block.** `ghosty-dev block <n> --by <m>` usa la dependencia nativa de GitHub y, si el repo no la tiene, escribe
-   `## Bloqueado por` en el cuerpo. El pendiente queda `bloqueado`.
+   `## Bloqueado por` en el cuerpo. En los dos casos el pendiente queda con la etiqueta `bloqueado` (GitHub y el
+   tablero dicen lo mismo). Para Ghosty Studio la fuente es la dependencia NATIVA (`GET …/dependencies/blocked_by`):
+   «Bloqueado por #m · título» mientras #m siga abierto; al cerrarse, la etiqueta sola ya no bloquea.
    `block <n> --reason "…" [--person]` pone la etiqueta `ghosty-dev:bloqueado` y un comentario
    `<!-- ghosty-dev:bloqueo -->\n**Bloqueado[ (te necesita)]:** <motivo>` en el issue y su PR. Ghosty Studio lo lee del
    último comentario con marca: **bloqueado gana sobre «Escribiendo» y sobre el estado del PR** (la tarjeta se queda en
