@@ -64,6 +64,9 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
 - **API de partner en previews sin llaves**: la vista previa trae `GHOSTY_PREVIEW_TOKEN` (identidad de la caja) y la API
   de partner de Ghosty lo acepta como `Authorization: Bearer` (sólo pruebas). Nunca copies la llave de partner: receta de
   3 líneas en AGENTS.md («API de partner en previews»); `doctor` la sugiere.
+- **Agente de partner** (crear o cambiar el que contesta en la app): prompt versionado en `ghosty/agents/<slug>.md` y
+  `ghosty partner agent apply --agent <slug> --prompt-file ghosty/agents/<slug>.md --mcp <url de prod> [--dry-run]`
+  (CLI `@ghostystudio/cli` ≥ 0.116, llave de partner del env, nunca pegada); `partner agent ls|get` para mirar.
 - **Caja sin memoria** (`box logs` termina en «⚠ La caja se quedó sin memoria», o `box`/`preview` dicen «la caja no
   responde»): agrega `.ghosty/factory.md` con `memory: 8gb` en el frontmatter (bajo `setup:`), commit y push.
 - **PR en conflicto con main**: `ghosty-dev next` lo pone primero con el comando (`git fetch origin && git switch <rama>

@@ -78,6 +78,17 @@ const auth = previewToken ? { Authorization: `Bearer ${previewToken}` } : { "X-G
 `...auth` en los headers del fetch y sin el error de «falta la llave» si hay token. Si la dueña tiene varios espacios de
 partner, `.ghosty/factory.md` dice cuál con `partner: <espacio>` en el frontmatter. `ghosty-dev doctor` lo sugiere.
 
+**Agentes de partner (el que contesta en tu app)**: se crean y cambian con el CLI `ghosty` de Ghosty Studio
+(`npx @ghostystudio/cli@latest`), no con `ghosty-dev`. Versiona el prompt en el repo (p. ej. `ghosty/agents/<slug>.md`)
+y aplícalo con la llave de partner **del env** (`GHOSTY_PARTNER_KEY` + `GHOSTY_PARTNER_KEY_SECRET`, nunca pegada):
+```bash
+ghosty partner agent apply --agent crear --prompt-file ghosty/agents/crear.md --mcp https://www.formmy.app/api/mcp --dry-run
+ghosty partner agent apply --agent crear --prompt-file ghosty/agents/crear.md --mcp https://www.formmy.app/api/mcp
+ghosty partner agent ls      # y: ghosty partner agent get --agent crear
+```
+`--dry-run` valida y dice si lo crearía o cambiaría, sin escribir. El MCP apunta a producción (el agente atiende en
+prod); cambiar el prompt es un PR con ese `.md` y, tras el merge, el mismo `apply`.
+
 Un PR cerrado sin merge: `next`, `wait` y `show` dicen quién lo cerró y el motivo, y ofrecen `gh pr reopen <m>`;
 mientras siga cerrado, un push a su rama no corre CI, vista previa ni revisión (el pre-push lo avisa).
 
