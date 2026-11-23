@@ -187,21 +187,29 @@ export function diagnose(dir, opts = {}) {
   // Con la identidad de Ghosty adoptada, las llaves OAuth no le hacen falta a la vista previa (fila 47).
   const oauthVars = new Set((opts.catalog?.providers ?? []).flatMap((p) => p.env.flat()));
   if (Array.isArray(missing) && id?.ok) missing = missing.filter((n) => !oauthVars.has(n));
-  const env = missingEnvCheck(missing, opts.previewMissingEnvTouched ?? []);
+  const env = missingEnvCheck(missing, opts.previewMissingEnvTouched ?? [], opts.previewMissingEnvPriority ?? null);
   if (env) r.checks.push(env);
   return r;
 }
 
 // Variables que el código lee y la vista previa del PR no tiene (lo vio la caja; sólo nombres). null = sin preview.
-export function missingEnvCheck(names, touched = []) {
+// `priority`: las que lee el PR o el arranque del servidor (gs); sólo ésas hacen fallar el check. El resto de la app es
+// informativo (la preview no necesita todas las de producción). null = gs viejo: todas cuentan.
+export function missingEnvCheck(names, touched = [], priority = null) {
   if (!Array.isArray(names)) return null;
   if (!names.length) return { name: 'env-faltantes', ok: true, detail: 'la vista previa tiene todas las variables que lee el código', fix: null };
-  const t = touched.filter((n) => names.includes(n));
+  const list = (l) => `${l.slice(0, 8).join(', ')}${l.length > 8 ? ` y ${l.length - 8} más` : ''}`;
+  const top = Array.isArray(priority) ? priority.filter((n) => names.includes(n)) : names;
+  const rest = names.filter((n) => !top.includes(n));
+  const fix = 'ghosty-dev env push <archivo con esas variables> (se toman en el siguiente armado: box rebuild o un push)';
+  if (!top.length)
+    return { name: 'env-faltantes', ok: null, detail: `informativo: faltan ${rest.length} del resto de la app (${list(rest)}); ninguna la usa este PR ni el arranque`, fix: null };
+  const t = touched.filter((n) => top.includes(n));
   return {
     name: 'env-faltantes',
     ok: false,
-    detail: `a la vista previa le faltan ${names.slice(0, 8).join(', ')}${names.length > 8 ? ` y ${names.length - 8} más` : ''}${t.length ? ` (las lee este PR: ${t.join(', ')})` : ''}: lo que las use falla aunque las páginas abran`,
-    fix: 'ghosty-dev env push <archivo con esas variables> (se toman en el siguiente armado: box rebuild o un push)',
+    detail: `a la vista previa le faltan ${top.length} que usa ${t.length === top.length ? 'este PR' : 'este PR o el arranque'}: ${list(top)}${rest.length ? ` · y ${rest.length} más del resto de la app (informativo)` : ''}: lo que las use falla aunque las páginas abran`,
+    fix,
   };
 }
 

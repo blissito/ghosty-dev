@@ -57,6 +57,8 @@ export async function fetchPreview(pr, { repo = repoFullName() } = {}) {
     // Variables que el código lee y la vista previa no tiene (sólo nombres; las que lee el PR primero). null = no se sabe.
     missingEnv: envNames(r?.missingEnv),
     missingEnvTouched: envNames(r?.missingEnvTouched) ?? [],
+    // Las prioritarias (las lee el PR o el arranque del servidor). Sin el campo (gs viejo): las del PR.
+    missingEnvPriority: envNames(r?.missingEnvPriority) ?? envNames(r?.missingEnvTouched) ?? [],
   };
 }
 

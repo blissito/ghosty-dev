@@ -36,12 +36,12 @@ test('preview <pr>: lista → la liga firmada sale sólo en stdout y sale 0 (C19
   }));
 
 test('preview <pr>: con variables faltantes las dice por nombre (stdout y --json), nunca valores', () =>
-  withPreview([{ phase: 'ready', sha: null, url: LINK, missingEnv: ['FORMMY_MCP_TOKEN_SECRET', 'mal valor', 'GHOSTY_PARTNER_KEY'], missingEnvTouched: ['FORMMY_MCP_TOKEN_SECRET'] }], async ({ gs, cli, head }) => {
+  withPreview([{ phase: 'ready', sha: null, url: LINK, missingEnv: ['FORMMY_MCP_TOKEN_SECRET', 'mal valor', 'GHOSTY_PARTNER_KEY'], missingEnvTouched: ['FORMMY_MCP_TOKEN_SECRET'], missingEnvPriority: ['FORMMY_MCP_TOKEN_SECRET'] }], async ({ gs, cli, head }) => {
     gs.previews[0].sha = head;
     const out = JSON.parse((await cli(['preview', '73', '--json'])).out);
     assert.deepEqual(out.missingEnv, ['FORMMY_MCP_TOKEN_SECRET', 'GHOSTY_PARTNER_KEY']);
     assert.deepEqual(out.missingEnvTouched, ['FORMMY_MCP_TOKEN_SECRET']);
-    assert.match((await cli(['preview', '73'])).out, /Faltan variables: FORMMY_MCP_TOKEN_SECRET, GHOSTY_PARTNER_KEY\. Súbelas con ghosty-dev env push/);
+    assert.match((await cli(['preview', '73'])).out, /Faltan 1 que usa este PR o el arranque: FORMMY_MCP_TOKEN_SECRET\. Súbelas con ghosty-dev env push[\s\S]*Y 1 más del resto de la app/);
   }));
 
 test('preview --wait: armándose → lista, con backoff; sin --wait sale 75 y sin liga (C19)', () =>

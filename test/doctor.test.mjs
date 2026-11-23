@@ -114,7 +114,7 @@ test('doctor: variables faltantes de la preview del PR → check env-faltantes c
   const c = missingEnvCheck(['FORMMY_MCP_TOKEN_SECRET', 'GHOSTY_PARTNER_KEY'], ['FORMMY_MCP_TOKEN_SECRET']);
   assert.equal(c.name, 'env-faltantes');
   assert.equal(c.ok, false);
-  assert.match(c.detail, /FORMMY_MCP_TOKEN_SECRET, GHOSTY_PARTNER_KEY \(las lee este PR: FORMMY_MCP_TOKEN_SECRET\)/);
+  assert.match(c.detail, /faltan 2 que usa este PR o el arranque: FORMMY_MCP_TOKEN_SECRET, GHOSTY_PARTNER_KEY/); // sin prioridad (gs viejo): todas cuentan
   assert.match(c.fix, /ghosty-dev env push/);
   const d = diagnose(repo({ 'app/x.ts': 'export const x = 1;\n' }), { catalog: CAT, previewMissingEnv: ['FOO_SECRET'] });
   assert.equal(d.checks.find((k) => k.name === 'env-faltantes').ok, false);
@@ -181,4 +181,14 @@ test('probeProviders: lee sólo el client id del .env y pregunta a gs', async ()
   assert.equal(seen.length, 1);
   assert.match(seen[0], /provider=google&client_id=123-abc\.apps\.googleusercontent\.com$/);
   assert.ok(!seen[0].includes('shh'));
+});
+
+test('doctor: env-faltantes falla sólo por las prioritarias (PR o arranque); el resto es informativo', async () => {
+  const { missingEnvCheck } = await import('../src/doctor.mjs');
+  const c = missingEnvCheck(['A_PR', 'B_BOOT', 'C', 'D'], ['A_PR'], ['A_PR', 'B_BOOT']);
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /faltan 2 que usa este PR o el arranque: A_PR, B_BOOT · y 2 más del resto de la app/);
+  const info = missingEnvCheck(['C', 'D'], [], []);
+  assert.equal(info.ok, null);
+  assert.match(info.detail, /^informativo: faltan 2 del resto de la app/);
 });

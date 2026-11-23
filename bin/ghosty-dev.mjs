@@ -280,7 +280,12 @@ const prStateLine = (s) => {
 
 function previewText(x, { opened } = {}) {
   const head = `Vista previa del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}: ${PHASE_WORD[x.phase] ?? x.phase}`;
-  const env = x.missingEnv?.length ? `\n  Faltan variables: ${x.missingEnv.slice(0, 8).join(', ')}${x.missingEnv.length > 8 ? ` y ${x.missingEnv.length - 8} más` : ''}. Súbelas con ghosty-dev env push (entran en el siguiente armado).` : '';
+  const top = (x.missingEnvPriority ?? []).filter((n) => x.missingEnv?.includes(n));
+  const rest = (x.missingEnv ?? []).filter((n) => !top.includes(n));
+  const list = (l) => `${l.slice(0, 8).join(', ')}${l.length > 8 ? ` y ${l.length - 8} más` : ''}`;
+  const env =
+    (top.length ? `\n  Faltan ${top.length} que usa este PR o el arranque: ${list(top)}. Súbelas con ghosty-dev env push (entran en el siguiente armado).` : '') +
+    (rest.length ? `\n  ${top.length ? 'Y' : 'Informativo: faltan'} ${rest.length} más del resto de la app (ghosty-dev doctor las lista).` : '');
   if (x.phase === 'ready')
     return (x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`) + env;
   if (x.phase === 'failed') return `${head}${x.error ? `\n  ${x.error}` : ''}${x.page ? `\n  Detalle: ${x.page}` : ''}`;
@@ -520,6 +525,7 @@ try {
     let previewOAuth = null;
     let previewMissingEnv = null;
     let previewMissingEnvTouched = [];
+    let previewMissingEnvPriority = [];
     try {
       const pr = values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr();
       if (pr) {
@@ -527,12 +533,13 @@ try {
         previewOAuth = doctor.parsePreviewOAuth(p.oauth);
         previewMissingEnv = p.missingEnv;
         previewMissingEnvTouched = p.missingEnvTouched;
+        previewMissingEnvPriority = p.missingEnvPriority;
       }
     } catch {}
     const catalog = await doctor.fetchCatalog();
     // ¿El proveedor ya acepta el callback de Ghosty? Con el client id (público) del .env local; la preview del PR manda.
     const probes = await doctor.probeProviders(top, catalog).catch(() => ({}));
-    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, probes }) };
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes }) };
     if (r.oauth) delete r.oauth.helperJs;
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;
