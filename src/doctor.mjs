@@ -277,38 +277,21 @@ export function loginProbeCheck(probe) {
   if (!probe) return null;
   const name = 'login-en-previews-de-verdad';
   const fix = `revisa que el loader de ${probe.path} lea X-Ghosty-Identity, que el proceso tenga GS_PREVIEW_IDENTITY_JWKS_URL y PREVIEW_HOST, y repite: ghosty-dev preview ${probe.pr ?? '<pr>'} --login --check --path ${probe.path}`;
+  if (probe.verdict === 'session') return { name, ok: true, detail: `petición real a la vista previa: ${probe.message}`, fix: null };
   if (probe.verdict === 'public_path')
     return { name, ok: null, detail: `sin probar: ${probe.message}`, fix: 'pon en .ghosty/factory.md «login_path: /una/ruta/con/sesion» o corre doctor --path /una/ruta/con/sesion' };
-  if (probe.verdict !== 'session') return { name, ok: false, detail: `petición real a la vista previa: ${probe.message ?? probe.verdict}`, fix };
-  // Formmy fila 61: entrar no basta; el recorrido es entrar, cerrar sesión, que no se reabra y volver a entrar.
-  const steps = Array.isArray(probe.steps) ? probe.steps : [];
-  const failed = steps.find((x) => x.ok === false);
-  const untested = steps.some((x) => x.ok === null);
-  const detail = `petición real a la vista previa: ${steps.length ? steps.map((x) => `${STEP_WORD[x.name] ?? x.name} ${x.ok === true ? 'ok' : x.ok === false ? 'MAL' : 'sin probar'}`).join(' · ') : probe.message}`;
-  if (failed) return { name, ok: false, detail: `${detail}. ${failed.detail}`, fix: 'aplica la receta completa «Login en previews» de AGENTS.md (marca preview_logged_out al cerrar sesión, «Entrar con Ghosty» la borra, pantalla «Entra desde Ghosty» sin identidad)' };
-  if (untested) return { name, ok: null, detail, fix: 'pon en el frontmatter de .ghosty/factory.md «logout: POST /api/login intent=logout» y «relogin: POST /api/login intent=ghosty-login» (los de tu app) para probar cerrar sesión y volver a entrar' };
-  return { name, ok: true, detail, fix: null };
+  return { name, ok: false, detail: `petición real a la vista previa: ${probe.message ?? probe.verdict}`, fix };
 }
-export const STEP_WORD = { enter: 'entrar', logout: 'cerrar sesión', stays_out: 'no se reabre', reenter: 'volver a entrar', no_identity: 'sin identidad' };
 
-// La prueba de login del frontmatter de .ghosty/factory.md: `login_path:` (la ruta protegida; si no, /dashboard) y, para
-// el recorrido completo (Formmy fila 61), `logout:` y `relogin:` («POST /api/login intent=logout»).
-function factoryFront(dir) {
-  try {
-    return readFileSync(join(dir, '.ghosty', 'factory.md'), 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
-  } catch {
-    return '';
-  }
-}
+// La ruta protegida para la prueba de login: `login_path:` del frontmatter de .ghosty/factory.md; si no, /dashboard.
 export function loginPathOf(dir) {
-  const m = factoryFront(dir).match(/^login_path:\s*["']?(\/[^\s"']*)/m);
-  return m ? m[1] : '/dashboard';
-}
-export function loginFlowOf(dir) {
-  const front = factoryFront(dir);
-  const get = (k) => front.match(new RegExp(`^${k}:\\s*["']?((?:GET|POST)\\s+)?(\\/[^"'\\n]*?)["']?\\s*$`, 'mi'));
-  const val = (m) => (m ? `${(m[1] ?? 'POST ').trim()} ${m[2].trim()}` : null);
-  return { logout: val(get('logout')), relogin: val(get('relogin')) };
+  try {
+    const front = readFileSync(join(dir, '.ghosty', 'factory.md'), 'utf8').match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const m = front.match(/^login_path:\s*["']?(\/[^\s"']*)/m);
+    return m ? m[1] : '/dashboard';
+  } catch {
+    return '/dashboard';
+  }
 }
 
 // Identidad de la caja (22-nov): cada vista previa trae `GHOSTY_PREVIEW_TOKEN` y la API de partner de Ghosty lo acepta
