@@ -32,7 +32,7 @@ export function mergeReadiness({ pr, runs = [], statuses = [], gateExpected = fa
 export const readinessText = (pr, r) =>
   [
     ...r.blockers.map((b) => `  - ${b}`),
-    ...r.failing.map((f) => `  - ${f.name}: ${f.conclusion ?? 'falló'}${f.name === GATE_CHECK ? ` (ghosty-dev show --pr ${pr})` : ''}`),
+    ...r.failing.map((f) => `  - ${f.name}: ${f.conclusion ?? 'falló'}${f.name === GATE_CHECK ? ` (ghosty-dev show --pr ${pr})` : f.name === 'Ghosty · Preview' ? ` (el build o el arranque de la vista previa falla: ghosty-dev box logs ${pr}; corre el build del repo y sube el arreglo)` : ''}`),
     ...(r.pending.length ? [`  - en curso: ${r.pending.join(', ')}`] : []),
   ].join('\n');
 

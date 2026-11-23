@@ -195,6 +195,29 @@ export function ready() {
   return out;
 }
 
+// ---------- build antes del push (Formmy, fila 52) ----------
+
+// Archivos que sólo el build juzga bien: rutas, módulos *.server / *.client, config del bundler. Un import de servidor
+// en el cliente pasa pruebas y tsc y rompe el build de Vite («Server-only module referenced by client»).
+export const BUILD_SENSITIVE = /(^|\/)(routes?|pages|app\/routes)\/|(^|\/)(routes|root|entry\.(client|server))\.[cm]?[jt]sx?$|\.(server|client)\.[cm]?[jt]sx?$|(^|\/)(vite|remix|next|astro|svelte)\.config\.[cm]?[jt]s$/;
+export function buildHint({ files } = {}) {
+  const top = repoTop();
+  if (!top) return null;
+  let script = null;
+  try {
+    const pkg = JSON.parse(readFileSync(join(top, 'package.json'), 'utf8'));
+    script = pkg.scripts?.build ? 'npm run build' : null;
+  } catch {}
+  if (!script) return null;
+  if (!files) {
+    const base = git(['rev-parse', '--abbrev-ref', 'origin/HEAD'], { allowFail: true, cwd: top })?.trim() || 'origin/main';
+    files = (git(['diff', '--name-only', `${base}...HEAD`], { allowFail: true, cwd: top }) ?? '').split('\n').filter(Boolean);
+  }
+  const hit = files.filter((f) => BUILD_SENSITIVE.test(f));
+  if (!hit.length) return null;
+  return `este push toca ${hit.length === 1 ? hit[0] : `${hit.length} archivos de rutas o servidor/cliente (${hit.slice(0, 3).join(', ')}${hit.length > 3 ? '…' : ''})`}: corre ${script} antes de subir. Pruebas y tsc no ven un import de servidor en el cliente; la vista previa sí, y con el build roto el merge se frena.`;
+}
+
 // ---------- claim (Beads: bd update --claim; un solo escritor, Cognition) ----------
 
 const slug = (title) =>

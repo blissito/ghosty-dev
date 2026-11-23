@@ -1,4 +1,7 @@
 <!-- ghosty-dev:agents -->
+
+**Instalar y actualizar (una sola forma; no está en el registro de npm, `npm i -g ghosty-dev@latest` da 404):** `npm install -g github:blissito/ghosty-dev` la primera vez y `ghosty-dev update` después (dice versión vieja → nueva). `ghosty-dev doctor` avisa si hay una nueva.
+
 ## Bitácora (ghosty-dev)
 
 **El flujo en 5 renglones** (relee esto al retomar o tras compactar):

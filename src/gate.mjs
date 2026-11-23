@@ -38,6 +38,19 @@ export function externalReview(config, checkRuns = [], sha = '') {
   return { state: last.conclusion === 'success' ? 'passed' : 'findings', ...config };
 }
 
+// Puro: la vista previa del commit (check «Ghosty · Preview» de Ghosty Studio). Un build o arranque roto es ROJO
+// (Formmy, fila 52: el #100 rompió el build de Vite y pasó pruebas, tsc y dos revisiones; sólo la preview lo vio).
+// Neutral (variables faltantes, falla de infraestructura) no bloquea. { state: 'failed' | 'ok' | 'pending' | 'missing', title }.
+export const PREVIEW_CHECK = 'Ghosty · Preview';
+export function previewBuild(checkRuns = [], sha = '') {
+  const runs = checkRuns.filter((r) => r?.name === PREVIEW_CHECK && (!r.head_sha || r.head_sha === sha));
+  if (!runs.length) return { state: 'missing', title: null };
+  const last = runs.sort((a, b) => (b.id ?? 0) - (a.id ?? 0))[0];
+  const title = last.output?.title ?? null;
+  if (last.status !== 'completed') return { state: 'pending', title };
+  return { state: ['failure', 'timed_out', 'cancelled', 'action_required'].includes(last.conclusion) ? 'failed' : 'ok', title };
+}
+
 // Un PR fuera de la bitácora (no cierra ningún pendiente) BLOQUEA por defecto (falla cerrada), con el comando exacto
 // que lo liga. Sólo con `"unlinked": "warn"` en .github/ghosty-dev/config.json de la base pasa con aviso.
 export function unlinkedPolicy(raw) {
@@ -50,7 +63,7 @@ export function unlinkedPolicy(raw) {
 
 // Puro: recibe el PR y una función que trae cada issue ({ body, comments }). `external` = externalReview(…) o null.
 // `prCommits(n)` = shas del PR n (null = no se pudo): valida «probado en la preview del PR #N» (Formmy, fila 40).
-export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block', prCommits = null } = {}) {
+export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block', prCommits = null, preview = null } = {}) {
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
     const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
@@ -73,6 +86,7 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
   };
   // Rama fuera del patrón ghosty-dev/<n>-…: informativo, no cambia el veredicto (lo que juzga es el pendiente).
   const ref = pr.head?.ref;
+  if (preview?.state === 'failed') fail(`La vista previa del commit ${short} no compila o no arranca${preview.title ? ` (${preview.title})` : ''}: corre el build del repo (npm run build), arréglalo y sube. Ni pruebas ni revisión sustituyen al build.`);
   if (ref && !/^ghosty-dev\/\d+-/.test(ref)) lines.push(`Informativo: la rama ${ref} no sigue el patrón ghosty-dev/<n>-…; la puerta juzga ${refs.map((r) => '#' + r).join(', ')} igual.`);
   for (const n of refs) {
     const issue = fetchIssue(n);
@@ -142,13 +156,15 @@ export function main() {
     unlinked = unlinkedPolicy(raw);
   } catch {}
   let external = null;
-  if (config && pr.head?.sha) {
+  let preview = null;
+  if (pr.head?.sha) {
     let runs = [];
     try {
       const out = execFileSync(gh, ['api', '-X', 'GET', `repos/{owner}/{repo}/commits/${pr.head.sha}/check-runs?per_page=100`], { encoding: 'utf8' });
       runs = JSON.parse(out).check_runs || [];
     } catch {}
-    external = externalReview(config, runs, pr.head.sha);
+    if (config) external = externalReview(config, runs, pr.head.sha);
+    preview = previewBuild(runs, pr.head.sha);
   }
   const prCommits = (n) => {
     try {
@@ -157,7 +173,7 @@ export function main() {
       return null;
     }
   };
-  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked, prCommits });
+  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked, prCommits, preview });
   if (informative) console.log(annotation(lines[0], 'warning'));
   for (const f of failures) console.log(annotation(f));
   report(lines);

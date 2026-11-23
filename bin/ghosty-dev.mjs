@@ -81,6 +81,9 @@ Uso: ghosty-dev <comando> [opciones]
                                          con la vista previa lista, prueba de verdad el login (ruta: --path o
                                          login_path: de .ghosty/factory.md, si no /dashboard)
   check-lock                             ¿el lock (npm/pnpm/yarn) coincide con package.json en HEAD? Lo corre el pre-push
+                                         (y si el push toca rutas o módulos de servidor/cliente, sugiere correr el build)
+  update                                 reinstala ghosty-dev desde la fuente oficial (npm install -g github:blissito/ghosty-dev)
+                                         y dice versión vieja → nueva
   box rebuild [<pr>]                     rearma la vista previa del último commit (síguela con preview --wait)
   deps [<pr>]                            escribe «Depende de #N» en la descripción si el PR va apilado sobre otro PR
                                          abierto (o trae su commit) y la quita cuando ése entra; preview y wait lo
@@ -581,14 +584,25 @@ try {
     const partnerAgents = doctor.partnerAgentRefs(top).length ? await doctor.fetchPartnerAgents(cmd.repoFullName()) : null;
     const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes, partnerAgents, loginProbe }) };
     if (r.oauth) delete r.oauth.helperJs;
+    // ¿Hay ghosty-dev más nuevo? (fila 57) Primero, con la línea exacta para actualizar.
+    const up = await import('../src/update.mjs');
+    r.checks.unshift(up.versionCheck(up.currentVersion(), await up.latestVersion()));
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;
+  } else if (command === 'update') {
+    const up = await import('../src/update.mjs');
+    const r = up.update();
+    print(r, up.updateText);
+    if (!r.ok) process.exitCode = 1;
   } else if (command === 'check-lock') {
     // Lo corre el hook pre-push (ghosty-dev init): bloquea el push si el lock no coincide con package.json.
     const r = cmd.repoLock() ?? { ok: true, problems: [] };
     // Push a la rama de un PR cerrado sin merge: no habrá run (Formmy, fila 42). Sólo avisa: el push sigue.
     const closed = process.env.GHOSTY_DEV_NO_NET ? null : cmd.closedPrOfBranch();
     if (closed) console.error(`Aviso: ${cmd.closedLine(closed)}. Este push no corre CI, vista previa ni revisión mientras siga cerrado.`);
+    // Rutas o módulos de servidor/cliente: pruebas y tsc no ven un build roto (Formmy, fila 52). Sólo avisa.
+    const build = cmd.buildHint();
+    if (build) console.error(`Aviso: ${build}`);
     print(r, (x) => (x.ok ? (x.lock ? `${x.lock} coincide con package.json.` : 'Sin lock que comparar.') : x.message));
     if (!r.ok) process.exitCode = 1;
   } else if (command === 'next' || command === 'status') {

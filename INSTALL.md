@@ -24,6 +24,8 @@ npm install -g github:blissito/ghosty-dev
 ghosty-dev --help
 ```
 
+**Instalar y actualizar (una sola forma; no está en el registro de npm, `npm i -g ghosty-dev@latest` da 404):** `npm install -g github:blissito/ghosty-dev` la primera vez y `ghosty-dev update` después (dice versión vieja → nueva). `ghosty-dev doctor` avisa si hay una nueva.
+
 Si `npm install -g` no tiene permisos, no uses `sudo`: usa `npx -y github:blissito/ghosty-dev` en lugar de
 `ghosty-dev` en todos los comandos de abajo.
 

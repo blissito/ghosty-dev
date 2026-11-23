@@ -41,6 +41,8 @@ El agente lee [INSTALL.md](INSTALL.md) y hace los pasos él solo. Te pregunta an
 
 **Si eres un agente:** sigue [INSTALL.md](INSTALL.md).
 
+**Instalar y actualizar (una sola forma; no está en el registro de npm, `npm i -g ghosty-dev@latest` da 404):** `npm install -g github:blissito/ghosty-dev` la primera vez y `ghosty-dev update` después (dice versión vieja → nueva). `ghosty-dev doctor` avisa si hay una nueva.
+
 A mano, con Node 20+ y [`gh`](https://cli.github.com) autenticado:
 
 ```sh

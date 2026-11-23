@@ -125,3 +125,19 @@ test('block --reason --person y unblock: marca «te necesita», luego la etiquet
   assert.ok(!db.issues[5].labels.includes('ghosty-dev:bloqueado'));
   assert.match(db.issues[5].comments.at(-1).body, /^<!-- ghosty-dev:desbloqueo -->/);
 });
+
+test('build roto en la vista previa: la puerta falla y merge lo explica; neutral no bloquea (fila 52)', async () => {
+  const { previewBuild, evaluatePullRequest } = await import('../src/gate.mjs');
+  const sha = 'a'.repeat(40);
+  const red = [{ id: 2, name: 'Ghosty · Preview', head_sha: sha, status: 'completed', conclusion: 'failure', output: { title: 'El build o el arranque falla: el build falla' } }, { id: 1, name: 'Ghosty · Preview', head_sha: sha, status: 'completed', conclusion: 'success' }];
+  assert.equal(previewBuild(red, sha).state, 'failed');
+  assert.equal(previewBuild([{ id: 1, name: 'Ghosty · Preview', head_sha: sha, status: 'completed', conclusion: 'neutral' }], sha).state, 'ok');
+  assert.equal(previewBuild([], sha).state, 'missing');
+  const r = evaluatePullRequest({ number: 9, body: 'Closes #1', head: { sha, ref: 'ghosty-dev/1-x' } }, () => ({ body: '', comments: [] }), null, { preview: previewBuild(red, sha) });
+  assert.equal(r.ok, false);
+  assert.match(r.failures[0], /no compila o no arranca \(El build o el arranque falla: el build falla\)/);
+  const { mergeReadiness, readinessText } = await import('../src/merge.mjs');
+  const m = mergeReadiness({ pr: { number: 9 }, runs: red.map((x) => ({ ...x })) });
+  assert.equal(m.ready, false);
+  assert.match(readinessText(9, m), /Ghosty · Preview: failure \(el build o el arranque de la vista previa falla/);
+});
