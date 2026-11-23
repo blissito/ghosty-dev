@@ -289,7 +289,10 @@ function previewText(x, { opened } = {}) {
   if (x.phase === 'ready')
     return (x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.${x.page ? ` Ábrela en ${x.page}` : ''}`) + env;
   if (x.phase === 'failed') return `${head}${x.error ? `\n  ${x.error}` : ''}${x.page ? `\n  Detalle: ${x.page}` : ''}`;
-  if (x.phase === 'none') return `${head}. ${x.message ?? 'Se arma sola con el siguiente push (PR no borrador).'}`;
+  if (x.phase === 'none') {
+    const msg = x.message ?? 'Se arma sola con el siguiente push (PR no borrador).';
+    return `${head}. ${msg}${/rebuild|es borrador|está cerrado|fork|no aplica/.test(msg) ? '' : `\n  Para armarla sin push: ghosty-dev box rebuild ${x.pr}`}`;
+  }
   return `${head}. Espérala: ghosty-dev preview ${x.pr} --wait`;
 }
 
@@ -417,7 +420,7 @@ try {
         if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`)) printCloud(await cloud.start(next.number, { workspace: values.workspace }));
         process.exit(process.exitCode ?? 0);
       }
-      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`) });
+      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
       print(result, (r) => `Tomado #${r.number} ${r.title}${r.worktree ? `\n  worktree: ${r.worktree}\n  rama: ${r.branch}` : ''}${r.resumed ? `\n  retoma: ${r.reason}` : ''}`);
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
@@ -439,7 +442,13 @@ try {
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
     const n = num(values.issue ?? arg, '--issue <n>');
     const r = cmd.adopt(n, num(values.pr, '--pr <m>'));
-    print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}\n  Sigue: ghosty-dev next`);
+    // Preguntar por la preview la arma si el aviso de GitHub se perdió (gs; Formmy, fila 48).
+    if (!process.env.GHOSTY_DEV_NO_NET) {
+      try {
+        r.preview = previews.publicPreview(await previews.fetchPreview(r.pr));
+      } catch {}
+    }
+    print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}${x.preview ? `\n  Vista previa: ${PHASE_WORD[x.preview.phase] ?? x.preview.phase}${x.preview.phase === 'ready' ? '' : ` (síguela: ghosty-dev preview ${x.pr} --wait)`}` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
     print(await cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
   } else if (command === 'stop') {
@@ -447,7 +456,7 @@ try {
   } else if (command === 'teleport') {
     print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
-    const r = cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`) });
+    const r = cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
@@ -539,7 +548,9 @@ try {
     const catalog = await doctor.fetchCatalog();
     // ¿El proveedor ya acepta el callback de Ghosty? Con el client id (público) del .env local; la preview del PR manda.
     const probes = await doctor.probeProviders(top, catalog).catch(() => ({}));
-    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes }) };
+    // Sólo si el código llama a un agente de partner: ¿existe en Ghosty Studio? (fila 50)
+    const partnerAgents = doctor.partnerAgentRefs(top).length ? await doctor.fetchPartnerAgents(cmd.repoFullName()) : null;
+    const r = { repo: cmd.repoFullName(), ...doctor.diagnose(top, { saved, catalog, previewOAuth, previewMissingEnv, previewMissingEnvTouched, previewMissingEnvPriority, probes, partnerAgents }) };
     if (r.oauth) delete r.oauth.helperJs;
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;

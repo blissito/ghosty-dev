@@ -7,7 +7,10 @@ function run(bin, args, { input, allowFail, cwd, timeout } = {}) {
   } catch (e) {
     if (allowFail) return null;
     const detail = (e.stderr || e.message || '').toString().trim();
-    throw new Error(`${bin} ${args.join(' ')} falló: ${detail}`);
+    const err = new Error(`${bin} ${args.join(' ')} falló: ${detail}`);
+    // execFileSync mata con SIGTERM al pasar `timeout`: quien llama puede decir qué tardó.
+    if (timeout && (e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM')) err.timedOut = true;
+    throw err;
   }
 }
 

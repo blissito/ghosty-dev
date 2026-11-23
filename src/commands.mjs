@@ -209,20 +209,27 @@ function setState(issue, state, { assign } = {}) {
 
 // La rama del pendiente parte SIEMPRE de la base (origin/<rama principal> o --base), nunca de la rama donde está
 // parado el clon (Formmy, fila 34: `claim 83` desde la rama del PR #73 arrastró todo ese PR).
-export function claimBase(base) {
+export function claimBase(base, { onProgress = () => {} } = {}) {
   const name = base || api('GET', REPO, undefined, { allowFail: true })?.default_branch || 'main';
   if (!/^[\w./-]{1,200}$/.test(name) || name.startsWith('-')) throw new UserError('--base va con el nombre de una rama.');
-  git(['fetch', '--quiet', 'origin', name], { allowFail: true, timeout: 60_000 });
+  onProgress(`trayendo origin/${name}…`);
+  const fetched = git(['fetch', '--quiet', 'origin', name], { allowFail: true, timeout: 60_000 }) !== null;
   const remote = `origin/${name}`;
   const ref = git(['rev-parse', '--verify', '--quiet', `${remote}^{commit}`], { allowFail: true }) ? remote : git(['rev-parse', '--verify', '--quiet', `${name}^{commit}`], { allowFail: true }) ? name : null;
   if (!ref) throw new UserError(`No encuentro la rama base ${name} (ni origin/${name}): git fetch origin o --base <rama>.`);
   const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
-  const warning = current && current !== name && current !== 'HEAD' ? `Estás en ${current}; la rama nueva parte de ${ref}, no de ${current}.` : null;
+  const warning =
+    [current && current !== name && current !== 'HEAD' ? `Estás en ${current}; la rama nueva parte de ${ref}, no de ${current}.` : null, fetched ? null : `no pude traer origin/${name} en 60 s; parto de lo que ya hay en tu clon (${ref}).`]
+      .filter(Boolean)
+      .join(' ') || null;
   return { name, ref, warning };
 }
 
-export function claim(n, { worktree = true, base, onWarning = () => {} } = {}) {
-  const from = worktree ? claimBase(base) : null;
+// Tope del `git worktree add` (Formmy, fila 51: 4 min sin decir nada). GHOSTY_DEV_WORKTREE_TIMEOUT_MS lo cambia.
+const WORKTREE_TIMEOUT_MS = () => Number(process.env.GHOSTY_DEV_WORKTREE_TIMEOUT_MS ?? 180_000);
+
+export function claim(n, { worktree = true, base, onWarning = () => {}, onProgress = () => {} } = {}) {
+  const from = worktree ? claimBase(base, { onProgress }) : null;
   if (from?.warning) onWarning(from.warning);
   const issue = viewIssue(n);
   if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
@@ -233,6 +240,7 @@ export function claim(n, { worktree = true, base, onWarning = () => {} } = {}) {
   const blockers = openBlockers(issue, new Set(open.map((i) => i.number)));
   if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map((b) => '#' + b).join(', ')}.`);
 
+  onProgress(`tomando #${n} en GitHub…`);
   setState(issue, 'tomado', { assign: login });
   // El primero gana: si otro se asignó al mismo tiempo, me retiro.
   const after = viewIssue(n);
@@ -248,7 +256,23 @@ export function claim(n, { worktree = true, base, onWarning = () => {} } = {}) {
     path = join(dirname(top), `${basename(top)}-${n}`);
     if (!existsSync(path)) {
       const exists = git(['rev-parse', '--verify', '--quiet', branch], { allowFail: true }) !== null;
-      git(exists ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path, from.ref], { cwd: top });
+      const limit = WORKTREE_TIMEOUT_MS();
+      onProgress(`creando worktree en ${path} (rama ${branch}; tope ${Math.round(limit / 1000)} s)…`);
+      const t0 = Date.now();
+      try {
+        git(exists ? ['worktree', 'add', path, branch] : ['worktree', 'add', '-b', branch, path, from.ref], { cwd: top, timeout: limit });
+      } catch (e) {
+        if (!e.timedOut) throw e;
+        // A medias no sirve: se quita para que el siguiente claim lo vuelva a crear entero.
+        git(['worktree', 'remove', '--force', path], { cwd: top, allowFail: true });
+        git(['worktree', 'prune'], { cwd: top, allowFail: true });
+        throw new UserError(
+          `git worktree add tardó más de ${Math.round(limit / 1000)} s y lo detuve (casi siempre un hook post-checkout que instala dependencias, Git LFS o un checkout muy grande). ` +
+            `#${n} ya es tuyo; reintenta con ghosty-dev claim ${n}, súbele el tope con GHOSTY_DEV_WORKTREE_TIMEOUT_MS=600000, o trabaja en este clon con ghosty-dev claim ${n} --no-worktree.`,
+        );
+      }
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (secs >= 10) onProgress(`worktree listo en ${secs} s.`);
     }
   }
   return { number: n, title: issue.title, branch, worktree: path, base: from?.ref ?? null, warning: from?.warning ?? null };

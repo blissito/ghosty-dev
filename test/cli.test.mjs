@@ -105,6 +105,21 @@ test('claim asigna, marca tomado y crea rama + worktree', () => {
   assert.deepEqual(i.labels, ['ghosty-dev:en-curso']);
 });
 
+test('claim dice qué está haciendo y corta el worktree que tarda de más (fila 51)', async () => {
+  const s = setup({ issues: { 5: issue(5, 'Lento') } });
+  // Un hook post-checkout que se cuelga (instalar dependencias, LFS…).
+  const hooks = join(s.repo, '.git', 'hooks');
+  writeFileSync(join(hooks, 'post-checkout'), '#!/bin/sh\nsleep 5\n', { mode: 0o755 });
+  const r = await s.runAsync(['claim', '5'], { extra: { GHOSTY_DEV_WORKTREE_TIMEOUT_MS: '700' } });
+  assert.equal(r.code, 1, r.err);
+  assert.match(r.err, /trayendo origin\/main…/);
+  assert.match(r.err, /creando worktree en .*tope 1 s/);
+  assert.match(r.err, /tardó más de 1 s y lo detuve/);
+  assert.match(r.err, /--no-worktree/);
+  assert.ok(!existsSync(join(s.root, 'repo-5')), 'el worktree a medias se quita');
+  assert.deepEqual(s.read().issues[5].assignees, ['agente-a']);
+});
+
 test('un solo escritor: no se toma un pendiente de otro', () => {
   const s = setup({ issues: { 5: issue(5, 'X', { labels: ['ghosty-dev:en-curso'], assignees: ['agente-b'] }) } });
   const r = s.run('claim', '5', '--no-worktree');

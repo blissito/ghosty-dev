@@ -110,11 +110,18 @@ export async function preview(prArg, { wait = false, onNote = () => {} } = {}) {
   // Mientras se espera, una vista previa terminada de un commit viejo no cuenta: el push nuevo la vuelve a armar.
   const current = (x) => !h.remote || !x.sha || h.remote.startsWith(x.sha) || x.sha.startsWith(h.remote);
   const steps = [3, 5, 8, 13, 21, 30];
+  const t0 = Date.now();
+  let hinted = false;
   for (let i = 0; wait && !(FINAL.has(p.phase) && current(p)); i++) {
     const delay = steps[Math.min(i, steps.length - 1)] * unit;
     if (Date.now() + delay > until) break;
     await new Promise((r) => setTimeout(r, delay));
     p = await fetchPreview(pr, { repo });
+    // 30 s sin caja: no esperar en silencio (Formmy, fila 48: --wait esperó 3 min sin que nada se armara).
+    if (p.phase === 'none' && !hinted && Date.now() - t0 >= 30 * unit) {
+      hinted = true;
+      onNote(`Después de 30 s el PR #${pr} sigue sin vista previa${p.message ? ` (${p.message})` : ''}. Ármala sin push: ghosty-dev box rebuild ${pr}`);
+    }
     if (!FINAL.has(p.phase) && i % 4 === 3) h = heads(pr); // un push nuevo mientras se espera
   }
   const notes = staleNotes(p, h);

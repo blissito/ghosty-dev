@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { detectProviders, diagnose, doctorText, fetchCatalog, parseCatalog, parsePreviewOAuth, probeProviders } from '../src/doctor.mjs';
+import { detectProviders, diagnose, doctorText, factoryPartner, fetchCatalog, parseCatalog, parsePreviewOAuth, partnerAgentRefs, partnerAgentsCheck, probeProviders } from '../src/doctor.mjs';
 
 const URI = 'https://www.ghosty.studio/preview-oauth/callback';
 // Forma real de GET /api/v2/preview-oauth/providers (recortada a dos proveedores).
@@ -191,4 +191,28 @@ test('doctor: env-faltantes falla sólo por las prioritarias (PR o arranque); el
   const info = missingEnvCheck(['C', 'D'], [], []);
   assert.equal(info.ok, null);
   assert.match(info.detail, /^informativo: faltan 2 del resto de la app/);
+});
+
+test('agentes de partner: el código llama a uno que no existe → MAL con el comando para crearlo (fila 50)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'doctor-pa-'));
+  mkdirSync(join(dir, 'app', 'routes', '__tests__'), { recursive: true });
+  mkdirSync(join(dir, '.ghosty'));
+  writeFileSync(join(dir, 'app', 'routes', 'api.crear.agui.ts'), 'const AGENT = () => process.env.GHOSTY_CREAR_AGENT ?? "crear";\nfetch(`${BASE}/api/v2/partner/agui`, { body: JSON.stringify({ agent: AGENT() }) });\n');
+  writeFileSync(join(dir, 'app', 'routes', '__tests__', 'x.test.ts'), 'fetch("/api/v2/partner/turns", { agent: "otro" })\n');
+  writeFileSync(join(dir, 'app', 'routes', 'menu.tsx'), 'const agentName = "ventas"; // no llama a la API de partner\n');
+  writeFileSync(join(dir, '.ghosty', 'factory.md'), '---\npartner: formmy\n---\n');
+  const refs = partnerAgentRefs(dir);
+  assert.deepEqual(refs, [{ slug: 'crear', file: 'app/routes/api.crear.agui.ts' }]);
+  assert.equal(factoryPartner(dir), 'formmy');
+  const missing = partnerAgentsCheck(refs, { partners: [{ workspace: 'formmy', disabled: false, agents: [null, 'otro'] }, { workspace: 'mailmask', disabled: false, agents: ['crear'] }] }, 'formmy');
+  assert.equal(missing.ok, false);
+  assert.match(missing.detail, /«crear» \(app\/routes\/api\.crear\.agui\.ts\) y no existe en formmy/);
+  assert.match(missing.fix, /partner agent apply --workspace formmy --agent crear --prompt-file ghosty\/agents\/crear\.md --mcp .* --dry-run/);
+  assert.equal(partnerAgentsCheck(refs, { partners: [{ workspace: 'formmy', disabled: false, agents: ['crear'] }] }, 'formmy').ok, true);
+  assert.equal(partnerAgentsCheck(refs, null).ok, null);
+  assert.equal(partnerAgentsCheck(refs, { partners: [] }).ok, false);
+  assert.equal(partnerAgentsCheck([], null), null);
+  // diagnose lo suma con lo que contestó gs.
+  const r = diagnose(dir, { partnerAgents: { partners: [{ workspace: 'formmy', disabled: false, agents: [] }] } });
+  assert.equal(r.checks.find((c) => c.name === 'agentes-de-partner').ok, false);
 });

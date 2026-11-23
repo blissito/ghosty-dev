@@ -86,7 +86,9 @@ ghosty partner agent apply --agent crear --prompt-file ghosty/agents/crear.md --
 ghosty partner agent apply --agent crear --prompt-file ghosty/agents/crear.md --mcp https://www.formmy.app/api/mcp
 ghosty partner agent ls      # y: ghosty partner agent get --agent crear
 ```
-`--dry-run` valida y dice si lo crearía o cambiaría, sin escribir. El MCP apunta a producción (el agente atiende en
+(Con JSON: `--file agent.json --prompt-file …`.) `--dry-run` valida y dice si lo crearía o cambiaría, sin escribir.
+`ghosty-dev doctor` marca MAL si el código llama por `/api/v2/partner/*` a un agente que no existe, con el comando para
+crearlo: un PR que depende de él no está listo aunque todo se vea verde. El MCP apunta a producción (el agente atiende en
 prod); cambiar el prompt es un PR con ese `.md` y, tras el merge, el mismo `apply`.
 
 Un PR cerrado sin merge: `next`, `wait` y `show` dicen quién lo cerró y el motivo, y ofrecen `gh pr reopen <m>`;

@@ -11,7 +11,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { checkLock } from './lock.mjs';
-import { baseUrl, plain } from './auth.mjs';
+import { baseUrl, checkRepo, plain, request } from './auth.mjs';
 
 // Lo mismo que excluye el grep de la caja (`--exclude-dir`).
 const SKIP_DIRS = new Set(['node_modules', '.git', 'build', 'dist', '.next']);
@@ -36,6 +36,23 @@ export async function fetchCatalog({ fetchImpl = fetch } = {}) {
     const res = await fetchImpl(`${baseUrl()}/api/v2/preview-oauth/providers`, { redirect: 'error', signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return null;
     return parseCatalog(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+// Los agentes de partner de la dueña del repo (sólo slugs). null si no se pudo preguntar (sin sesión, sin red, gs viejo).
+export async function fetchPartnerAgents(repo) {
+  try {
+    const [owner, name] = checkRepo(repo);
+    const r = await request('GET', `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/partner-agents`, undefined, { scope: 'dev' });
+    if (!Array.isArray(r?.partners)) return null;
+    const slug = (v) => (typeof v === 'string' && /^[a-z0-9][a-z0-9-]{0,62}$/.test(v) ? v : null);
+    return {
+      partners: r.partners
+        .map((p) => ({ workspace: slug(p?.workspace), disabled: p?.disabled === true, agents: Array.isArray(p?.agents) ? p.agents.map(slug).filter(Boolean) : [] }))
+        .filter((p) => p.workspace),
+    };
   } catch {
     return null;
   }
@@ -97,6 +114,15 @@ export function parseCatalog(c) {
 export function grepRepo(dir, pattern, proxyVar) {
   const tokens = new Set();
   let usesProxy = false;
+  walkText(dir, (rel, text) => {
+    for (const m of text.matchAll(pattern)) tokens.add(m[0]);
+    if (proxyVar && text.includes(proxyVar) && rel !== 'AGENTS.md' && !rel.startsWith('.claude')) usesProxy = true;
+  });
+  return { tokens: [...tokens], usesProxy };
+}
+
+// Cada archivo de texto del repo (sin SKIP_DIRS, binarios ni gigantes), con su ruta relativa.
+function walkText(dir, fn) {
   const stack = [dir];
   let n = 0;
   while (stack.length && n < MAX_FILES) {
@@ -123,12 +149,9 @@ export function grepRepo(dir, pattern, proxyVar) {
       }
       n++;
       if (buf.subarray(0, 8000).includes(0)) continue; // binario (-I)
-      const text = buf.toString('utf8');
-      for (const m of text.matchAll(pattern)) tokens.add(m[0]);
-      if (proxyVar && text.includes(proxyVar) && relative(dir, p) !== 'AGENTS.md' && !relative(dir, p).startsWith('.claude')) usesProxy = true;
+      fn(relative(dir, p), buf.toString('utf8'));
     }
   }
-  return { tokens: [...tokens], usesProxy };
 }
 
 // Igual que detectOAuthProviders de gs: proveedor si casa una pista; llave faltante si el código cita un alias y
@@ -182,6 +205,8 @@ export function diagnose(dir, opts = {}) {
   r.checks.unshift(...[lock, id, db].filter(Boolean));
   const partner = partnerTokenCheck(dir);
   if (partner) r.checks.push(partner);
+  const agents = partnerAgentsCheck(partnerAgentRefs(dir), opts.partnerAgents ?? null, factoryPartner(dir));
+  if (agents) r.checks.push(agents);
   // Con la receta del token de caja, la llave de partner ya no le hace falta a la vista previa.
   let missing = Array.isArray(opts.previewMissingEnv) && partner?.ok ? opts.previewMissingEnv.filter((n) => !PARTNER_KEY_VARS.has(n)) : opts.previewMissingEnv ?? null;
   // Con la identidad de Ghosty adoptada, las llaves OAuth no le hacen falta a la vista previa (fila 47).
@@ -257,6 +282,58 @@ export function partnerTokenCheck(dir) {
     detail: 'la app firma la API de partner de Ghosty con GHOSTY_PARTNER_KEY y la vista previa no la tiene: lo que llame a Ghosty falla en el PR',
     fix: 'adopta la receta «API de partner en previews» de AGENTS.md (3 líneas: Bearer con GHOSTY_PREVIEW_TOKEN si no hay llave) y súbela a main',
   };
+}
+
+// Recursos externos que el código da por hechos (Formmy, fila 50): un agente de partner al que la app le habla por
+// `/api/v2/partner/*` y que nunca se creó deja el PR «Listo para merge» con la función rota. Se buscan, en archivos
+// que llaman a la API de partner (sin pruebas), literales asignados a algo que se llama «agent»:
+// `const AGENT = () => process.env.X ?? "crear"`, `agent: "crear"`, `agentSlug = 'crear'`.
+const AGENT_REF = /\b(?:const|let|var)\s+\w*agent\w*\s*=[^\n;]*?["'`]([a-z0-9][a-z0-9-]{0,39})["'`]|\b(?:agent|agentSlug|agent_slug)\s*:\s*["'`]([a-z0-9][a-z0-9-]{0,39})["'`]/gi;
+const TEST_FILE = /(^|\/)(__tests__|tests?|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+export function partnerAgentRefs(dir) {
+  const refs = new Map();
+  walkText(dir, (rel, text) => {
+    if (TEST_FILE.test(rel) || !/\.[cm]?[jt]sx?$/.test(rel) || !text.includes('/api/v2/partner/')) return;
+    for (const m of text.matchAll(AGENT_REF)) {
+      const slug = (m[1] ?? m[2]).toLowerCase();
+      if (!refs.has(slug)) refs.set(slug, rel);
+    }
+  });
+  return [...refs].map(([slug, file]) => ({ slug, file }));
+}
+
+// `remote`: lo que dice gs de los partners de la dueña del repo ({ partners: [{ workspace, disabled, agents }] }), o
+// null si no se pudo preguntar. `partner`: el espacio que fija `.ghosty/factory.md` (`partner: <espacio>`), si hay.
+export function partnerAgentsCheck(refs, remote, partner = null) {
+  if (!refs.length) return null;
+  const names = refs.map((r) => r.slug).join(', ');
+  if (!remote) return { name: 'agentes-de-partner', ok: null, detail: `el código llama ${refs.length > 1 ? 'a los agentes' : 'al agente'} de partner ${names} y no pude preguntar a Ghosty Studio si existe${refs.length > 1 ? 'n' : ''} (ghosty-dev login)`, fix: null };
+  const pool = (remote.partners ?? []).filter((p) => !p.disabled && (!partner || p.workspace === partner));
+  if (!pool.length)
+    return { name: 'agentes-de-partner', ok: false, detail: `el código llama a ${names} por la API de partner, pero ${partner ? `el espacio de partner ${partner}` : 'la dueña del repo'} no tiene espacio de partner activo en Ghosty Studio`, fix: 'ghosty partner enable <espacio> (CLI @ghostystudio/cli) y luego crea el agente' };
+  const have = new Set(pool.flatMap((p) => p.agents ?? []));
+  const missing = refs.filter((r) => !have.has(r.slug));
+  if (!missing.length) return { name: 'agentes-de-partner', ok: true, detail: `existe${refs.length > 1 ? 'n' : ''} ${names} en ${pool.map((p) => p.workspace).join(', ')}`, fix: null };
+  const ws = pool.length === 1 ? ` --workspace ${pool[0].workspace}` : '';
+  const m = missing[0];
+  return {
+    name: 'agentes-de-partner',
+    ok: false,
+    detail: `el código llama al agente de partner ${missing.map((x) => `«${x.slug}» (${x.file})`).join(', ')} y no existe en ${pool.map((p) => p.workspace).join(', ')}: la función falla en producción aunque el PR se vea verde`,
+    fix: `créalo con el prompt versionado en el repo y la llave de partner del env: npx @ghostystudio/cli@latest partner agent apply${ws} --agent ${m.slug} --prompt-file ghosty/agents/${m.slug}.md --mcp <url https de tu MCP en prod> --dry-run (y sin --dry-run)`,
+  };
+}
+
+// `partner: <espacio>` del frontmatter de `.ghosty/factory.md` o `.ghosty/dev.md`.
+export function factoryPartner(dir) {
+  for (const f of ['.ghosty/factory.md', '.ghosty/dev.md']) {
+    try {
+      const fm = /^---\n([\s\S]*?)\n---/.exec(readFileSync(join(dir, f), 'utf8'))?.[1] ?? '';
+      const m = /^partner:\s*["']?([a-z0-9][a-z0-9-]{0,62})["']?\s*$/m.exec(fm);
+      if (m) return m[1];
+    } catch {}
+  }
+  return null;
 }
 
 function diagnoseOAuth(dir, { saved = null, catalog = null, previewOAuth = null, identity = false, probes = {} } = {}) {

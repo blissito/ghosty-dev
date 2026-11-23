@@ -152,3 +152,14 @@ test('show --pr: estado del PR, ficha, servicios y vista previa {phase, sha} sin
     assert.equal(bare.code, 0, bare.err);
     assert.equal(JSON.parse(bare.out).preview, null);
   }));
+
+test('preview --wait sin caja: a los 30 s sugiere box rebuild; sin --wait, también (fila 48)', () =>
+  withPreview([{ phase: 'none' }, { phase: 'none' }, { phase: 'none' }, { phase: 'none' }, { phase: 'none' }, { phase: 'ready', url: LINK }], async ({ gs, cli, head }) => {
+    for (const p of gs.previews) p.sha = head;
+    const r = await cli(['preview', '73', '--wait', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /Después de 30 s el PR #73 sigue sin vista previa\. Ármala sin push: ghosty-dev box rebuild 73/);
+    assert.doesNotMatch(r.err, SECRET);
+    gs.previews.splice(0, gs.previews.length, { phase: 'none', sha: null });
+    assert.match((await cli(['preview', '73'])).out, /sin vista previa\. .*\n  Para armarla sin push: ghosty-dev box rebuild 73/);
+  }));
