@@ -351,6 +351,7 @@ async function printPr(r, note) {
         `PR #${x.pr} ${x.title}`,
         ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
         `  estado: ${x.state}`,
+        ...(x.next ? [`  ${x.next.line}`] : []),
         ...(x.closed ? [`  ${cmd.closedLine(x.closed)}`] : []),
         ...(x.deploy ? [`  deploy: ${x.deploy.label}${x.deploy.state === 'success' && x.deploy.site ? ` · ${x.deploy.site}` : x.deploy.url ? ` · ${x.deploy.url}` : ''}`] : []),
         `  rama: ${x.branch ?? '—'}`,
@@ -648,7 +649,7 @@ try {
     if (!r.ok) process.exitCode = 1;
   } else if (command === 'next' || command === 'status') {
     const r = cmd.next();
-    print(r, (x) => `Siguiente paso: ${x.step}${x.command ? `\n  ${x.command}` : ''}\n  por qué: ${x.why}`);
+    print(r, (x) => `Siguiente paso: ${x.step}${x.command ? `\n  ${x.command}` : ''}\n  por qué: ${x.why}${x.board ? `\n  tablero: ${x.board.line}` : ''}`);
   } else if (command === 'deps') {
     const pr = arg === undefined ? previews.currentPr() : num(arg, '<pr>');
     const r = syncDeps(pr);

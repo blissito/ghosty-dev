@@ -824,6 +824,7 @@ export function showPr(m) {
   if (!p?.number) throw new UserError(`No encontré el PR #${m} en este repo.`);
   const pr = { number: p.number, url: p.html_url, headRefName: p.head?.ref, headRefOid: p.head?.sha };
   const comments = apiAll(`${API_ISSUE(m)}/comments`, { allowFail: true }) ?? [];
+  const conflict = p.state === 'open' && !p.merged_at ? conflictOf(m) : null;
   return {
     pr: p.number,
     title: p.title ?? '',
@@ -833,11 +834,57 @@ export function showPr(m) {
     ficha: fichaOf(comments),
     url: pr.url,
     services: pr.headRefOid ? prServices(pr, { deep: true }) : null,
-    conflict: p.state === 'open' && !p.merged_at ? conflictOf(m) : null,
+    conflict,
     closed: closedInfo(m, p),
+    // «Siguiente: <qué> · le toca a <quién>» (el mismo dato que el tablero de Ghosty).
+    next: boardNextOf(p, conflict),
     // Tras el merge: ¿llegó a producción? El mismo veredicto que el tablero de Ghosty (deployVerdict).
     deploy: p.merged_at && p.merge_commit_sha ? deployOf(p) : null,
   };
+}
+
+// ---------- «Siguiente: <qué> · le toca a <quién>», igual que el tablero de Ghosty (gs `nextStepOf`, fila 64) ----------
+// Orden real: vista previa → CI → prueba en vivo/Lighthouse → revisión → flujo principal y evidencia (el agente) → merge
+// (la persona). Un paso que aún no puede hacerse nunca es rojo: `failed` sólo con fallas reales.
+const NEXT_NOT_CI = new Set(['Ghosty Review', 'Ghosty · Preview', 'Ghosty · Revisiones del push', 'ghosty-dev/evidencia']);
+const NEXT_BAD = /^(failure|error|cancelled|timed_out|action_required|startup_failure)$/i;
+export function boardNext(checks, { conflict = false, draft = false, reviewExpected = false } = {}) {
+  const latest = new Map();
+  for (const c of checks) if (c.name && !latest.has(c.name)) latest.set(c.name, c);
+  const at = (step, owner, failed = false, waitingOn = null) => ({ step, owner, waitingOn, failed });
+  const done = (c) => !c || c.status === 'completed';
+  if (conflict) return at('conflict', 'agent', true);
+  if (draft) return at('draft', 'you');
+  const preview = latest.get('Ghosty · Preview');
+  if (preview && !done(preview)) return at('preview', 'ghosty');
+  if (preview?.conclusion === 'failure') return at('preview', 'agent', true);
+  const ci = [...latest.values()].filter((c) => !NEXT_NOT_CI.has(c.name) && !c.name.startsWith('ghosty-dev') && c.name !== 'Ghosty · Smoke');
+  if (ci.some((c) => c.status === 'completed' && NEXT_BAD.test(c.conclusion ?? ''))) return at('ci', 'agent', true);
+  if (ci.some((c) => !done(c))) return at('ci', 'ghosty');
+  const smoke = latest.get('Ghosty · Smoke');
+  if (smoke && !done(smoke)) return at('smoke', 'ghosty');
+  if (smoke && NEXT_BAD.test(smoke.conclusion ?? '')) return at('smoke', 'agent', true);
+  const review = latest.get('Ghosty Review');
+  if ((!review && reviewExpected) || (review && !done(review))) return at('review', 'ghosty');
+  if (review && !['success', 'skipped', 'neutral'].includes(review.conclusion)) return at('review', 'agent');
+  const gate = latest.get('ghosty-dev/evidencia');
+  if (gate && !done(gate)) return at('evidence', 'ghosty');
+  if (gate && NEXT_BAD.test(gate.conclusion ?? '')) return at('evidence', 'agent');
+  return at('merge', 'you');
+}
+const NEXT_STEP = { conflict: 'Resolver el conflicto con la base', draft: 'Marcar listo para revisión', preview: 'Vista previa', ci: 'CI del repo', smoke: 'Prueba en vivo · Lighthouse', review: 'Ghosty Review', evidence: 'Probar el flujo principal y publicar la evidencia', merge: 'Merge' };
+const NEXT_FIX = { conflict: 'Resolver el conflicto con la base', preview: 'Arreglar la vista previa', ci: 'Arreglar el CI', smoke: 'Arreglar la prueba en vivo', review: 'Atender los hallazgos' };
+const NEXT_OWNER = { ghosty: 'le toca a Ghosty', agent: 'le toca al agente', you: 'te toca a ti' };
+export const nextLine = (n) => `Siguiente: ${(n.owner === 'agent' ? NEXT_FIX[n.step] : null) ?? NEXT_STEP[n.step]} · ${NEXT_OWNER[n.owner]}${n.waitingOn ? ` · espera a ${n.waitingOn}` : ''}`;
+// Los checks del commit en la forma de boardNext (check runs + statuses).
+function checksLite(sha) {
+  const { runs, statuses } = commitChecks(sha);
+  return [...runs.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion })), ...statuses.map((s) => ({ name: s.context, status: s.state === 'pending' ? 'in_progress' : 'completed', conclusion: s.state === 'pending' ? null : s.state === 'success' ? 'success' : 'failure' }))];
+}
+function boardNextOf(p, conflict) {
+  if (p.state !== 'open' || p.merged_at || !p.head?.sha) return null;
+  const n = boardNext(checksLite(p.head.sha), { conflict: !!conflict, draft: !!p.draft });
+  return { ...n, line: nextLine(n) };
 }
 
 // Puro: el veredicto del deploy de un merge, igual que gs (`app/lib/dev-runs/deploy.ts`). Un run caído gana; cancelado
@@ -883,7 +930,9 @@ export function next() {
   const def = info.default_branch || 'main';
   const prs = openPrs();
   const pr = branch && branch !== def ? prs.find((p) => p.headRefName === branch) : null;
-  const out = (step, command, why, extra = {}) => ({ step, command, why, branch, ...extra });
+  // Con PR: además del comando para el agente, el paso del tablero (quién tiene la pelota), igual que en Ghosty.
+  const board = pr?.headRefOid ? boardNext(checksLite(pr.headRefOid), { draft: !!pr.draft }) : null;
+  const out = (step, command, why, extra = {}) => ({ step, command, why, branch, ...extra, ...(board ? { board: { ...board, line: nextLine(board) } } : {}) });
   if (pr) {
     // Un pedido (de la persona o el automático de gs en el PR, marca ghosty-dev:pedido) va antes que todo.
     const linked = closingRefs(pr.body)[0];
