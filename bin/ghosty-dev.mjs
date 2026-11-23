@@ -71,8 +71,15 @@ Uso: ghosty-dev <comando> [opciones]
                                          del build y del servidor (200 renglones por defecto)
   box exec [<pr>] -- <comando…>          corre el comando en el checkout de la caja (/app/src, 60 s); sale con su código
   box restart [<pr>]                     reinicia la app de la caja sin rearmar
+  preview [<pr>] --with <m>[,<k>] [--wait] [--open] [--down]
+                                         vista previa COMBINADA (este PR + otros, sin rama ni PR borrador): gs mezcla
+                                         los heads sobre la base en una caja que se borra sola en 2 h; si chocan, dice
+                                         en qué archivos. --down la quita antes
   preview [<pr>] --login [--path /x] [--open]  liga de UN solo uso (10 min) que entra con sesión de prueba
-                                         (identidad de servicio de Ghosty); con --check, prueba de punta a punta
+                                         (identidad de servicio de Ghosty); con --check, prueba de punta a punta:
+                                         entrar, cerrar sesión, que no se reabra, volver a entrar [--logout
+                                         "POST /api/login intent=logout"] [--relogin "…"] (o logout:/relogin:
+                                         en .ghosty/factory.md)
   preview share [<pr>]                   liga pública para alguien sin cuenta (la única vez que se imprime)
   preview unshare [<pr>]                 la revoca; quien la abra puede pedir acceso
   preview requests [<pr>] [--status pending|accepted|rejected|all]
@@ -150,7 +157,11 @@ const { values, positionals } = parseArgs({
     wait: { type: 'boolean' },
     login: { type: 'boolean' },
     path: { type: 'string' },
+    logout: { type: 'string' },
+    relogin: { type: 'string' },
     open: { type: 'boolean' },
+    with: { type: 'string' },
+    down: { type: 'boolean' },
     lines: { type: 'string' },
     issue: { type: 'string' },
     workspace: { type: 'string' },
@@ -290,8 +301,26 @@ const prStateLine = (s) => {
 const LOGIN_WORD = { session: 'ok: entra con sesión', no_session: 'MAL: no entra con sesión', public_path: 'sin probar: ruta que no exige sesión', app_error: 'MAL: la app truena', unreachable: 'MAL: no se pudo abrir' };
 // Formmy fila 59: gs sigue las redirecciones; se muestra el primer estado y dónde terminó (302 → /dashboard/agentes (200)).
 const hopText = (h) => (!h ? '—' : h.final && h.finalStatus && h.status >= 300 && h.status < 400 ? `${h.status} → ${h.final} (${h.finalStatus})` : `${h.status}${h.location ? ` → ${h.location}` : ''}`);
+// Formmy fila 61: un renglón por paso del recorrido (entrar, cerrar sesión, no se reabre, volver a entrar, sin identidad).
+const STEP_LINE = { enter: 'entrar', logout: 'cerrar sesión', stays_out: 'no se reabre', reenter: 'volver a entrar', no_identity: 'sin identidad' };
 function loginCheckText(x) {
-  return `Login en la vista previa del PR #${x.pr} (${x.path}): ${LOGIN_WORD[x.verdict] ?? x.verdict}\n  con identidad ${hopText(x.withIdentity)} · sin identidad ${hopText(x.withoutIdentity)}${x.message ? `\n  ${x.message}` : ''}`;
+  const head = `Login en la vista previa del PR #${x.pr} (${x.path}): ${LOGIN_WORD[x.verdict] ?? x.verdict}${x.flow === 'failed' && x.verdict === 'session' ? ', pero el recorrido falla' : ''}\n  con identidad ${hopText(x.withIdentity)} · sin identidad ${hopText(x.withoutIdentity)}`;
+  if (!x.steps?.length) return `${head}${x.message ? `\n  ${x.message}` : ''}`;
+  return `${head}\n${x.steps.map((s) => `  ${s.ok === true ? 'ok ' : s.ok === false ? 'MAL' : '-- '} ${STEP_LINE[s.name] ?? s.name}: ${s.detail}`).join('\n')}`;
+}
+
+// La combinada: «Combinada #73 + #101 · abc1234 (base main def5678; #73 e90deb4, #101 a94f32e)».
+function combinedLabel(x) {
+  const parts = [x.base?.ref ? `base ${x.base.ref}${x.base.sha ? ` ${x.base.sha.slice(0, 7)}` : ''}` : null, ...x.heads.map((h) => `#${h.pr} ${h.sha.slice(0, 7)}`)].filter(Boolean);
+  return `Combinada #${x.prs.join(' + #')} · ${x.repo}${x.sha ? ` · commit ${x.sha.slice(0, 7)}` : ''}${parts.length ? ` (${parts.join('; ')})` : ''}`;
+}
+function combinedText(x, { opened } = {}) {
+  const until = x.expiresAt ? new Date(x.expiresAt).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : null;
+  const head = `${combinedLabel(x)}: ${PHASE_WORD[x.phase] ?? x.phase}`;
+  const tail = `\n  Sin rama ni PR en GitHub; cuenta como una caja${until ? ` y se borra sola a las ${until}` : ''} o al cerrar cualquiera de los PR. Quitarla antes: ghosty-dev preview ${x.prs[0]} --with ${x.prs.slice(1).join(',')} --down`;
+  if (x.phase === 'ready') return (x.url ? `${head}\n${opened ? '  Abierta en tu navegador.' : `  ${x.url}`}` : `${head}, pero Ghosty Studio no mandó una liga válida.`) + tail;
+  if (x.phase === 'failed') return `${head}${x.error ? `\n  ${x.error}` : ''}`;
+  return `${head}. Espérala: ghosty-dev preview ${x.prs[0]} --with ${x.prs.slice(1).join(',')} --wait` + tail;
 }
 
 function previewText(x, { opened } = {}) {
@@ -535,20 +564,42 @@ try {
     // de punta a punta (misma ruta con y sin identidad).
     const pr = arg === undefined ? undefined : num(arg, '<pr>');
     if (values.check) {
-      const r = await previews.previewLoginCheck(pr, { path: values.path });
+      const { loginPathOf, loginFlowOf } = await import('../src/doctor.mjs');
+      const top = cmd.repoTop();
+      const flow = top ? loginFlowOf(top) : {};
+      const r = await previews.previewLoginCheck(pr, { path: values.path ?? (top ? loginPathOf(top) : undefined), logout: values.logout ?? flow.logout, relogin: values.relogin ?? flow.relogin });
       print(r, loginCheckText);
-      process.exitCode = r.verdict === 'session' ? 0 : 1;
+      process.exitCode = r.verdict === 'session' && r.flow !== 'failed' ? 0 : 1;
     } else {
       const r = await previews.previewLogin(pr, { path: values.path });
       if (values.open) auth.openBrowser(r.url);
       print(r, (x) => `Login de prueba en la vista previa del PR #${x.pr} como ${x.identity?.email || 'la identidad de servicio'} (un solo uso, ${Math.round(x.expiresIn / 60)} min, aterriza en ${x.path}):\n${values.open ? '  Abierta en tu navegador.' : `  ${x.url}\n  Nadie la ha abierto: se gasta la primera vez que la abras (navegador o curl), no al generarla. Para abrirla tú: --open.\n  Con curl: curl -sL -c jar "<liga>" -o /dev/null && curl -s -b jar <host de la preview>${x.path}`}`);
+    }
+  } else if (command === 'preview' && values.with !== undefined) {
+    // Vista previa combinada (Formmy fila 63): este PR + otros, sin rama ni PR borrador.
+    const pr = arg === undefined ? undefined : num(arg, '<pr>');
+    const withPrs = previews.parseWith(values.with);
+    if (values.down) {
+      print(await previews.previewCombinedDown(pr, withPrs), (x) => (x.removed ? `Quité la vista previa combinada #${x.prs.join(' + #')}.` : `No había vista previa combinada #${x.prs.join(' + #')}.`));
+    } else {
+      const r = await previews.previewCombined(pr, withPrs, { wait: values.wait || values.open, onNote: (n) => console.error(n) });
+      if (r.url && values.open) {
+        console.error(`Abriendo ${combinedLabel(r)}`);
+        auth.openBrowser(r.url);
+      }
+      print(r, (x) => combinedText(x, { opened: values.open }));
+      process.exitCode = previews.exitCodeOf(r);
     }
   } else if (command === 'preview') {
     const pr = arg === undefined ? undefined : num(arg, '<pr>');
     // Los avisos (commit viejo, falta push) van a stderr y nunca llevan la liga.
     autoDeps(pr ?? previews.currentPr());
     const r = await previews.preview(pr, { wait: values.wait, onNote: (n) => console.error(n) });
-    if (r.url && values.open) auth.openBrowser(r.url);
+    // Fila 62: antes de abrir, a qué PR y commit apunta (stderr; nunca la liga).
+    if (r.url && values.open) {
+      console.error(`Abriendo la vista previa del PR #${r.pr} · ${r.repo}${r.sha ? ` · commit ${r.sha.slice(0, 7)}` : ''}${r.prHead && r.sha && !r.prHead.startsWith(r.sha) && !r.sha.startsWith(r.prHead) ? ` (el PR va en ${r.prHead.slice(0, 7)}: rearma con ghosty-dev box rebuild ${r.pr})` : ''}`);
+      auth.openBrowser(r.url);
+    }
     print(r, (x) => previewText(x, { opened: values.open }));
     process.exitCode = previews.exitCodeOf(r);
   } else if (command === 'doctor') {
@@ -576,7 +627,8 @@ try {
         previewMissingEnvPriority = p.missingEnvPriority;
         // Petición real (filas 53–54): ¿la app de la vista previa entra con la identidad? Sólo si está lista.
         if (p.phase === 'ready' && doctor.identityCheck(top)?.ok)
-          loginProbe = await previews.previewLoginCheck(pr, { path: values.path ?? doctor.loginPathOf(top) }).catch(() => null);
+          const flow = doctor.loginFlowOf(top);
+          loginProbe = await previews.previewLoginCheck(pr, { path: values.path ?? doctor.loginPathOf(top), logout: values.logout ?? flow.logout, relogin: values.relogin ?? flow.relogin }).catch(() => null);
       }
     } catch {}
     const catalog = await doctor.fetchCatalog();

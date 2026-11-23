@@ -197,3 +197,46 @@ test('preview <pr> --login --check: prueba de punta a punta; sale 0 con sesión 
     assert.equal(red.code, 0, red.err);
     assert.match(red.out, /ok: entra con sesión\n  con identidad 302 → \/dashboard\/agentes \(200\) · sin identidad 302 → \/ \(200\)/);
   }));
+
+test('preview --with: combinada #73 + #101 sin PR borrador; --wait hasta lista, la liga sólo en stdout (fila 63)', () =>
+  withPreview([{ phase: 'ready', sha: null, url: LINK }], async ({ gs, cli }) => {
+    const r = await cli(['preview', '73', '--with', '101', '--wait', '--json']);
+    assert.equal(r.code, 0, r.err);
+    const out = JSON.parse(r.out);
+    assert.equal(out.combined, true);
+    assert.deepEqual(out.prs, [73, 101]);
+    assert.equal(out.phase, 'ready');
+    assert.match(out.url, /^https:\/\/www\.ghosty\.studio\/preview\/s\//);
+    assert.deepEqual(gs.combinedCalls[0].body, { with: [101] });
+    assert.equal(gs.combinedCalls[0].method, 'POST');
+    assert.equal(gs.combinedCalls[1].query, '?with=101');
+    assert.doesNotMatch(r.err, /pvs_SECRETO/);
+    gs.combined.phases = ['ready'];
+    const human = await cli(['preview', '73', '--with', '#101']);
+    assert.match(human.out, /^Combinada #73 \+ #101 · acme\/demo · commit c0ffee0 \(base main bbbbbbb; #73 1111111; #101 2222222\): lista/);
+    assert.match(human.out, /se borra sola a las .*--with 101 --down/s);
+    const opened = await cli(['preview', '73', '--with', '101', '--open'], { GHOSTY_DEV_NO_OPEN: '1' });
+    assert.match(opened.err, /^Abriendo Combinada #73 \+ #101/m);
+    assert.doesNotMatch(opened.out + opened.err, /pvs_SECRETO/);
+  }));
+
+test('preview --with: si chocan, dice qué archivos y sale 1; --down la quita', () =>
+  withPreview([{ phase: 'ready', sha: null, url: LINK }], async ({ gs, cli }) => {
+    gs.combined.conflict = { pr: 101, files: ['app/routes/login.tsx', 'app/root.tsx'] };
+    const r = await cli(['preview', '73', '--with', '101']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.err, /No se puede combinar: #101 choca con #73[\s\S]*app\/routes\/login\.tsx\n\s+app\/root\.tsx/);
+    const d = await cli(['preview', '73', '--with', '101', '--down']);
+    assert.equal(d.code, 0, d.err);
+    assert.match(d.out, /Quité la vista previa combinada #73 \+ #101/);
+    assert.equal(gs.combinedCalls.at(-1).method, 'DELETE');
+  }));
+
+test('preview --open: antes de abrir dice a qué PR y commit apunta (fila 62)', () =>
+  withPreview([{ phase: 'ready', sha: null, url: LINK }], async ({ gs, cli, head }) => {
+    gs.previews[0].sha = head;
+    const r = await cli(['preview', '73', '--open'], { GHOSTY_DEV_NO_OPEN: '1' });
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, new RegExp(`Abriendo la vista previa del PR #73 · acme/demo · commit ${head.slice(0, 7)}`));
+    assert.doesNotMatch(r.err, SECRET);
+  }));

@@ -150,11 +150,18 @@ export async function previewLogin(prArg, { path } = {}) {
 // regresa llaves ni tokens. verdict: session | no_session | public_path | app_error | unreachable.
 const VERDICTS = new Set(['session', 'no_session', 'public_path', 'app_error', 'unreachable']);
 const hopOf = (h) => (h && typeof h === 'object' ? { status: Number(h.status) || 0, location: routePath(h.location), final: routePath(h.final), finalStatus: Number(h.finalStatus) || null } : null);
-export async function previewLoginCheck(prArg, { path } = {}) {
+// `logout` / `relogin` («POST /api/login intent=logout»): con ellos gs recorre entrar → cerrar sesión → que no se reabra
+// → volver a entrar → sin identidad (Formmy fila 61) y regresa `steps` y `flow`.
+const STEP_NAMES = new Set(['enter', 'logout', 'stays_out', 'reenter', 'no_identity']);
+const stepOf = (x) => (x && STEP_NAMES.has(x.name) ? { name: x.name, ok: x.ok === true ? true : x.ok === false ? false : null, detail: cleanMessage(String(x.detail ?? '')) } : null);
+export async function previewLoginCheck(prArg, { path, logout, relogin } = {}) {
   const pr = prArg ?? currentPr();
   const repo = repoFullName();
   const want = routePath(path ?? '/dashboard') ?? '/dashboard';
-  const r = await request('GET', `${previewPath(repo, pr)}/login?path=${encodeURIComponent(want)}`, undefined, { scope: 'dev' });
+  const q = new URLSearchParams({ path: want });
+  if (logout) q.set('logout', String(logout));
+  if (relogin) q.set('relogin', String(relogin));
+  const r = await request('GET', `${previewPath(repo, pr)}/login?${q}`, undefined, { scope: 'dev' });
   return {
     repo,
     pr,
@@ -164,7 +171,71 @@ export async function previewLoginCheck(prArg, { path } = {}) {
     withIdentity: hopOf(r?.withIdentity),
     withoutIdentity: hopOf(r?.withoutIdentity),
     identity: IDENTITY(r?.identity),
+    steps: Array.isArray(r?.steps) ? r.steps.map(stepOf).filter(Boolean) : [],
+    flow: ['ok', 'failed', 'untested'].includes(r?.flow) ? r.flow : null,
   };
+}
+
+// Vista previa COMBINADA (Formmy fila 63): este PR junto con otros (#73 con el login de #101) en una caja efímera de
+// Ghosty Studio, sin rama ni PR borrador. gs mezcla los heads sobre la base del primero; con conflictos no arma y dice
+// en qué archivos. Se borra sola a las 2 h o al cerrar cualquiera de los PR. La liga sólo sale por stdout.
+export const parseWith = (v) => [...new Set(String(v ?? '').split(/[,\s+#]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+const combinedPath = (repo, pr) => `${previewPath(repo, pr)}/combined`;
+function combinedOf(r, repo, prs) {
+  const url = r?.phase === 'ready' ? signedUrl(r?.url) : null;
+  const heads = Array.isArray(r?.heads) ? r.heads.filter((h) => h && Number.isInteger(h.pr) && sha(h.sha)).map((h) => ({ pr: h.pr, sha: sha(h.sha) })) : [];
+  return {
+    repo: r?.repo != null ? plain(r.repo, 200) : repo,
+    prs: Array.isArray(r?.prs) ? r.prs.filter(Number.isInteger) : prs,
+    combined: true,
+    phase: PHASES.has(r?.phase) || r?.phase === 'installing' || r?.phase === 'creating' ? (r.phase === 'installing' || r.phase === 'creating' ? 'building' : r.phase) : plain(r?.phase ?? 'none', 40),
+    sha: sha(r?.sha),
+    heads,
+    base: r?.base && typeof r.base.ref === 'string' ? { ref: plain(r.base.ref, 200), sha: sha(r.base.sha) } : null,
+    expiresAt: typeof r?.expiresAt === 'string' ? r.expiresAt : null,
+    url,
+    error: r?.error ? cleanMessage(r.error, url ? [url, new URL(url).search] : []) : null,
+    message: r?.message ? cleanMessage(r.message) : null,
+  };
+}
+
+export async function previewCombined(prArg, withPrs, { wait = false, onNote = () => {} } = {}) {
+  const pr = prArg ?? currentPr();
+  const repo = repoFullName();
+  checkRepo(repo);
+  const others = withPrs.filter((n) => n !== pr);
+  if (!others.length || others.length > 3) throw new UserError('--with lleva de 1 a 3 PR más: ghosty-dev preview 73 --with 101 (o 101,102).');
+  const prs = [pr, ...others];
+  let r;
+  try {
+    r = await request('POST', combinedPath(repo, pr), { with: others }, { scope: 'dev' });
+  } catch (e) {
+    // Conflicto: gs dice qué PR choca y en qué archivos (no arma nada).
+    if (e?.status === 409 && Array.isArray(e?.data?.files)) {
+      const files = e.data.files.filter((f) => typeof f === 'string').slice(0, 30).map((f) => plain(f, 300));
+      throw new UserError(`No se puede combinar: ${cleanMessage(e.data.message ?? 'los PR chocan')}${files.length ? `\n  Archivos en conflicto:\n${files.map((f) => `    ${f}`).join('\n')}` : ''}`);
+    }
+    throw e;
+  }
+  let p = combinedOf(r, repo, prs);
+  const unit = Number(process.env.GHOSTY_DEV_PREVIEW_POLL_MS ?? 1000);
+  const until = Date.now() + Number(process.env.GHOSTY_DEV_PREVIEW_MAX_MS ?? 10 * 60_000);
+  const steps = [3, 5, 8, 13, 21, 30];
+  for (let i = 0; wait && !FINAL.has(p.phase); i++) {
+    const delay = steps[Math.min(i, steps.length - 1)] * unit;
+    if (Date.now() + delay > until) break;
+    await new Promise((res) => setTimeout(res, delay));
+    p = combinedOf(await request('GET', `${combinedPath(repo, pr)}?with=${others.join(',')}`, undefined, { scope: 'dev' }), repo, prs);
+  }
+  return p;
+}
+
+export async function previewCombinedDown(prArg, withPrs) {
+  const pr = prArg ?? currentPr();
+  const repo = repoFullName();
+  const others = withPrs.filter((n) => n !== pr);
+  const r = await request('DELETE', `${combinedPath(repo, pr)}?with=${others.join(',')}`, undefined, { scope: 'dev' });
+  return { repo, prs: [pr, ...others], removed: Number(r?.removed) || 0 };
 }
 
 export const exitCodeOf = (p) => (p.phase === 'ready' ? 0 : p.phase === 'failed' ? 1 : PREVIEW_PENDING_EXIT);

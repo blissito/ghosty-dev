@@ -57,6 +57,9 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   canjearlo); el `state` va con `previewOAuthState(state, '/ruta/callback')` (snippet de los docs de Ghosty Studio,
   fabrica/oauth-en-previews). El dueño registra una vez `https://www.ghosty.studio/preview-oauth/callback`.
   `ghosty-dev doctor` dice qué falta.
+- **Ver dos PR juntos** (p. ej. una feature con el login de otro PR): `ghosty-dev preview <pr> --with <m>[,<k>] --wait`
+  → Ghosty Studio mezcla los heads sobre la base en una caja efímera (2 h), sin rama ni PR borrador; si chocan, dice
+  en qué archivos. Nunca abras un PR «no mergear» para eso. Cada preview trae una franja «PR #n · commit · repo».
 - **Entrar con sesión como agente**: `ghosty-dev preview <pr> --login [--path /x]` → liga de UN solo uso con la identidad
   de servicio (síguela con `curl -sL -c jar`); `--login --check --path /x` y `doctor` prueban de verdad que la app
   entra. Sin proveedor OAuth en la preview, la ruta de login dice «ábrela desde Ghosty» (receta en AGENTS.md).

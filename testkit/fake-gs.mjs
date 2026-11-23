@@ -25,6 +25,9 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     previews: [...previews],
     previewCalls: [],
     loginCalls: [],
+    // Vista previa combinada (fila 63): fases que va contestando y, si se pone, el conflicto.
+    combined: { phases: ['building', 'ready'], conflict: null },
+    combinedCalls: [],
     // La prueba de login de la vista previa (GET …/preview/login): lo que contesta gs.
     loginProbe: { verdict: 'session', path: '/dashboard', message: 'con identidad /dashboard responde 200; sin ella, 302 → /', withIdentity: { status: 200, location: null }, withoutIdentity: { status: 302, location: '/' } },
     // La caja de la vista previa: null = el PR no tiene caja (404); { seat: false } = sin asiento (403).
@@ -100,6 +103,23 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       const next = s.previews.length > 1 ? s.previews.shift() : s.previews[0] ?? { phase: 'none' };
       const page = `https://www.ghosty.studio/c/dev/pr/${pm[1]}/${pm[2]}/${pm[3]}/preview`;
       return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), sha: null, url: null, error: null, page, ...next });
+    }
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/preview\/combined$/))) {
+      const body = raw ? JSON.parse(raw) : null;
+      s.combinedCalls.push({ method: req.method, pr: Number(pm[3]), query: url.search, body });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      const pr = Number(pm[3]);
+      const others = body?.with ?? (url.searchParams.get('with') ?? '').split(',').map(Number);
+      const prs = [pr, ...others];
+      if (req.method === 'DELETE') return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, prs, removed: 1 });
+      const c = s.combined;
+      if (req.method === 'POST' && c.conflict) return send(res, 409, { error: 'conflict', pr: c.conflict.pr, files: c.conflict.files, message: `#${c.conflict.pr} choca con #${pr} en ${c.conflict.files.join(', ')}: resuélvelo en uno de los PR (rebase) y vuelve a pedirla.` });
+      const phase = c.phases.length > 1 ? c.phases.shift() : c.phases[0];
+      return send(res, req.method === 'POST' ? 202 : 200, {
+        repo: `${pm[1]}/${pm[2]}`, prs, phase, sha: 'c0ffee0000000000000000000000000000000000',
+        heads: prs.map((n, i) => ({ pr: n, sha: String(i + 1).repeat(40) })), base: { ref: 'main', sha: 'b'.repeat(40) },
+        expiresAt: '2026-11-22T22:00:00.000Z', url: phase === 'ready' ? 'https://www.ghosty.studio/preview/s/pvs_SECRETO0123456789' : null, error: null,
+      });
     }
     if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/preview\/login$/))) {
       s.loginCalls.push({ method: req.method, pr: Number(pm[3]), query: url.search, body: raw ? JSON.parse(raw) : null });
