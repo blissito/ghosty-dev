@@ -288,7 +288,8 @@ const prStateLine = (s) => {
 };
 
 const LOGIN_WORD = { session: 'ok: entra con sesión', no_session: 'MAL: no entra con sesión', public_path: 'sin probar: ruta que no exige sesión', app_error: 'MAL: la app truena', unreachable: 'MAL: no se pudo abrir' };
-const hopText = (h) => (h ? `${h.status}${h.location ? ` → ${h.location}` : ''}` : '—');
+// Formmy fila 59: gs sigue las redirecciones; se muestra el primer estado y dónde terminó (302 → /dashboard/agentes (200)).
+const hopText = (h) => (!h ? '—' : h.final && h.finalStatus && h.status >= 300 && h.status < 400 ? `${h.status} → ${h.final} (${h.finalStatus})` : `${h.status}${h.location ? ` → ${h.location}` : ''}`);
 function loginCheckText(x) {
   return `Login en la vista previa del PR #${x.pr} (${x.path}): ${LOGIN_WORD[x.verdict] ?? x.verdict}\n  con identidad ${hopText(x.withIdentity)} · sin identidad ${hopText(x.withoutIdentity)}${x.message ? `\n  ${x.message}` : ''}`;
 }
@@ -540,7 +541,7 @@ try {
     } else {
       const r = await previews.previewLogin(pr, { path: values.path });
       if (values.open) auth.openBrowser(r.url);
-      print(r, (x) => `Login de prueba en la vista previa del PR #${x.pr} como ${x.identity?.email || 'la identidad de servicio'} (un solo uso, ${Math.round(x.expiresIn / 60)} min, aterriza en ${x.path}):\n${values.open ? '  Abierta en tu navegador.' : `  ${x.url}\n  Con curl: curl -sL -c jar "<liga>" -o /dev/null && curl -s -b jar <host de la preview>${x.path}`}`);
+      print(r, (x) => `Login de prueba en la vista previa del PR #${x.pr} como ${x.identity?.email || 'la identidad de servicio'} (un solo uso, ${Math.round(x.expiresIn / 60)} min, aterriza en ${x.path}):\n${values.open ? '  Abierta en tu navegador.' : `  ${x.url}\n  Nadie la ha abierto: se gasta la primera vez que la abras (navegador o curl), no al generarla. Para abrirla tú: --open.\n  Con curl: curl -sL -c jar "<liga>" -o /dev/null && curl -s -b jar <host de la preview>${x.path}`}`);
     }
   } else if (command === 'preview') {
     const pr = arg === undefined ? undefined : num(arg, '<pr>');

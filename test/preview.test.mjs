@@ -177,6 +177,7 @@ test('preview <pr> --login: liga de un solo uso con la identidad de servicio, s�
     assert.doesNotMatch(r.err, /nonce_SECRETO/);
     const human = await cli(['preview', '73', '--login']);
     assert.match(human.out, /Login de prueba en la vista previa del PR #73 como smoke@ghosty\.studio \(un solo uso, 10 min, aterriza en \/\)/);
+    assert.match(human.out, /Nadie la ha abierto: se gasta la primera vez que la abras/);
   }));
 
 test('preview <pr> --login --check: prueba de punta a punta; sale 0 con sesión y 1 sin ella', () =>
@@ -190,4 +191,9 @@ test('preview <pr> --login --check: prueba de punta a punta; sale 0 con sesión 
     const bad = await cli(['preview', '73', '--login', '--check', '--json']);
     assert.equal(bad.code, 1);
     assert.equal(JSON.parse(bad.out).verdict, 'no_session');
+    // Formmy fila 59: gs sigue las redirecciones y el texto dice dónde terminó cada una.
+    gs.loginProbe = { verdict: 'session', path: '/dashboard', message: 'entra: con sesión /dashboard → /dashboard/agentes (200); sin sesión /dashboard → / (200)', withIdentity: { status: 302, location: '/dashboard/agentes', final: '/dashboard/agentes', finalStatus: 200 }, withoutIdentity: { status: 302, location: '/', final: '/', finalStatus: 200 } };
+    const red = await cli(['preview', '73', '--login', '--check']);
+    assert.equal(red.code, 0, red.err);
+    assert.match(red.out, /ok: entra con sesión\n  con identidad 302 → \/dashboard\/agentes \(200\) · sin identidad 302 → \/ \(200\)/);
   }));

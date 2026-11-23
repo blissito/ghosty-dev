@@ -149,7 +149,7 @@ export async function previewLogin(prArg, { path } = {}) {
 // Comprobación de punta a punta: Ghosty Studio pide `path` a la vista previa con y sin la identidad y compara. No
 // regresa llaves ni tokens. verdict: session | no_session | public_path | app_error | unreachable.
 const VERDICTS = new Set(['session', 'no_session', 'public_path', 'app_error', 'unreachable']);
-const hopOf = (h) => (h && typeof h === 'object' ? { status: Number(h.status) || 0, location: routePath(h.location) } : null);
+const hopOf = (h) => (h && typeof h === 'object' ? { status: Number(h.status) || 0, location: routePath(h.location), final: routePath(h.final), finalStatus: Number(h.finalStatus) || null } : null);
 export async function previewLoginCheck(prArg, { path } = {}) {
   const pr = prArg ?? currentPr();
   const repo = repoFullName();
