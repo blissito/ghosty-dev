@@ -63,6 +63,8 @@ Uso: ghosty-dev <comando> [opciones]
   release <n>                            #n sigue sin esperar el PR que lo bloqueaba (no cierra nada)
   recover [--start] [--pr m,n]           PRs de este repo cerrados sin merge con su rama viva; con --start Ghosty los
                                          retoma sobre su misma rama con un PR NUEVO (reabre su issue; el PR viejo no)
+  claim <n> --cloud                     si llevas trabajo aquí (cambios o commits sin subir) lo sube a ghosty-dev/<n>-traspaso
+                                         (commit «WIP: traspaso a la nube») y la nube sigue desde ahí; --no-handoff lo salta
   claim <n> --cloud --reopen             con un issue cerrado cuyo trabajo nunca entró a main: lo reabre y lo manda
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI o a un pedido de la persona
@@ -150,6 +152,7 @@ const { values, positionals } = parseArgs({
   options: {
     help: { type: 'boolean', short: 'h' },
     'skip-readiness': { type: 'boolean' },
+    'no-handoff': { type: 'boolean' },
     version: { type: 'boolean', short: 'v' },
     json: { type: 'boolean' },
     claim: { type: 'boolean' },
@@ -531,7 +534,12 @@ try {
     const n = arg === undefined && pr ? undefined : num(arg);
     const notReady = n ? await blockedByPreparation(n) : false;
     const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''}${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`;
-    if (!notReady && (await confirmCloud({ n, pr }, retry))) printCloud(await cloud.start(n, { pr, workspace: values.workspace, reopen: values.reopen }));
+    if (!notReady && (await confirmCloud({ n, pr }, retry))) {
+      // Lo que llevas aquí se hereda: sube tu trabajo a una rama de traspaso y la caja parte de ahí.
+      const handoff = n && !pr && !values['no-handoff'] ? cmd.handoffToCloud(n, { onProgress: (m) => console.error(m) }) : null;
+      if (handoff) console.error(`Traspaso: tu trabajo${handoff.wip ? ' (con un commit «WIP: traspaso a la nube» de lo que no habías commiteado)' : ''} quedó en ${handoff.branch}; la nube sigue desde ahí.`);
+      printCloud(await cloud.start(n, { pr, workspace: values.workspace, reopen: values.reopen, fromBranch: handoff?.branch }));
+    }
   } else if (command === 'claim' && values.pr !== undefined) {
     await factory.guard();
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
@@ -545,7 +553,7 @@ try {
     }
     print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}${x.preview ? `\n  Vista previa: ${PHASE_WORD[x.preview.phase] ?? x.preview.phase}${x.preview.phase === 'ready' ? '' : ` (síguela: ghosty-dev preview ${x.pr} --wait)`}` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
-    print(await cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+    print(cloud.groupByIssue(await cloud.list()), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}${r.attempts ? `\t(+${r.attempts} intento${r.attempts > 1 ? 's' : ''} anterior${r.attempts > 1 ? 'es' : ''})` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
   } else if (command === 'reopen') {
     const r = await cloud.reopen(num(arg));
     print(r, (x) => `#${x.number} retomado en la nube: ${x.state}.\n  ${x.pr ?? x.url}`);
@@ -569,6 +577,9 @@ try {
   } else if (command === 'claim') {
     await factory.guard();
     const notReady = await blockedByPreparation(num(arg));
+    // Si la nube ya lo escribe, un solo escritor: se detiene su caja y se trae su rama para seguir aquí.
+    const back = notReady || process.env.GHOSTY_DEV_NO_NET ? null : await cloud.takeBack(num(arg));
+    if (back) console.error(`#${back.number} iba en la nube: la detuve y traje su rama${back.branch ? ` (${back.branch})` : ''}.`);
     const r = notReady ? null : cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
     if (r) print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {

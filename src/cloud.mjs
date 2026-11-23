@@ -55,7 +55,7 @@ const view = (r) => ({
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.
 // Con `pr` y sin pendiente: gs adopta el PR (vista previa, revisión y checks) y responde SIN id: no crea pendiente.
-export async function start(n, { pr, workspace, reopen } = {}) {
+export async function start(n, { pr, workspace, reopen, fromBranch } = {}) {
   const repo = repoName();
   const body = { repo };
   if (workspace) body.workspace = workspace;
@@ -63,6 +63,8 @@ export async function start(n, { pr, workspace, reopen } = {}) {
   if (pr) body.pr = pr;
   // Un issue cerrado cuyo trabajo nunca entró a main: gs lo reabre y lo retoma (sólo si se pide).
   if (reopen) body.reopen = true;
+  // Rama de traspaso: lo que llevabas en tu compu; la caja parte de ahí (gs: `fromBranch`).
+  if (fromBranch) body.fromBranch = fromBranch;
   const r = await call('POST', RUNS, body);
   if (r && r.id == null) {
     if (r.prUrl) return { repo, cloud: true, services: true, pr: number(r.pr) ?? pr ?? null, prUrl: text(r.prUrl), note: text(r.nota) };
@@ -132,6 +134,20 @@ export function preflightText(p) {
 }
 
 // Los pendientes de este repo que van en la nube (vivos y cerrados recientes).
+/** Un renglón por pendiente: el que sigue vivo (o, si no hay, el más reciente) y cuántos intentos más tuvo. Puro. */
+export function groupByIssue(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    const g = by.get(r.number);
+    if (!g) by.set(r.number, { ...r, attempts: 0 });
+    else {
+      g.attempts += 1;
+      if (!LIVE.has(g.phase) && LIVE.has(r.phase)) by.set(r.number, { ...r, attempts: g.attempts });
+    }
+  }
+  return [...by.values()];
+}
+
 export async function list() {
   const res = await call('GET', `${RUNS}?repo=${encodeURIComponent(repoName())}`);
   return (Array.isArray(res?.runs) ? res.runs : []).map(view);
@@ -157,6 +173,18 @@ export async function teleport(n) {
   const branch = run.branch || stopped.branch;
   if (branch && git(['fetch', 'origin', '--', `${branch}:${branch}`], { allowFail: true }) === null) git(['fetch', 'origin', '--', branch], { allowFail: true });
   return { ...stopped, branch };
+}
+
+// Tomar #n aquí cuando la nube lo lleva: un solo escritor, así que se detiene y se trae su rama (como `teleport`).
+// null = no iba en la nube, o no hay sesión/red con Ghosty Studio (entonces no estorba: se toma normal).
+export async function takeBack(n) {
+  let live;
+  try {
+    live = (await list()).find((r) => r.number === n && LIVE.has(r.phase));
+  } catch {
+    return null;
+  }
+  return live ? teleport(n) : null;
 }
 
 // El pendiente #n más reciente en la nube, esté vivo o detenido (el último que se mandó).

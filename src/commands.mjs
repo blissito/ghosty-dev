@@ -793,6 +793,34 @@ export function fichaOf(comments) {
   return c ? c.body.slice(FICHA_MARK.length).replace(/<sub>[\s\S]*?<\/sub>/g, '').trim() : null;
 }
 
+// ---------- traspaso local → nube ----------
+
+/**
+ * Lo que llevas en tu compu de #n viaja a la nube por git (patrón de Copilot `/delegate` y Devin Handoff): si el worktree
+ * tiene cambios sin commitear o commits sin subir, se commitea un «WIP: traspaso a la nube» y todo se sube a la rama de
+ * traspaso `ghosty-dev/<n>-traspaso` (nunca a la del PR). Devuelve { branch, wip } o null si no hay nada local que heredar.
+ */
+export function handoffToCloud(n, { onProgress = () => {} } = {}) {
+  const top = git(['rev-parse', '--show-toplevel']).trim();
+  const wt = join(dirname(top), `${basename(top)}-${n}`);
+  const dir = existsSync(wt) ? wt : top;
+  const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, allowFail: true })?.trim() ?? '';
+  if (!current.startsWith(`ghosty-dev/${n}-`) || current.endsWith('-traspaso')) return null;
+  const dirty = (git(['status', '--porcelain'], { cwd: dir, allowFail: true }) ?? '').trim() !== '';
+  const unpushed = Number((git(['rev-list', '--count', 'HEAD', '--not', '--remotes'], { cwd: dir, allowFail: true }) ?? '0').trim()) > 0;
+  if (!dirty && !unpushed) return null;
+  if (dirty) {
+    git(['add', '-A'], { cwd: dir });
+    git(['commit', '-q', '--no-verify', '-m', 'WIP: traspaso a la nube'], { cwd: dir });
+  }
+  const branch = `ghosty-dev/${n}-traspaso`;
+  onProgress(`subiendo lo tuyo a ${branch}…`);
+  if (git(['push', '-q', '--no-verify', '--force', 'origin', `HEAD:refs/heads/${branch}`], { cwd: dir, allowFail: true }) === null) {
+    throw new UserError(`No pude subir tu trabajo a ${branch}. Sube tu rama a mano y reintenta, o manda sin traspaso con --no-handoff.`);
+  }
+  return { branch, wip: dirty };
+}
+
 // ---------- preparación del repo ----------
 
 /** Lee de la RAMA BASE lo que `readinessOf` necesita (archivos de la puerta y la protección) y lo evalúa. */

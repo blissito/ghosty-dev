@@ -235,3 +235,56 @@ test('recover lista los PRs cerrados sin merge y con --start los retoma; --reope
     await cli(['claim', '5', '--cloud', '--reopen', '--yes']);
     assert.equal(gs.devCalls.filter((c) => c.method === 'POST' && c.path === '/api/v2/me/dev-runs').at(-1).body.reopen, true);
   }));
+
+test('claim --cloud con trabajo local lo sube a ghosty-dev/<n>-traspaso (con un WIP) y la nube parte de ahí; sin trabajo local no manda rama', () =>
+  withCloud({}, async ({ gs, s, cli }) => {
+    const { execFileSync } = await import('node:child_process');
+    const sh = (...a) => execFileSync('git', a, { cwd: s.repo, stdio: 'pipe' }).toString();
+    // Sin remoto ni rama del pendiente: nada que heredar.
+    const none = await cli(['claim', '5', '--cloud', '--yes', '--json']);
+    assert.equal(none.code, 0, none.err);
+    assert.deepEqual(gs.devCalls.at(-1).body, { repo: 'acme/demo', issue: 5 });
+    // Con la rama del pendiente, un cambio sin commitear y un remoto.
+    const bare = join(s.root, 'origin.git');
+    execFileSync('git', ['init', '-q', '--bare', bare]);
+    sh('remote', 'add', 'origin', bare);
+    sh('push', '-q', 'origin', 'main');
+    sh('checkout', '-q', '-b', 'ghosty-dev/5-salud');
+    writeFileSync(join(s.repo, 'nuevo.txt'), 'trabajo a medias\n');
+    const again = await cli(['claim', '5', '--cloud', '--yes', '--json']);
+    assert.equal(again.code, 0, again.err);
+    assert.match(again.err, /ghosty-dev\/5-traspaso/);
+    const sent = gs.devCalls.filter((c) => c.method === 'POST').at(-1).body;
+    assert.equal(sent.fromBranch, 'ghosty-dev/5-traspaso');
+    assert.match(execFileSync('git', ['log', '--format=%s', '-1', 'ghosty-dev/5-traspaso'], { cwd: bare }).toString(), /WIP: traspaso a la nube/);
+    assert.equal(sh('status', '--porcelain').trim(), '', 'el worktree queda limpio: el WIP quedó commiteado');
+    // --no-handoff lo salta.
+    writeFileSync(join(s.repo, 'otro.txt'), 'x\n');
+    const skip = await cli(['claim', '5', '--cloud', '--yes', '--no-handoff', '--json']);
+    assert.equal(skip.code, 0, skip.err);
+    assert.equal(gs.devCalls.filter((c) => c.method === 'POST').at(-1).body.fromBranch, undefined);
+  }));
+
+test('claim local de un pendiente que va en la nube: detiene su caja y sigue aquí; sin sesión de nube, toma normal', () =>
+  withCloud({}, async ({ gs, s, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    const r = await cli(['claim', '5', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.err, /iba en la nube: la detuve/);
+    assert.deepEqual(gs.devCalls.at(-1), { method: 'POST', path: '/api/v2/me/dev-runs/run1', query: '', body: { op: 'stop' } });
+    assert.deepEqual(s.read().issues[5].assignees, ['agente-a']);
+  }));
+
+test('cloud: un renglón por pendiente (el vivo manda) con sus intentos anteriores', async () => {
+  const { groupByIssue } = await import('../src/cloud.mjs');
+  const rows = [
+    { number: 100, phase: 'stopped', id: 'a' },
+    { number: 100, phase: 'working', id: 'b' },
+    { number: 100, phase: 'stopped', id: 'c' },
+    { number: 103, phase: 'stopped', id: 'd' },
+  ];
+  const g = groupByIssue(rows);
+  assert.equal(g.length, 2);
+  assert.deepEqual(g.find((r) => r.number === 100), { number: 100, phase: 'working', id: 'b', attempts: 2 });
+  assert.equal(g.find((r) => r.number === 103).attempts, 0);
+});

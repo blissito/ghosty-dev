@@ -484,3 +484,7 @@ forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.
 ## Preparación del repo (0.9.30)
 
 `readinessOf` (src/readiness.mjs, pura) revisa en la RAMA BASE: puerta instalada y al día, workflow, `reviewCheck` en `config.json`, protección con `ghosty-dev/evidencia` (bloquean) y plantilla del PR con «Flujo principal probado con sesión» y `.ghosty/factory.md` (avisan). `doctor` la muestra (`puerta-…`); `claim <n>` y `claim <n> --cloud` no arrancan con un bloqueo: abren «Preparar el repo para ghosty-dev» (una sola vez, por título), bloquean #n con `block --by` y salen 7. `--skip-readiness` (o `GHOSTY_DEV_SKIP_READINESS`) lo salta. Ghosty Studio lleva una copia exacta (scripts/sync-ghosty-dev-evidence.sh) y hace lo mismo en `dev_run_start`.
+
+## Traspaso local↔nube (0.9.33)
+
+Un solo escritor, y hereda el trabajo (patrón de Copilot `/delegate` y Devin Handoff: viaja la rama, no un resumen). `claim <n> --cloud`: si el worktree de #n tiene cambios sin commitear o commits sin subir, commitea «WIP: traspaso a la nube» y sube todo a `ghosty-dev/<n>-traspaso` (nunca a la rama del PR); gs recibe `fromBranch` y la caja parte de ahí (`--no-handoff` lo salta). `claim <n>` con #n vivo en la nube lo detiene y trae su rama (`takeBack`, como `teleport`). `cloud` muestra un renglón por pendiente.
