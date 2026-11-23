@@ -2,7 +2,19 @@
 // Una sola fuente: ghosty-dev (`doctor`, `claim`) la usa directo y Ghosty Studio la lleva copiada
 // (scripts/sync-ghosty-dev-evidence.sh), igual que evidence.mjs. Formmy, 23-nov: sin `reviewCheck` la evidencia
 // fallaba en TODOS los PR de la nube y nada lo avisó.
-import { reviewCheckConfig } from './gate.mjs';
+
+// Lectura de `reviewCheck` del config (misma regla que `reviewCheckConfig` de gate.mjs; se repite para que este archivo
+// sea autocontenido y gs lo lleve copiado tal cual). Una prueba vigila que no se desfasen.
+function reviewCheckConfig(raw) {
+  try {
+    const rc = JSON.parse(raw || '{}').reviewCheck;
+    const name = typeof rc?.name === 'string' ? rc.name.trim() : '';
+    const app = typeof rc?.app === 'string' ? rc.app.trim() : '';
+    return name && app ? { name, app } : null;
+  } catch {
+    return null;
+  }
+}
 
 export const GATE_CHECK_NAME = 'ghosty-dev/evidencia';
 export const PREPARE_TITLE = 'Preparar el repo para ghosty-dev';

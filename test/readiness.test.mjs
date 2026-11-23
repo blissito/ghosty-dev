@@ -77,3 +77,11 @@ test('claim con el repo sin preparar: abre «Preparar el repo» UNA vez, bloquea
   const skipped = await s.runAsync(['claim', '7', '--skip-readiness', '--json'], { extra: env });
   assert.equal(skipped.code, 0, skipped.err);
 });
+
+test('readiness.mjs lee reviewCheck igual que gate.mjs (copia autocontenida sin deriva)', async () => {
+  const { reviewCheckConfig } = await import('../src/gate.mjs');
+  const r = (cfg) => readinessOf({ files: { '.github/ghosty-dev/config.json': cfg } }).checks.find((c) => c.id === 'review-check').ok;
+  for (const cfg of ['{"reviewCheck":{"name":"Ghosty Review","app":"ghosty-studio"}}', '{"reviewCheck":{"name":"x"}}', 'no json', '{}']) {
+    assert.equal(r(cfg), Boolean(reviewCheckConfig(cfg)), cfg);
+  }
+});
