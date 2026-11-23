@@ -517,3 +517,12 @@ test('show lee la ficha del PR (antes que la del issue) y los servicios del comm
   writeFileSync(join(s.root, 'gh.json'), JSON.stringify(db2));
   assert.match(JSON.parse(s.run('show', '5', '--json').out).ficha, /Del issue/);
 });
+
+test('deployVerdict de show: igual que el tablero de gs', async () => {
+  const { deployVerdict } = await import('../src/commands.mjs');
+  const r = (name, status, conclusion) => ({ name, status, conclusion, html_url: `https://x/${name}` });
+  assert.equal(deployVerdict([], 30).state, 'pending');
+  assert.equal(deployVerdict([], 200).state, 'none');
+  assert.equal(deployVerdict([r('Deploy', 'completed', 'success')], 60).state, 'success');
+  assert.equal(deployVerdict([r('Deploy', 'in_progress', null), r('CI', 'completed', 'failure')], 60).state, 'failure');
+});

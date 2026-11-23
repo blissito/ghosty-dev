@@ -331,6 +331,7 @@ async function printPr(r, note) {
         ...(x.conflict ? [`  CONFLICTO, primero esto: ${cmd.conflictLine(x.pr, x.conflict)}`] : []),
         `  estado: ${x.state}`,
         ...(x.closed ? [`  ${cmd.closedLine(x.closed)}`] : []),
+        ...(x.deploy ? [`  deploy: ${x.deploy.label}${x.deploy.state === 'success' && x.deploy.site ? ` · ${x.deploy.site}` : x.deploy.url ? ` · ${x.deploy.url}` : ''}`] : []),
         `  rama: ${x.branch ?? '—'}`,
         `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
         `  ${x.url}`,

@@ -835,7 +835,34 @@ export function showPr(m) {
     services: pr.headRefOid ? prServices(pr, { deep: true }) : null,
     conflict: p.state === 'open' && !p.merged_at ? conflictOf(m) : null,
     closed: closedInfo(m, p),
+    // Tras el merge: ¿llegó a producción? El mismo veredicto que el tablero de Ghosty (deployVerdict).
+    deploy: p.merged_at && p.merge_commit_sha ? deployOf(p) : null,
   };
+}
+
+// Puro: el veredicto del deploy de un merge, igual que gs (`app/lib/dev-runs/deploy.ts`). Un run caído gana; cancelado
+// no es caído; sin runs, 3 min de gracia y luego «sin deploy automático»; más de 30 min corriendo = no termina.
+const DEPLOY_FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
+export function deployVerdict(runs, elapsedS) {
+  const failed = runs.find((r) => r.status === 'completed' && DEPLOY_FAILED.has(String(r.conclusion)));
+  if (failed) return { state: 'failure', name: failed.name, url: failed.html_url };
+  const live = runs.find((r) => r.status !== 'completed');
+  if (live) return { state: elapsedS >= 30 * 60 ? 'timeout' : 'pending', name: live.name, url: live.html_url };
+  const cancelled = runs.find((r) => r.conclusion === 'cancelled');
+  if (cancelled) return { state: 'cancelled', name: cancelled.name, url: cancelled.html_url };
+  if (!runs.length) return { state: elapsedS >= 180 ? 'none' : 'pending', name: null, url: null };
+  const main = runs.find((r) => /deploy|release|prod/i.test(r.name)) ?? runs[0];
+  return { state: 'success', name: main.name, url: main.html_url };
+}
+export const DEPLOY_LABEL = { pending: 'Desplegando…', success: 'En producción', failure: 'Deploy falló', cancelled: 'Deploy cancelado', timeout: 'El deploy no termina', none: 'Sin deploy automático' };
+
+function deployOf(p) {
+  const info = api('GET', REPO, undefined, { allowFail: true });
+  const branch = encodeURIComponent(p.base?.ref ?? info?.default_branch ?? 'main');
+  const runs = api('GET', `${REPO}/actions/runs?head_sha=${p.merge_commit_sha}&event=push&branch=${branch}&per_page=50`, undefined, { allowFail: true });
+  const v = deployVerdict(Array.isArray(runs?.workflow_runs) ? runs.workflow_runs : [], Math.max(0, (Date.now() - Date.parse(p.merged_at)) / 1000));
+  const site = typeof info?.homepage === 'string' && /^https?:\/\//.test(info.homepage) ? info.homepage : null;
+  return { ...v, label: DEPLOY_LABEL[v.state], site };
 }
 
 // ---------- next: el siguiente paso correcto, según el estado del repo (sobrevive a la compactación) ----------
