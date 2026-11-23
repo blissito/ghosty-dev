@@ -10,7 +10,7 @@ export class CloudError extends Error {}
 
 const RUNS = '/api/v2/me/dev-runs';
 const SCOPE = 'dev';
-const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'merging']);
+const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'blocked', 'merging']);
 
 const call = (method, path, body) => request(method, path, body, { scope: SCOPE });
 
@@ -55,12 +55,14 @@ const view = (r) => ({
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.
 // Con `pr` y sin pendiente: gs adopta el PR (vista previa, revisión y checks) y responde SIN id: no crea pendiente.
-export async function start(n, { pr, workspace } = {}) {
+export async function start(n, { pr, workspace, reopen } = {}) {
   const repo = repoName();
   const body = { repo };
   if (workspace) body.workspace = workspace;
   if (n) body.issue = n;
   if (pr) body.pr = pr;
+  // Un issue cerrado cuyo trabajo nunca entró a main: gs lo reabre y lo retoma (sólo si se pide).
+  if (reopen) body.reopen = true;
   const r = await call('POST', RUNS, body);
   if (r && r.id == null) {
     if (r.prUrl) return { repo, cloud: true, services: true, pr: number(r.pr) ?? pr ?? null, prUrl: text(r.prUrl), note: text(r.nota) };
@@ -155,6 +157,38 @@ export async function teleport(n) {
   const branch = run.branch || stopped.branch;
   if (branch && git(['fetch', 'origin', '--', `${branch}:${branch}`], { allowFail: true }) === null) git(['fetch', 'origin', '--', branch], { allowFail: true });
   return { ...stopped, branch };
+}
+
+// El pendiente #n más reciente en la nube, esté vivo o detenido (el último que se mandó).
+async function lastRun(n) {
+  const run = (await list()).find((r) => r.number === n);
+  if (!run) throw new CloudError(`#${n} no ha ido a la nube.`);
+  return run;
+}
+
+// Retoma #n si lo detuvieron (o se cerró su PR) y su PR sigue abierto en GitHub: misma rama e issue, caja nueva.
+export async function reopen(n) {
+  const run = await lastRun(n);
+  if (run.phase !== 'stopped') throw new CloudError(`#${n} no está detenido (estado: ${run.state}).`);
+  return view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'reopen' }));
+}
+
+// Suelta «Esperando #N»: #n sigue sin esperar ese PR. No cierra nada.
+export async function release(n) {
+  const run = await liveRun(n);
+  if (run.phase !== 'blocked') throw new CloudError(`#${n} no está esperando otro PR (estado: ${run.state}).`);
+  return view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'resume' }));
+}
+
+// «Recupera lo que se cerró»: los PRs de este repo cerrados sin merge cuya rama sigue viva. Sin `start` sólo los
+// lista; con él gs los retoma sobre su misma rama con un PR NUEVO (y reabre su issue).
+export async function recover({ start = false, prs } = {}) {
+  const body = { repo: repoName(), start };
+  if (prs?.length) body.prs = prs;
+  const r = await call('POST', `${RUNS}/recover`, body);
+  const cands = (Array.isArray(r?.candidatos) ? r.candidatos : []).map((c) => ({ pr: number(c.pr), title: text(c.title) ?? '', branch: safeBranch(c.branch), issue: number(c.issue), url: text(c.url) })).filter((c) => c.pr);
+  const done = Array.isArray(r?.retomados) ? r.retomados.map((x) => ({ pr: number(x.pr), ok: x.ok === true, error: text(x.error) })).filter((x) => x.pr) : null;
+  return { candidates: cands, started: done };
 }
 
 export { AuthError };

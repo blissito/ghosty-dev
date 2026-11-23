@@ -243,6 +243,7 @@ issue, rama `ghosty-dev/<n>-…`, PR con `Closes #n`, evidencia, revisión atada
   «Comprar más cajas: <buyUrl>». Con terminal pregunta; sin terminal sale con **75** y el comando exacto con
   `--yes`. Con el repo en varios espacios, gs responde 409 `choose_workspace` y el CLI pide `--workspace <slug>` con
   las opciones (el mismo `--workspace` va al mandarlo). Si la ruta no responde, lo dice sin inventar números.
+- **Retomar lo atorado:** `reopen <n>` retoma un pendiente detenido cuyo PR sigue abierto; `release <n>` suelta «Esperando #N» sin cerrar el PR que bloquea; `recover [--start] [--pr m,n]` lista (y con `--start` retoma, con PR NUEVO sobre su misma rama) los PRs cerrados sin merge con rama viva; `claim <n> --cloud --reopen` reabre un issue cerrado cuyo trabajo nunca entró a main.
 - `claim <n> --cloud` entrega el pendiente a la nube; `cloud` lista los del repo; `stop <n>` lo detiene;
   `teleport <n>` lo detiene y trae su rama para seguir en tu compu (un solo escritor: nunca los dos a la vez).
 - La nube trabaja sobre lo que está en GitHub, nunca sobre cambios locales sin subir.

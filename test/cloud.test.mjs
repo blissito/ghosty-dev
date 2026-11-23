@@ -194,3 +194,44 @@ test('la nube ya no depende del CLI ghosty ni ejecuta procesos con datos del ser
   const src = readFileSync(new URL('../src/cloud.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(src, /child_process|execFile|GHOSTY_DEV_GHOSTY|\beval\(/);
 });
+
+test('reopen retoma un pendiente detenido; uno vivo no se reabre', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    const vivo = await cli(['reopen', '5']);
+    assert.equal(vivo.code, 1);
+    assert.match(vivo.err, /no está detenido/);
+    await cli(['stop', '5']);
+    const r = await cli(['reopen', '5', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(gs.devCalls.at(-1), { method: 'POST', path: '/api/v2/me/dev-runs/run1', query: '', body: { op: 'reopen' } });
+    assert.equal(gs.runs[0].phase, 'working');
+  }));
+
+test('release suelta «Esperando #N» sin cerrar nada, y stop ya ve los que esperan', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    const noEsperaba = await cli(['release', '5']);
+    assert.equal(noEsperaba.code, 1);
+    assert.match(noEsperaba.err, /no está esperando otro PR/);
+    gs.runs[0].phase = 'blocked';
+    const r = await cli(['release', '5']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(gs.devCalls.at(-1).body, { op: 'resume' });
+    gs.runs[0].phase = 'blocked';
+    assert.equal((await cli(['stop', '5'])).code, 0, 'un pendiente en «Esperando» también va en la nube');
+  }));
+
+test('recover lista los PRs cerrados sin merge y con --start los retoma; --reopen viaja en claim --cloud', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    gs.closedPrs = [{ pr: 100, title: 'Seguridad', branch: 'ghosty-dev/92-api', issue: 92, url: 'https://github.com/acme/demo/pull/100' }];
+    const ls = await cli(['recover']);
+    assert.equal(ls.code, 0, ls.err);
+    assert.match(ls.out, /PR #100\tghosty-dev\/92-api\t#92\tSeguridad/);
+    assert.deepEqual(gs.devCalls.at(-1).body, { repo: 'acme/demo', start: false });
+    const go = await cli(['recover', '--start', '--pr', '100']);
+    assert.match(go.out, /PR #100: retomado/);
+    assert.deepEqual(gs.devCalls.at(-1).body, { repo: 'acme/demo', start: true, prs: [100] });
+    await cli(['claim', '5', '--cloud', '--reopen', '--yes']);
+    assert.equal(gs.devCalls.filter((c) => c.method === 'POST' && c.path === '/api/v2/me/dev-runs').at(-1).body.reopen, true);
+  }));

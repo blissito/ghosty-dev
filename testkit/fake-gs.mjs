@@ -198,6 +198,10 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
         s.runs.push(run({ issue: body.issue }));
         return send(res, 200, s.runs.at(-1));
       }
+      if (url.pathname === '/api/v2/me/dev-runs/recover' && req.method === 'POST') {
+        const c = s.closedPrs ?? [];
+        return send(res, 200, body.start ? { repo: body.repo, retomados: c.map((x) => ({ pr: x.pr, ok: true })) } : { repo: body.repo, candidatos: c });
+      }
       if (url.pathname === '/api/v2/me/dev-runs/capacity' && req.method === 'GET') return !capacity ? send(res, 404, { error: 'not_found' }) : capacity.status ? send(res, capacity.status, capacity.body) : send(res, 200, capacity);
       if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { prs: boardPrs, runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
       const id = decodeURIComponent(url.pathname.split('/')[5] ?? '');
@@ -205,6 +209,8 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       if (!r) return send(res, 404, { error: 'not_found', message: 'No existe ese pendiente' });
       if (req.method === 'GET') return send(res, 200, { ...r, events: [] });
       if (body?.op === 'stop') Object.assign(r, { phase: 'stopped', estado: 'detenido' });
+      if (body?.op === 'reopen') Object.assign(r, { phase: 'working', estado: 'trabajando' });
+      if (body?.op === 'resume' && r.phase === 'blocked') Object.assign(r, { phase: 'working', estado: 'trabajando' });
       return send(res, 200, r);
     }
     return send(res, 404, { error: 'not_found' });

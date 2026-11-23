@@ -56,6 +56,11 @@ Uso: ghosty-dev <comando> [opciones]
                                          y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
   stop <n>                               detiene #n en la nube y libera su caja
+  reopen <n>                             retoma #n si lo detuvieron y su PR sigue abierto (misma rama, caja nueva)
+  release <n>                            #n sigue sin esperar el PR que lo bloqueaba (no cierra nada)
+  recover [--start] [--pr m,n]           PRs de este repo cerrados sin merge con su rama viva; con --start Ghosty los
+                                         retoma sobre su misma rama con un PR NUEVO (reabre su issue; el PR viejo no)
+  claim <n> --cloud --reopen             con un issue cerrado cuyo trabajo nunca entró a main: lo reabre y lo manda
   teleport <n>                           detiene #n en la nube y trae su rama para seguir en tu compu
   wait <n> [--watch] [--minutes M]       lo deja en esperando-ci; con --watch espera al CI o a un pedido de la persona
                                          (tope 5 min), dice si quedó verde o rojo y avisa cuando la vista previa y la
@@ -145,6 +150,8 @@ const { values, positionals } = parseArgs({
     json: { type: 'boolean' },
     claim: { type: 'boolean' },
     cloud: { type: 'boolean' },
+    reopen: { type: 'boolean' },
+    start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
     'dry-run': { type: 'boolean' },
     force: { type: 'boolean' },
@@ -500,7 +507,7 @@ try {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
     const n = arg === undefined && pr ? undefined : num(arg);
     const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''}${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`;
-    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr, workspace: values.workspace }));
+    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr, workspace: values.workspace, reopen: values.reopen }));
   } else if (command === 'claim' && values.pr !== undefined) {
     await factory.guard();
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
@@ -515,6 +522,22 @@ try {
     print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}${x.preview ? `\n  Vista previa: ${PHASE_WORD[x.preview.phase] ?? x.preview.phase}${x.preview.phase === 'ready' ? '' : ` (síguela: ghosty-dev preview ${x.pr} --wait)`}` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
     print(await cloud.list(), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+  } else if (command === 'reopen') {
+    const r = await cloud.reopen(num(arg));
+    print(r, (x) => `#${x.number} retomado en la nube: ${x.state}.\n  ${x.pr ?? x.url}`);
+  } else if (command === 'release') {
+    const r = await cloud.release(num(arg));
+    print(r, (x) => `#${x.number} sigue sin esperar el otro PR: ${x.state}.`);
+  } else if (command === 'recover') {
+    const prs = values.pr ? String(values.pr).split(',').map((x) => num(x.trim().replace(/^#/, ''), '--pr <m,n>')) : undefined;
+    const r = await cloud.recover({ start: values.start, prs });
+    print(r, (x) =>
+      x.started
+        ? x.started.length ? x.started.map((s) => (s.ok ? `PR #${s.pr}: retomado (PR nuevo sobre su rama).` : `PR #${s.pr}: no se pudo — ${s.error}`)).join('\n') : 'No hay nada que recuperar.'
+        : x.candidates.length
+          ? `${x.candidates.map((c) => `PR #${c.pr}\t${c.branch}${c.issue ? `\t#${c.issue}` : ''}\t${c.title}`).join('\n')}\n  Retómalos: ghosty-dev recover --start${x.candidates.length > 1 ? '   (o --pr m,n para algunos)' : ''}`
+          : 'No hay PRs cerrados sin merge con su rama viva.',
+    );
   } else if (command === 'stop') {
     print(await cloud.stop(num(arg)), (r) => `#${r.number} detenido en la nube. El issue y la rama se quedan.`);
   } else if (command === 'teleport') {
