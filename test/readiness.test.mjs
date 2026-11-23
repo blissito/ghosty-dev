@@ -18,16 +18,20 @@ test('todo en orden: listo y sin bloqueos', () => {
   assert.deepEqual(r.blocking, []);
 });
 
-test('sin config.json (Formmy, 23-nov): bloquea con review-check y dice el arreglo', () => {
+test('sin config.json (Formmy, 23-nov): ya no bloquea (revisor por defecto), avisa y dice el arreglo', () => {
   const r = read({ [P.config]: null });
-  assert.equal(r.ready, false);
-  assert.deepEqual(r.blocking.map((c) => c.id), ['review-check']);
-  assert.match(r.blocking[0].fix, /ghosty-dev init/);
+  assert.equal(r.ready, true);
+  assert.deepEqual(r.blocking, []);
+  const w = r.checks.find((c) => c.id === 'review-check');
+  assert.equal(w.ok, false);
+  assert.equal(w.severity, 'warn');
+  assert.match(w.fix, /ghosty-dev init/);
 });
 
-test('config sin reviewCheck cuenta como faltante; con otro check también', () => {
-  assert.equal(read({ [P.config]: JSON.stringify({ unlinked: 'warn' }) }).ready, false);
-  assert.equal(read({ [P.config]: '{no es json' }).ready, false);
+test('config sin reviewCheck cuenta como faltante (aviso); con otro check también', () => {
+  const missing = (cfg) => read({ [P.config]: cfg }).checks.find((c) => c.id === 'review-check').ok;
+  assert.equal(missing(JSON.stringify({ unlinked: 'warn' })), false);
+  assert.equal(missing('{no es json'), false);
 });
 
 test('gate viejo o ausente bloquea; la rama sin la puerta obligatoria también', () => {
@@ -46,7 +50,7 @@ test('plantilla y factory.md sólo avisan: no bloquean', () => {
 });
 
 test('prepareBrief: un criterio por bloqueo, con su arreglo', () => {
-  const b = prepareBrief(read({ [P.config]: null }).blocking);
+  const b = prepareBrief(read({ [P.workflow]: null }).blocking);
   assert.equal(b.title, 'Preparar el repo para ghosty-dev');
   assert.equal(b.criteria.length, 1);
   assert.match(b.criteria[0], /ghosty-dev init/);

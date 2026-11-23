@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateEvidence, formatEvidence, findValidEvidence, acceptanceCriteria, validateRevision, formatRevision, findRevisionFor, previewPrRefs, crossPreviewProblems } from '../src/evidence.mjs';
-import { annotation, closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview } from '../src/gate.mjs';
+import { annotation, closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview, DEFAULT_REVIEW_CHECK } from '../src/gate.mjs';
 import { VALID_EVIDENCE, SHA, revisionMd } from '../testkit/helpers.mjs';
 
 const ISSUE = '## Objetivo\nSalud\n\n## Criterios de aceptación\n- [ ] /health responde 200\n';
@@ -175,4 +175,16 @@ test('«probado en la preview del PR #N» sólo vale si #N contiene el mismo com
   assert.match(r.failures.join('\n'), /#3: La evidencia cita la preview del PR #80/);
   const ok = evaluatePullRequest({ number: 81, body: 'Closes #3', head: { sha: SHA } }, () => ({ body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, ev.body) }] }), null, { prCommits: () => [SHA] });
   assert.equal(ok.ok, true, ok.failures.join('; '));
+});
+
+test('revisor por defecto: sin config.json acepta «Ghosty Review» de ghosty-studio y nada más (PR de preparación, #116)', () => {
+  assert.deepEqual({ ...DEFAULT_REVIEW_CHECK }, { name: 'Ghosty Review', app: 'ghosty-studio' });
+  const check = (over) => ({ name: 'Ghosty Review', app: { slug: 'ghosty-studio' }, head_sha: SHA, status: 'completed', conclusion: 'success', completed_at: '2026-11-23T10:00:00Z', ...over });
+  const evid = { body: formatEvidence(3, VALID_EVIDENCE) };
+  const pr = { body: 'Closes #3', head: { sha: SHA } };
+  const gate = (runs) => evaluatePullRequest(pr, () => ({ body: ISSUE, comments: [evid] }), externalReview({ ...DEFAULT_REVIEW_CHECK }, runs, SHA));
+  assert.equal(gate([check()]).ok, true);
+  // Una app ajena con el mismo nombre no vale: sin revisión por comentario, falla.
+  assert.equal(gate([check({ app: { slug: 'otra-app' } })]).ok, false);
+  assert.equal(gate([]).ok, false);
 });

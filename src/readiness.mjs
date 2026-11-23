@@ -48,8 +48,9 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
     'ghosty-dev init --force (y mezclar ese PR)');
   add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
   const rc = has(READINESS_PATHS.config) ? reviewCheckConfig(files[READINESS_PATHS.config]) : null;
-  add('review-check', Boolean(rc), 'block',
-    rc ? `acepta el check «${rc.name}» como revisor` : 'la puerta no acepta a Ghosty Review como revisor: ningún PR de la nube la pasa',
+  // Sin config la puerta usa el revisor por defecto «Ghosty Review» (gate.mjs): ya no bloquea, sólo se recomienda fijarlo.
+  add('review-check', Boolean(rc), 'warn',
+    rc ? `acepta el check «${rc.name}» como revisor` : 'sin config.json: la puerta usa el revisor por defecto «Ghosty Review» (conviene fijarlo)',
     'ghosty-dev init (escribe .github/ghosty-dev/config.json con reviewCheck «Ghosty Review»)');
   if (requiredChecks !== null) {
     const ok = requiredChecks.includes(GATE_CHECK_NAME);

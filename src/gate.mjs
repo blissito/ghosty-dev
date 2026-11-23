@@ -15,6 +15,11 @@ export function closingRefs(body = '') {
 // Revisión por check externo (opcional): un revisor con OTRA identidad publica un check sobre el commit del PR.
 // Se configura en `.github/ghosty-dev/config.json` de la rama base: { "reviewCheck": { "name": "…", "app": "…" } }.
 // Cierra lo que la puerta no puede probar con comentarios: que quien revisó no es quien escribió (SPEC §4b).
+// Revisor por defecto (23-nov): sin `reviewCheck` en la base, la puerta acepta el check «Ghosty Review» de la app de Ghosty Studio.
+// Es un revisor con OTRA identidad (name + app obligatorios, no se falsifica con un nombre), tan estricto como `ghosty-dev review`.
+// Un `config.json` explícito sigue mandando. Así un PR de preparación no se bloquea a sí mismo por faltar el config (Formmy #116).
+export const DEFAULT_REVIEW_CHECK = Object.freeze({ name: 'Ghosty Review', app: 'ghosty-studio' });
+
 export function reviewCheckConfig(raw) {
   try {
     const rc = JSON.parse(raw || '{}').reviewCheck;
@@ -155,6 +160,7 @@ export function main() {
     config = reviewCheckConfig(raw);
     unlinked = unlinkedPolicy(raw);
   } catch {}
+  config = config ?? { ...DEFAULT_REVIEW_CHECK };
   let external = null;
   let preview = null;
   if (pr.head?.sha) {
