@@ -50,7 +50,7 @@ export function setup(state = {}) {
   const stateFile = join(root, 'gh.json');
   const db = { me: 'agente-a', repo: 'acme/demo', depsApi: true, labels: [], issues: {}, prs: [], runs: [], calls: [], ...state };
   writeFileSync(stateFile, JSON.stringify(db));
-  const env = { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0', GHOSTY_DEV_WATCH_MS: '0', GHOSTY_DEV_MERGE_RETRY_MS: '0', XDG_CONFIG_HOME: join(root, 'config') };
+  const env = { ...process.env, GHOSTY_DEV_GH: FAKE, FAKE_GH_STATE: stateFile, GHOSTY_DEV_NO_OPEN: '1', GHOSTY_DEV_SKIP_READINESS: '1', GHOSTY_DEV_REGISTER_WAIT_MS: '0', GHOSTY_DEV_WATCH_MS: '0', GHOSTY_DEV_MERGE_RETRY_MS: '0', XDG_CONFIG_HOME: join(root, 'config') };
   delete env.GHOSTY_DEV_TOKEN;
   delete env.GHOSTY_DEV_BASE_URL;
   const run = (...args) => {

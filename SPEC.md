@@ -480,3 +480,7 @@ Normativo. ghosty-dev habla con dos sistemas y cada uno tiene su identidad; nunc
 Las APIs son `GET|POST /api/v2/me/repos/:owner/:name/env` (variables), `GET /api/v2/me/repos/:owner/:name/prs/:pr/preview`
 (vista previa del PR), `GET|POST …/prs/:pr/box` (su caja) y `/api/v2/me/dev-runs` (nube) de Ghosty Studio, con `Authorization: Bearer`. Los mensajes del servidor se imprimen sin caracteres de control, sin nada con
 forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.md).
+
+## Preparación del repo (0.9.30)
+
+`readinessOf` (src/readiness.mjs, pura) revisa en la RAMA BASE: puerta instalada y al día, workflow, `reviewCheck` en `config.json`, protección con `ghosty-dev/evidencia` (bloquean) y plantilla del PR con «Flujo principal probado con sesión» y `.ghosty/factory.md` (avisan). `doctor` la muestra (`puerta-…`); `claim <n>` y `claim <n> --cloud` no arrancan con un bloqueo: abren «Preparar el repo para ghosty-dev» (una sola vez, por título), bloquean #n con `block --by` y salen 7. `--skip-readiness` (o `GHOSTY_DEV_SKIP_READINESS`) lo salta. Ghosty Studio lleva una copia exacta (scripts/sync-ghosty-dev-evidence.sh) y hace lo mismo en `dev_run_start`.

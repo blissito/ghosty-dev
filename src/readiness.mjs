@@ -1,0 +1,63 @@
+// ¿Está el repo preparado para trabajar con ghosty-dev? Puro: recibe lo YA leído de la rama base y dice qué falta.
+// Una sola fuente: ghosty-dev (`doctor`, `claim`) la usa directo y Ghosty Studio la lleva copiada
+// (scripts/sync-ghosty-dev-evidence.sh), igual que evidence.mjs. Formmy, 23-nov: sin `reviewCheck` la evidencia
+// fallaba en TODOS los PR de la nube y nada lo avisó.
+import { reviewCheckConfig } from './gate.mjs';
+
+export const GATE_CHECK_NAME = 'ghosty-dev/evidencia';
+export const PREPARE_TITLE = 'Preparar el repo para ghosty-dev';
+export const READINESS_PATHS = {
+  gate: '.github/ghosty-dev/gate.mjs',
+  evidence: '.github/ghosty-dev/evidence.mjs',
+  workflow: '.github/workflows/evidence-gate.yml',
+  config: '.github/ghosty-dev/config.json',
+  factory: '.ghosty/factory.md',
+};
+const PR_TEMPLATES = ['.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md', 'pull_request_template.md', 'docs/pull_request_template.md'];
+export const READINESS_READS = [...Object.values(READINESS_PATHS), ...PR_TEMPLATES];
+
+const MAIN_FLOW = 'Flujo principal probado con sesión';
+
+/**
+ * @param {{ files: Record<string, string|null>, requiredChecks: string[]|null, branch?: string, expected?: { gate?: string, evidence?: string } }} i
+ *   `files`: texto de cada ruta en la rama base (null = no existe). `requiredChecks`: contextos obligatorios de la rama
+ *   (null = no se pudieron leer). `expected`: el texto vigente de gate.mjs / evidence.mjs para saber si están al día.
+ * @returns {{ ready: boolean, checks: { id: string, ok: boolean, severity: 'block'|'warn', why: string, fix: string }[], blocking: object[] }}
+ */
+export function readinessOf({ files = {}, requiredChecks = null, branch = 'la rama principal', expected = {} } = {}) {
+  const has = (p) => typeof files[p] === 'string';
+  const checks = [];
+  const add = (id, ok, severity, why, fix) => checks.push({ id, ok, severity, why, fix });
+
+  const missingGate = [READINESS_PATHS.gate, READINESS_PATHS.evidence].filter((p) => !has(p));
+  const stale = [['gate', READINESS_PATHS.gate], ['evidence', READINESS_PATHS.evidence]].filter(([k, p]) => has(p) && typeof expected[k] === 'string' && files[p] !== expected[k]).map(([, p]) => p);
+  add('gate', !missingGate.length && !stale.length, 'block',
+    missingGate.length ? `faltan ${missingGate.join(' y ')} en ${branch}` : stale.length ? `${stale.join(' y ')} no está al día con ghosty-dev` : 'la puerta está instalada y al día',
+    'ghosty-dev init --force (y mezclar ese PR)');
+  add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
+  const rc = has(READINESS_PATHS.config) ? reviewCheckConfig(files[READINESS_PATHS.config]) : null;
+  add('review-check', Boolean(rc), 'block',
+    rc ? `acepta el check «${rc.name}» como revisor` : 'la puerta no acepta a Ghosty Review como revisor: ningún PR de la nube la pasa',
+    'ghosty-dev init (escribe .github/ghosty-dev/config.json con reviewCheck «Ghosty Review»)');
+  if (requiredChecks !== null) {
+    const ok = requiredChecks.includes(GATE_CHECK_NAME);
+    add('protection', ok, 'block', ok ? `${branch} exige ${GATE_CHECK_NAME}` : `${branch} no exige ${GATE_CHECK_NAME}: el merge no espera la evidencia`, 'ghosty-dev protect');
+  }
+  const tpl = PR_TEMPLATES.find(has);
+  add('pr-template', Boolean(tpl && files[tpl].includes(MAIN_FLOW)), 'warn',
+    tpl ? (files[tpl].includes(MAIN_FLOW) ? 'la plantilla del PR pide el flujo principal' : `${tpl} no trae el renglón «${MAIN_FLOW}»`) : 'sin plantilla de PR',
+    `agrega «${MAIN_FLOW} <qué y cómo>» a la plantilla del PR`);
+  add('factory-md', has(READINESS_PATHS.factory), 'warn', has(READINESS_PATHS.factory) ? 'hay .ghosty/factory.md' : 'falta .ghosty/factory.md (memoria y setup de la caja)', 'ghosty-dev init');
+
+  const blocking = checks.filter((c) => !c.ok && c.severity === 'block');
+  return { ready: blocking.length === 0, checks, blocking };
+}
+
+/** El pendiente «Preparar el repo»: objetivo y criterios a partir de lo que falta. Puro. */
+export function prepareBrief(blocking = []) {
+  return {
+    title: PREPARE_TITLE,
+    goal: 'Dejar el repo listo para que el trabajo (de la terminal y de la nube) pase la puerta de evidencia y la revisión de Ghosty. Corre `ghosty-dev init --force --no-protect` en una rama, abre el PR y una persona lo mezcla (la puerta se lee de la rama base). Al mezclarlo, corre `ghosty-dev protect`.',
+    criteria: blocking.length ? blocking.map((c) => `${c.why} → ${c.fix}`) : ['La puerta de ghosty-dev está instalada, al día y es obligatoria en la rama principal.'],
+  };
+}

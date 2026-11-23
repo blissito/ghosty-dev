@@ -45,6 +45,9 @@ Uso: ghosty-dev <comando> [opciones]
   ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto);
                                          avisa los PR abiertos que no están ligados a un pendiente
   claim <n> [--no-worktree] [--base B]   te asigna el pendiente y crea su rama y worktree desde origin/main (o B)
+                                         si el repo no está preparado (puerta, revisor Ghosty Review, protección) NO arranca:
+                                         abre «Preparar el repo para ghosty-dev» (una vez), bloquea #n por él y sale 7;
+                                         --skip-readiness lo salta. `doctor` muestra el detalle («puerta-…»)
   claim --pr <m> --issue <n>             adopta un PR que ya existe como el trabajo de #n (sin rama ni worktree
                                          nuevos; agrega «Closes #n» si falta)
   claim <n> --cloud [--yes] [--workspace S]
@@ -146,6 +149,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     help: { type: 'boolean', short: 'h' },
+    'skip-readiness': { type: 'boolean' },
     version: { type: 'boolean', short: 'v' },
     json: { type: 'boolean' },
     claim: { type: 'boolean' },
@@ -246,6 +250,25 @@ async function showBanner(data) {
 
 // Antes de gastar en la nube: qué ocupa ya, qué desalojaría y el costo si gs lo sabe. Sin --yes: con terminal pregunta;
 // sin terminal imprime el resumen y sale con 75 y el comando exacto para repetir con --yes.
+// Si el repo no está preparado (puerta, revisor, protección), PREPARAR es el primer pendiente y #n espera. Sale 7.
+async function blockedByPreparation(n) {
+  if (values['skip-readiness'] || process.env.GHOSTY_DEV_SKIP_READINESS || process.env.GHOSTY_DEV_NO_NET) return false;
+  let r;
+  try {
+    r = cmd.ensurePreparation(n);
+  } catch (e) {
+    console.error(`Aviso: no pude revisar si el repo está preparado (${e.message}).`);
+    return false;
+  }
+  if (!r) return false;
+  const msg = `El repo no está preparado para ghosty-dev:\n${r.blocking.map((c) => `  - ${c.why} → ${c.fix}`).join('\n')}\n` +
+    `Preparar es el primer pendiente: #${r.prep}${r.created ? ' (lo abrí)' : ''}${r.blocked ? `; #${r.blocked} quedó bloqueado por él` : ''}.\n  ghosty-dev claim ${r.prep}   (o --skip-readiness si sabes lo que haces)`;
+  if (values.json) console.log(JSON.stringify({ ok: false, notReady: true, ...r }));
+  else console.error(msg);
+  process.exitCode = 7;
+  return true;
+}
+
 async function confirmCloud({ n, pr }, retry) {
   if (values.yes) return true;
   const p = await cloud.preflight({ n, pr, workspace: values.workspace });
@@ -506,8 +529,9 @@ try {
   } else if (command === 'claim' && values.cloud) {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
     const n = arg === undefined && pr ? undefined : num(arg);
+    const notReady = n ? await blockedByPreparation(n) : false;
     const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''}${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`;
-    if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr, workspace: values.workspace, reopen: values.reopen }));
+    if (!notReady && (await confirmCloud({ n, pr }, retry))) printCloud(await cloud.start(n, { pr, workspace: values.workspace, reopen: values.reopen }));
   } else if (command === 'claim' && values.pr !== undefined) {
     await factory.guard();
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
@@ -544,8 +568,9 @@ try {
     print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
     await factory.guard();
-    const r = cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
-    print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
+    const notReady = await blockedByPreparation(num(arg));
+    const r = notReady ? null : cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
+    if (r) print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {
     // Aviso en vivo (stderr, para no ensuciar el --json) cuando la vista previa o la revisión terminan.
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
@@ -695,6 +720,12 @@ try {
     // ¿Hay ghosty-dev más nuevo? (fila 57) Primero, con la línea exacta para actualizar.
     const up = await import('../src/update.mjs');
     r.checks.unshift(up.versionCheck(up.currentVersion(), await up.latestVersion()));
+    // ¿Está el repo preparado? La puerta, su revisor y la protección (Formmy, 23-nov: sin esto ningún PR de la nube pasaba).
+    try {
+      r.checks.push(...cmd.readinessChecks(cmd.repoReadiness({ dir: top })));
+    } catch (e) {
+      r.checks.push({ name: 'puerta', ok: null, detail: `no pude leer la preparación del repo: ${e.message}` });
+    }
     print(r, doctor.doctorText);
     if (r.checks.some((c) => c.ok === false)) process.exitCode = 1;
   } else if (command === 'update') {

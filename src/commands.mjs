@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
 import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig } from './gate.mjs';
+import { readinessOf, prepareBrief, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
 
@@ -790,6 +791,55 @@ export const FICHA_MARK = '<!-- ghosty-dev:ficha -->';
 export function fichaOf(comments) {
   const c = [...(comments || [])].reverse().find((x) => (x.body || '').startsWith(FICHA_MARK));
   return c ? c.body.slice(FICHA_MARK.length).replace(/<sub>[\s\S]*?<\/sub>/g, '').trim() : null;
+}
+
+// ---------- preparación del repo ----------
+
+/** Lee de la RAMA BASE lo que `readinessOf` necesita (archivos de la puerta y la protección) y lo evalúa. */
+export function repoReadiness({ dir } = {}) {
+  const opts = { cwd: dir, allowFail: true };
+  const info = api('GET', REPO, undefined, opts);
+  if (!info) throw new UserError('No se pudo leer el repo con gh.');
+  const repo = info.full_name;
+  const branch = info.default_branch || 'main';
+  const files = {};
+  for (const path of READINESS_READS) {
+    const f = api('GET', `repos/${repo}/contents/${path}?ref=${branch}`, undefined, opts);
+    files[path] = f?.content ? Buffer.from(f.content, 'base64').toString('utf8') : null;
+  }
+  // Protección clásica y rulesets: la misma lectura que hace `gateRequired` de Ghosty Studio.
+  const classic = api('GET', `repos/${repo}/branches/${branch}/protection`, undefined, opts);
+  const rules = api('GET', `repos/${repo}/rules/branches/${branch}`, undefined, opts);
+  const rsc = classic?.required_status_checks;
+  const requiredChecks = classic === null && rules === null ? null : [
+    ...(rsc?.contexts ?? []),
+    ...(rsc?.checks ?? []).map((c) => c.context ?? ''),
+    ...(Array.isArray(rules) ? rules : []).filter((r) => r.type === 'required_status_checks').flatMap((r) => (r.parameters?.required_status_checks ?? []).map((c) => c.context ?? '')),
+  ];
+  const expected = { gate: readFileSync(join(ROOT, 'src/gate.mjs'), 'utf8'), evidence: readFileSync(join(ROOT, 'src/evidence.mjs'), 'utf8') };
+  return { repo, branch, ...readinessOf({ files, requiredChecks, branch, expected }) };
+}
+
+/**
+ * Antes de tomar #n: si el repo no está preparado, PREPARAR es el primer pendiente y #n queda bloqueado por él.
+ * Devuelve null si todo está en orden (o #n es el propio pendiente de preparación); si no, { prep, created, blocking, blocked }.
+ * El pendiente de preparación se reutiliza por título (nunca se abre uno por cada intento).
+ */
+export function ensurePreparation(n, { dir } = {}) {
+  const r = repoReadiness({ dir });
+  if (r.ready) return null;
+  const open = apiAll(`${REPO}/issues?state=open&per_page=100`, { allowFail: true }) ?? [];
+  const existing = open.find((i) => !i.pull_request && String(i.title).trim() === PREPARE_TITLE);
+  if (existing && existing.number === n) return null;
+  const brief = prepareBrief(r.blocking);
+  const prep = existing ? { number: existing.number, url: existing.html_url } : add(PREPARE_TITLE, { goal: brief.goal, criteria: brief.criteria });
+  const blocked = n && n !== prep.number ? block(n, prep.number, { reason: 'El repo no está preparado para ghosty-dev: primero se prepara.' }) : null;
+  return { prep: prep.number, url: prep.url, created: !existing, blocking: r.blocking, blocked: blocked ? n : null };
+}
+
+/** La preparación como filas de `doctor` ({name, ok, detail, fix}); lo que sólo avisa sale con ok: null. */
+export function readinessChecks(r) {
+  return r.checks.map((c) => ({ name: `puerta-${c.id}`, ok: c.ok ? true : c.severity === 'block' ? false : null, detail: c.why, ...(c.ok ? {} : { fix: c.fix }) }));
 }
 
 /** Commit (sha completo o corto) que declara un comentario de evidencia: su línea «Commit: <sha>». */
