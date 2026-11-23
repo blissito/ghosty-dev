@@ -8,6 +8,7 @@ description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que
 **El flujo en 5 renglones** (si sólo recuerdas esto, basta):
 
 1. `ghosty-dev next` — el siguiente paso exacto según el repo (empieza aquí siempre, también tras compactar).
+   **Fábrica en pausa** (la persona la pausó o está fuera de su horario): `next`, `claim` y `asks` salen **6** con la línea («Fábrica en pausa hasta las 8:00»), y `wait` corta igual. No tomes trabajo nuevo: termina el paso que traes, déjalo subido y detente. Sólo la persona la reanuda (`/c/dev` o `ghosty-dev factory resume`); `ghosty-dev factory` dice el estado.
 2. Trabajo nuevo: `ghosty-dev claim <n>`. Trabajo que ya existe (PR a mano, rama propia): `ghosty-dev claim --pr <m> --issue <n>`.
 3. Push → `ghosty-dev preview --wait --json` → prueba la app; si falla: `ghosty-dev box logs` / `box exec -- <cmd>` → arregla → push.
 4. CI verde → revisión de otra sesión: `ghosty-dev review <n> --pr <m>` (subagente ghosty-dev-revisor), 0 hallazgos abiertos.

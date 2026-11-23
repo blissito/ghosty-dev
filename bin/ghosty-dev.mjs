@@ -10,6 +10,7 @@ import * as previews from '../src/preview.mjs';
 import * as shares from '../src/share.mjs';
 import * as boxes from '../src/box.mjs';
 import * as writer from '../src/writer.mjs';
+import * as factory from '../src/factory.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
@@ -30,6 +31,15 @@ Uso: ghosty-dev <comando> [opciones]
   review <n> [--pr <m>] [--file r.md]    sin --file: el encargo para el revisor (otra sesión, contexto limpio);
                                          con --file: el revisor publica su revisión atada al commit del PR
   board                                  abre en el navegador los pendientes abiertos del repo
+  factory [status] [--all]               ¿trabaja la fábrica de este repo? (encendida, en pausa hasta…, horario)
+  factory pause [--until ISO] [--reason "…"] [--all]
+                                         pausa la fábrica (sin --until, hasta que la reanuden): nada nuevo arranca,
+                                         lo que corre termina. --all = todos tus repos
+  factory resume [--all]                 la reanuda: arranca lo que quedó en fila
+  factory schedule <day|night|weekdays|"cron"> [--timezone Z] [--all]
+                                         horario (day 8–22, night 22–8, weekdays sin fines de semana, o un cron de
+                                         las horas en que SÍ trabaja; zona por defecto CDMX). Con la fábrica en pausa,
+                                         next, claim y asks se detienen con la línea de la pausa y salen 6
   next (o status) [--json]               el siguiente paso correcto según el estado del repo, con el comando exacto
                                          (empieza por aquí tras compactar o retomar una sesión)
   ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto);
@@ -175,6 +185,8 @@ const { values, positionals } = parseArgs({
     flow: { type: 'string' },
     reason: { type: 'string' },
     person: { type: 'boolean' },
+    all: { type: 'boolean' },
+    timezone: { type: 'string' },
     yes: { type: 'boolean', short: 'y' },
   },
 });
@@ -247,7 +259,7 @@ const printCloud = (r) =>
   print(r, (x) =>
     x.services
       ? `PR #${x.pr ?? '?'}: vista previa, revisión y checks en cada push; tu terminal lo sigue escribiendo.${x.prUrl ? `\n  ${x.prUrl}` : ''}${x.note ? `\n  ${x.note}` : ''}\n  Síguelo: ghosty-dev wait <n> --watch · ghosty-dev show <n>`
-      : `${x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty-dev cloud   ·   Detenlo: ghosty-dev stop ${x.number}`,
+      : `${x.queued ? 'En fila (fábrica en pausa)' : x.already ? 'Ya iba en la nube' : 'Mandado a la nube'}: #${x.number} ${x.title}${x.note ? `\n  ${x.note}` : ''}\n  estado: ${x.state}\n  ${x.pr ?? x.url}\n  Síguelo: ghosty-dev cloud   ·   Detenlo: ghosty-dev stop ${x.number}`,
   );
 
 // Una línea por servicio de la plataforma (vista previa, revisión, smoke) y el CI del commit del PR.
@@ -480,12 +492,17 @@ try {
         if (c) console.error(`Aviso: ${cmd.conflictLine(p.number, c)}`);
       }
     }
+  } else if (command === 'factory') {
+    const op = arg ?? 'status';
+    const r = op === 'status' ? await factory.status({ all: values.all }) : await factory.set(op, { until: values.until, reason: values.reason, schedule: arg2, timezone: values.timezone, all: values.all });
+    print(r, factory.statusText);
   } else if (command === 'claim' && values.cloud) {
     const pr = values.pr === undefined ? undefined : num(values.pr, '--pr <m>');
     const n = arg === undefined && pr ? undefined : num(arg);
     const retry = `ghosty-dev claim${n ? ` ${n}` : ''} --cloud${pr ? ` --pr ${pr}` : ''}${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`;
     if (await confirmCloud({ n, pr }, retry)) printCloud(await cloud.start(n, { pr, workspace: values.workspace }));
   } else if (command === 'claim' && values.pr !== undefined) {
+    await factory.guard();
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
     const n = num(values.issue ?? arg, '--issue <n>');
     const r = cmd.adopt(n, num(values.pr, '--pr <m>'));
@@ -503,6 +520,7 @@ try {
   } else if (command === 'teleport') {
     print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
+    await factory.guard();
     const r = cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
     print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {
@@ -515,8 +533,11 @@ try {
     // Lo despertó un pedido o el CI salió rojo: le toca corregir (la tarjeta vuelve a «Escribiendo»).
     if (r.asks?.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
     else if (values.watch && !r.timedOut && r.ci && !['verde', 'sin-pr', 'sin-checks'].includes(r.ci)) await writer.beat(num(arg), 'working', `CI ${r.ci}`);
+    if (r.factory) process.exitCode = factory.FACTORY_PAUSED_EXIT;
     print(r, (x) =>
-      x.closed
+      x.factory
+        ? `#${x.number}: ${x.factory.line}. No tomes trabajo nuevo; termina lo que traes y detente.`
+        : x.closed
         ? `#${x.number}: primero esto: ${cmd.closedLine(x.closed)}\n  Mientras siga cerrado, un push a su rama no corre CI, vista previa ni revisión.`
         : x.asks?.length
         ? `#${x.number}: la persona pidió:\n${x.asks.map((a) => `  - ${a.text}${a.by ? ` (@${a.by})` : ''}`).join('\n')}\nHazlo en la misma rama y vuelve a subir.`
@@ -529,6 +550,7 @@ try {
             : [`#${x.number}: CI ${x.ci}.${x.ci === 'verde' ? ' Pide la revisión (subagente ghosty-dev-revisor).' : ' Arréglalo y vuelve a subir.'}`, ...servicesBlock(x.services)].join('\n'),
     );
   } else if (command === 'asks') {
+    if (!values.peek) await factory.guard();
     const r = cmd.asks(num(arg), { peek: values.peek });
     // Tomó el pedido: está corrigiendo.
     if (!values.peek && r.asks.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
@@ -662,6 +684,7 @@ try {
     print(r, (x) => (x.ok ? (x.lock ? `${x.lock} coincide con package.json.` : 'Sin lock que comparar.') : x.message));
     if (!r.ok) process.exitCode = 1;
   } else if (command === 'next' || command === 'status') {
+    await factory.guard();
     const r = cmd.next();
     print(r, (x) => `Siguiente paso: ${x.step}${x.command ? `\n  ${x.command}` : ''}\n  por qué: ${x.why}${x.board ? `\n  tablero: ${x.board.line}` : ''}`);
   } else if (command === 'deps') {
@@ -707,6 +730,8 @@ try {
     console.log(
       values.json
         ? JSON.stringify({ event: 'done', ...r })
+        : r.factory
+          ? `${r.factory.line}. No tomes trabajo nuevo; termina lo que traes y detente.`
         : r.timedOut
           ? `Se acabó el tiempo y no ha pasado (${r.until}).${r.stuck ? ` ${r.stuck.hint}` : ''} Vuelve a correr: ghosty-dev wait --pr ${r.pr} --until ${r.until}`
           : r.exitCode
@@ -826,6 +851,11 @@ try {
     throw new cmd.UserError(`Comando desconocido: ${command}. Usa ghosty-dev --help.`);
   }
 } catch (e) {
+  if (e instanceof factory.FactoryPaused) {
+    if (values.json) console.log(JSON.stringify({ factory: e.state, message: e.message }, null, 2));
+    else console.error(e.message);
+    process.exit(factory.FACTORY_PAUSED_EXIT);
+  }
   console.error(e instanceof cmd.UserError || e instanceof auth.AuthError || e instanceof cloud.CloudError ? e.message : `Error: ${auth.plain(e.message)}`);
   process.exit(1);
 }

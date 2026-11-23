@@ -88,6 +88,10 @@ export async function waitPr(pr, { until = 'any', minutes = 10, onChange = () =>
       const delay = steps[Math.min(i, steps.length - 1)] * unit;
       if (Date.now() + delay > deadline) return { ...s, until, met: false, timedOut: true, exitCode: WAIT_PENDING_EXIT, stuck: stuckChecks(s) };
       const woke = live ? await live.sleep(delay) : (await new Promise((r) => setTimeout(r, delay)), false);
+      if (woke && live.takeFactory?.() === 'pause') {
+        const fs = await import('./factory.mjs').then((m) => m.status()).catch(() => null);
+        if (fs && fs.active === false) return { ...s, until, met: false, timedOut: false, factory: fs, exitCode: 6 };
+      }
       if (woke) {
         i = -1;
         if (process.env.GHOSTY_DEV_DEBUG) console.error(`[en vivo] aviso de Ghosty Studio: releyendo el PR #${pr}`);

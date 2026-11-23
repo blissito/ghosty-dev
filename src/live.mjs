@@ -11,7 +11,7 @@ const plainSleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Regresa `{ sleep(ms) → Promise<boolean> (true = lo despertó un aviso), close(), live }`.
  */
 export async function openLive(repo) {
-  const off = { live: false, sleep: async (ms) => (await plainSleep(ms), false), close() {} };
+  const off = { live: false, takeFactory: () => null, sleep: async (ms) => (await plainSleep(ms), false), close() {} };
   if (process.env.GHOSTY_DEV_NO_LIVE === '1') return off;
   const session = await existingSession().catch(() => null);
   if (!session) return off;
@@ -33,6 +33,7 @@ export async function openLive(repo) {
     ctl.abort();
     return off;
   }
+  let factory = null; // el último aviso de la fábrica del repo («pause» | «resume»), hasta que alguien lo lea
   let pending = false; // llegó un aviso mientras nadie dormía: la siguiente espera regresa de inmediato
   let wake = null;
   const poke = () => (wake ? (wake(), (wake = null)) : (pending = true));
@@ -52,7 +53,10 @@ export async function openLive(repo) {
           if (!/^event: repo$/m.test(block)) continue;
           const data = /^data: (.*)$/m.exec(block)?.[1];
           try {
-            if (JSON.parse(data ?? '{}').repo === want) poke();
+            const ev = JSON.parse(data ?? '{}');
+            if (ev.repo !== want) continue;
+            if (ev.event === 'factory') factory = ev.action ?? null;
+            poke();
           } catch {}
         }
       }
@@ -60,6 +64,12 @@ export async function openLive(repo) {
   })();
   return {
     live: true,
+    /** La fábrica cambió mientras se esperaba: «pause» | «resume» | null. Se lee una vez. */
+    takeFactory() {
+      const f = factory;
+      factory = null;
+      return f;
+    },
     sleep(ms) {
       if (pending) {
         pending = false;

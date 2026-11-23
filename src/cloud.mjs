@@ -48,6 +48,9 @@ const view = (r) => ({
   url: text(r.issueUrl),
   branch: safeBranch(r.branch),
   already: r.yaEstaba === true,
+  // Fábrica en pausa: gs lo deja en fila (202) y arranca solo al reanudar.
+  queued: r.enFila === true,
+  note: r.error === 'factory_paused' ? text(r.message) : null,
 });
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.

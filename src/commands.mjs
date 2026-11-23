@@ -478,6 +478,11 @@ export async function wait(n, { watch = false, minutes = 5, onService = () => {}
     const every = Number(process.env.GHOSTY_DEV_WATCH_MS ?? 10_000);
     for (const until = Date.now() + minutes * 60_000; ci.status === 'pendiente' && Date.now() < until; ) {
       await nap(every);
+      // La persona pausó la fábrica mientras esperabas: se corta aquí con su línea (termina lo que traes y detente).
+      if (live?.takeFactory?.() === 'pause') {
+        const fs = await import('./factory.mjs').then((m) => m.status()).catch(() => null);
+        if (fs && fs.active === false) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, factory: fs };
+      }
       got = news();
       if (got.length) return { number: n, state: 'esperando', ci: ci.status, pr: ci.pr?.url ?? null, asks: got };
       ci = ciOf(n);

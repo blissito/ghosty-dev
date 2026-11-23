@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
 // `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [] } = {}) {
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [], factory = null } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -22,6 +22,9 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     n: 0,
     runs: [...runs],
     devCalls: [],
+    // La fábrica del repo (gs «Pausar la fábrica»); null = gs viejo que no la conoce (404).
+    factory: factory ? { repo: 'acme/demo', active: true, mode: 'on', until: null, reason: null, line: 'Fábrica encendida', queued: 0, ...factory } : null,
+    factoryCalls: [],
     previews: [...previews],
     previewCalls: [],
     loginCalls: [],
@@ -95,6 +98,15 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       s.posted.push(body);
       const keys = body.dotenv.split('\n').filter((l) => /^\s*(export\s+)?\w+=/.test(l)).map((l) => l.replace(/^\s*export\s+/, '').split('=')[0]);
       return send(res, 200, { repo: 'acme/demo', workspace: 'acme', keys, sent: keys, kept: body.replace ? [] : s.saved.filter((k) => !keys.includes(k)), dropped: [], risks: [] });
+    }
+    if (url.pathname === '/api/v2/me/repos/acme/demo/factory') {
+      if (!s.factory) return send(res, 404, { error: 'not_found' });
+      const body = req.method === 'POST' ? JSON.parse(raw || '{}') : null;
+      s.factoryCalls.push({ method: req.method, query: url.search, body });
+      if (body?.action === 'pause') Object.assign(s.factory, { active: false, mode: body.until ? s.factory.mode : 'paused', until: body.until ?? null, line: `Fábrica en pausa${body.until ? ' hasta las 8:00' : ''}${body.reason ? ` (${body.reason})` : ''}` });
+      if (body?.action === 'resume') Object.assign(s.factory, { active: true, mode: 'on', until: null, line: 'Fábrica encendida' });
+      if (body?.action === 'schedule') Object.assign(s.factory, { mode: 'scheduled', schedule: body.preset ?? body.schedule, timezone: 'America/Mexico_City' });
+      return send(res, 200, { ...s.factory, repo: url.search.includes('all=1') || body?.all ? '*' : 'acme/demo' });
     }
     let pm;
     if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/preview$/))) {

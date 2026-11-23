@@ -10,7 +10,7 @@ test('openLive: un aviso del repo despierta el sleep; uno de otro repo no', asyn
     assert.equal(req.headers.authorization, 'Bearer tok-de-prueba');
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('event: hello\ndata: {}\n\n');
-    push = (repo) => res.write(`event: repo\ndata: ${JSON.stringify({ repo })}\n\n`);
+    push = (repo, extra = {}) => res.write(`event: repo\ndata: ${JSON.stringify({ repo, ...extra })}\n\n`);
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   process.env.GHOSTY_DEV_BASE_URL = `http://127.0.0.1:${srv.address().port}`;
@@ -25,6 +25,12 @@ test('openLive: un aviso del repo despierta el sleep; uno de otro repo no', asyn
   const woke = await live.sleep(5_000);
   assert.equal(woke, true);
   assert.ok(Date.now() - t0 < 3_000, 'despertó antes del tope');
+  assert.equal(live.takeFactory(), null);
+  // La persona pausó la fábrica: el aviso despierta y `wait` lo lee una vez.
+  setTimeout(() => push('blissito/formmy_rrv7', { event: 'factory', action: 'pause' }), 20);
+  assert.equal(await live.sleep(5_000), true);
+  assert.equal(live.takeFactory(), 'pause');
+  assert.equal(live.takeFactory(), null);
   live.close();
   srv.closeAllConnections?.();
   srv.close();
