@@ -1,6 +1,6 @@
 {
   "name": "ghosty-dev",
-  "version": "0.9.27",
+  "version": "0.9.28",
   "description": "El trabajo vive en la bitácora (GitHub Issues), no en la sesión del agente; se cierra con evidencia.",
   "license": "MIT",
   "type": "module",

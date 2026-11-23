@@ -792,6 +792,22 @@ export function fichaOf(comments) {
   return c ? c.body.slice(FICHA_MARK.length).replace(/<sub>[\s\S]*?<\/sub>/g, '').trim() : null;
 }
 
+/** Commit (sha completo o corto) que declara un comentario de evidencia: su línea «Commit: <sha>». */
+export function evidenceCommitOf(comment) {
+  return (comment?.body ?? '').match(/^Commit:\s*`?([0-9a-f]{7,40})`?/im)?.[1] ?? null;
+}
+
+/**
+ * Quién escribe #n AHORA y qué sigue para cambiar de lugar. Un solo escritor: la nube (un run vivo) o tu terminal
+ * (rama/worktree local), nunca los dos. Puro: recibe lo ya leído.
+ */
+export function writerOf({ number, cloudRun = null, localBranch = null }) {
+  const live = cloudRun && ['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'blocked', 'merging'].includes(cloudRun.phase);
+  if (live) return { where: 'nube', detail: cloudRun.state, move: `ghosty-dev teleport ${number}   (la trae a tu compu y detiene la nube)` };
+  if (localBranch) return { where: 'tu compu', detail: localBranch, move: `ghosty-dev claim ${number} --cloud   (la manda a la nube; un solo escritor)` };
+  return { where: 'nadie', detail: cloudRun ? `último intento en la nube: ${cloudRun.state}` : null, move: `ghosty-dev claim ${number}  (local) · ghosty-dev claim ${number} --cloud  (nube)` };
+}
+
 export function show(n) {
   // #n puede ser un PR (el endpoint de issues también los devuelve): entonces se dice y se muestra como PR, con el
   // pendiente que cierra (Formmy, fila 35: `show 73` decía «cerrado» con #73 PR abierto).
@@ -813,6 +829,8 @@ export function show(n) {
     assignees: issue.assignees.map((a) => a.login),
     blockedBy: openBlockers(issue, new Set(open.map((i) => i.number))),
     evidence: Boolean(findValidEvidence(issue.comments, issue.body)),
+    // El commit que nombra la evidencia válida (la puerta la ata al commit): si no es la punta del PR, está vieja.
+    evidenceCommit: evidenceCommitOf(findValidEvidence(issue.comments, issue.body)),
     asks: unseenAsks(n).map(publicAsk),
     ficha: fichaOf(prComments) ?? fichaOf(issue.comments),
     pr: pr?.url ?? null,

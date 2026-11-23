@@ -14,7 +14,7 @@ import * as factory from '../src/factory.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
-
+import { git } from '../src/gh.mjs';
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
@@ -777,13 +777,20 @@ try {
     } else {
       if (!r.pr && !r.closed && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
       r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
+      // Dónde vive el trabajo (nube o tu compu) y cómo cambiarlo: un solo escritor a la vez.
+      const cloudRun = (await cloud.list().catch(() => [])).find((c) => c.number === r.number) ?? null;
+      const localBranch = (git(['branch', '--list', `ghosty-dev/${r.number}-*`], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
+      r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch });
+      const head = r.services?.sha ?? null;
+      r.evidenceStale = Boolean(r.evidence && r.evidenceCommit && head && !head.startsWith(r.evidenceCommit) && !r.evidenceCommit.startsWith(head.slice(0, 7)));
       print(r, (x) =>
         [
           `#${x.number} ${x.title}`,
           `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
+          `  escribe: ${x.writer.where}${x.writer.detail ? ` (${x.writer.detail})` : ''} — para cambiarlo: ${x.writer.move}`,
           `  escritor: ${x.assignees.join(', ') || '—'}`,
           `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
-          `  evidencia: ${x.evidence ? 'sí' : 'no'}`,
+          `  evidencia: ${x.evidence ? (x.evidenceStale ? `VIEJA: es del commit ${x.evidenceCommit}, la punta del PR es ${x.services.sha.slice(0, 7)} — hay que publicarla otra vez (ghosty-dev evidence ${x.number} --file e.md)` : 'sí') : 'no'}`,
           `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
           ...(x.pr ? [`  PR: ${x.pr}`] : x.closed ? [`  PR: ${cmd.closedLine(x.closed)}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
           ...previewLine(x.preview),
