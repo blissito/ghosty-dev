@@ -50,7 +50,8 @@ export async function openLive(repo) {
         while ((i = buf.indexOf('\n\n')) >= 0) {
           const block = buf.slice(0, i);
           buf = buf.slice(i + 2);
-          if (!/^event: repo$/m.test(block)) continue;
+          // `repo`: GitHub contó algo del repo; `ask`: la persona mandó un pedido desde Ghosty Studio (llega al instante).
+          if (!/^event: (repo|ask)$/m.test(block)) continue;
           const data = /^data: (.*)$/m.exec(block)?.[1];
           try {
             const ev = JSON.parse(data ?? '{}');

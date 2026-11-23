@@ -528,7 +528,12 @@ try {
     const onService = (key, s) => console.error(serviceLine(key, s).trim());
     // Esperar = ya empujó: la tarjeta regresa a «En revisión».
     await writer.beat(num(arg), 'pushed');
+    // Escuchando: en gs el pedido sale «le llega al instante» y no se avisa que nadie revisa.
+    const minutes = values.minutes ? Number(values.minutes) : 5;
+    if (values.watch) await writer.ack(num(arg), { listening: true, minutes });
     const r = await cmd.wait(num(arg), { watch: values.watch, minutes: values.minutes ? Number(values.minutes) : undefined, onService });
+    // Dejó de escuchar; los pedidos que lo despertaron quedan «leídos» en gs.
+    if (values.watch || r.asks?.length) await writer.ack(num(arg), { seen: (r.asks ?? []).map((a) => a.id), ...(values.watch ? { listening: false } : {}) });
     if (r.pr) autoDeps(Number(String(r.pr).split('/').pop()));
     // Lo despertó un pedido o el CI salió rojo: le toca corregir (la tarjeta vuelve a «Escribiendo»).
     if (r.asks?.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
@@ -552,6 +557,8 @@ try {
   } else if (command === 'asks') {
     if (!values.peek) await factory.guard();
     const r = cmd.asks(num(arg), { peek: values.peek });
+    // Acuse a gs: «Lo leyó tu agente» bajo cada pedido (y, sin pedidos, que sí está revisando).
+    if (!values.peek) await writer.ack(num(arg), { pr: r.pr, seen: [...r.asks, ...r.stale].map((a) => a.id) });
     // Tomó el pedido: está corrigiendo.
     if (!values.peek && r.asks.length) await writer.beat(num(arg), 'working', `pedido: ${r.asks[0].text}`);
     print(r, (x) =>

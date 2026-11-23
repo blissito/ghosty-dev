@@ -29,3 +29,23 @@ export async function beat(n, state, what = null) {
     return false;
   }
 }
+
+// El acuse de lectura (gs: POST /api/v2/me/repos/:owner/:name/prs/:pr/reader): con él, bajo cada pedido del hilo del PR
+// en Ghosty Studio sale «Lo leyó tu agente · 8:22», y si nadie revisa pedidos en 10 min, gs le dice a la persona qué
+// pegarle a esta terminal. `seen` = ids de los comentarios leídos (sin ids = «revisé y no había nada», señal de vida);
+// `listening` = `wait --watch` escuchando en vivo `minutes` (el pedido le llega al instante). Mismas reglas que `beat`:
+// nunca falla ni frena el comando.
+export async function ack(n, { pr = null, seen = [], listening, minutes } = {}) {
+  if (process.env.GHOSTY_DEV_GH || process.env.GHOSTY_DEV_NO_BEAT) return false;
+  try {
+    const number = pr ?? prOf(n)?.number;
+    if (!number) return false;
+    const [owner, name] = checkRepo(repoFullName());
+    const path = `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/prs/${number}/reader`;
+    const body = { seen: seen.filter((x) => Number.isInteger(x)), ...(typeof listening === 'boolean' ? { listening } : {}), ...(minutes ? { minutes } : {}) };
+    await Promise.race([request('POST', path, body, { scope: 'dev' }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), TIMEOUT_MS).unref?.())]);
+    return true;
+  } catch {
+    return false;
+  }
+}

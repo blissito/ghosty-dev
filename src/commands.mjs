@@ -403,22 +403,23 @@ function readAsks(n) {
     const comments = apiAll(`${API_ISSUE(number)}/comments`, { allowFail: true }) ?? [];
     comments.forEach((c, index) => {
       if (index < (seen[from] ?? 0) || !isAsk(c.body || '')) return;
-      const a = { from, index, by: c.user?.login ?? null, text: askText(c.body || ''), url: c.html_url ?? null };
+      const a = { id: c.id ?? null, from, index, by: c.user?.login ?? null, text: askText(c.body || ''), url: c.html_url ?? null };
       if (isBot(c.user) && head === undefined) head = headOf(pr);
       const why = staleReason(c, head);
       (why ? stale : fresh).push(why ? { ...a, stale: why } : a);
     });
   }
-  return { fresh, stale };
+  return { fresh, stale, pr: pr?.number ?? null };
 }
 const unseenAsks = (n) => readAsks(n).fresh;
-const publicAsk = ({ from, by, text, url }) => ({ from, by, text, url });
+// `id` = el del comentario de GitHub: con él gs marca el pedido como leído («Lo leyó tu agente», `writer.ack`).
+const publicAsk = ({ id, from, by, text, url }) => ({ id, from, by, text, url });
 
 // Los pedidos nuevos de la persona; al leerlos quedan vistos (con peek, no).
 export function asks(n, { peek = false } = {}) {
-  const { fresh, stale } = readAsks(n);
+  const { fresh, stale, pr } = readAsks(n);
   if (!peek) markSeen(n, [...fresh, ...stale]);
-  return { number: n, asks: fresh.map(publicAsk), stale: stale.map((a) => ({ ...publicAsk(a), reason: a.stale })) };
+  return { number: n, pr, asks: fresh.map(publicAsk), stale: stale.map((a) => ({ ...publicAsk(a), reason: a.stale })) };
 }
 
 // ---------- wait (Ley 3; Beads gates «so agents never need to poll») ----------

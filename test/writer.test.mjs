@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beat, whatOf } from '../src/writer.mjs';
+import { ack, beat, whatOf } from '../src/writer.mjs';
 
 test('whatOf: primera línea limpia, sin comentarios HTML ni controles, 80 máx', () => {
   assert.equal(whatOf('<!-- ghosty-dev:pedido -->\n\n  Arregla el login\nsegunda'), 'Arregla el login');
@@ -12,4 +12,10 @@ test('whatOf: primera línea limpia, sin comentarios HTML ni controles, 80 máx'
 test('beat: con el gh falso no sale nada a la red', async () => {
   process.env.GHOSTY_DEV_GH = '/no/existe';
   assert.equal(await beat(1, 'working', 'x'), false);
+});
+
+test('ack: con el gh falso no sale nada a la red (ni con escucha)', async () => {
+  process.env.GHOSTY_DEV_GH = '/no/existe';
+  assert.equal(await ack(1, { pr: 2, seen: [10, 11] }), false);
+  assert.equal(await ack(1, { listening: true, minutes: 5 }), false);
 });
