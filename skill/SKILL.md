@@ -61,14 +61,14 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
   → Ghosty Studio mezcla los heads sobre la base en una caja efímera (2 h), sin rama ni PR borrador; si chocan, dice
   en qué archivos. Nunca abras un PR «no mergear» para eso. Cada preview trae una franja «PR #n · commit · repo».
 - **Entrar con sesión como agente**: `ghosty-dev preview <pr> --login [--path /x]` → liga de UN solo uso con la identidad
-  de servicio (síguela con `curl -sL -c jar`); `--login --check --path /x` y `doctor` prueban de verdad que la app
-  entra. Sin proveedor OAuth en la preview, la ruta de login dice «ábrela desde Ghosty» (receta en AGENTS.md).
-- **Login en previews sin OAuth**: la vista previa abierta desde Ghosty trae `X-Ghosty-Identity` (JWT EdDSA, 12 h, `aud` =
-  `PREVIEW_HOST`, JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`). Receta de ~15 líneas con `jose` en AGENTS.md («Login en
-  previews»): si existe esa variable, verifica el header y entra como un usuario de prueba sembrado en la base de la
-  vista previa (nunca una cuenta personal; la base de la preview es desechable, no la de producción). Va a main una
-  vez; `doctor` lo sugiere y avisa si la preview trae `DATABASE_URL`/`MONGO_*`. Es el camino recomendado: no edites el
-  cliente OAuth de producción ni copies su secreto a la preview (si de verdad necesitas OAuth: un cliente aparte). «Probado en la preview del PR #N» sólo vale si #N contiene el mismo commit.
+  de servicio (síguela con `curl -sL -c jar`; generarla no la gasta, abrirla sí).
+- **Login en previews: UNA receta completa** (AGENTS.md, «Login en previews»), entera y una vez en main: verificar
+  `X-Ghosty-Identity` (JWKS en `GS_PREVIEW_IDENTITY_JWKS_URL`) y entrar como usuario de prueba sembrado en la base
+  desechable de la preview · logout que deja la marca `preview_logged_out=1` (el header llega en cada petición; sin
+  marca se reabre) · «Entrar con Ghosty» que la borra · `enterFromGhosty()` (401 limpio) sin identidad ni llaves ·
+  Google real opcional con `GS_PREVIEW_OAUTH_REDIRECT_URI` + `state` firmado. Comprobación: `login_path`, `logout` y
+  `relogin` en `.ghosty/factory.md` → `preview <pr> --login --check` y `doctor` prueban entrar, cerrar sesión, que no
+  se reabra, volver a entrar y la pantalla sin identidad, un renglón por paso. No edites el cliente OAuth de producción.
 - **API de partner en previews sin llaves**: la vista previa trae `GHOSTY_PREVIEW_TOKEN` (identidad de la caja) y la API
   de partner de Ghosty lo acepta como `Authorization: Bearer` (sólo pruebas). Nunca copies la llave de partner: receta de
   3 líneas en AGENTS.md («API de partner en previews»); `doctor` la sugiere.

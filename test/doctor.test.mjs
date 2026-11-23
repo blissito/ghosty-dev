@@ -240,3 +240,26 @@ test('doctor: login_path de .ghosty/factory.md, si no /dashboard', async () => {
   writeFileSync(join(dir, '.ghosty', 'factory.md'), '---\nmemory: 4gb\nlogin_path: /dashboard/chat\n---\n# x\n');
   assert.equal(loginPathOf(dir), '/dashboard/chat');
 });
+
+test('doctor: Formmy fila 61 — el recorrido completo (entrar, cerrar sesión, no se reabre, volver a entrar) y logout:/relogin: de factory.md', async () => {
+  const { loginProbeCheck, loginFlowOf } = await import('../src/doctor.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const step = (name, ok, detail = 'x') => ({ name, ok, detail });
+  const all = loginProbeCheck({ pr: 101, verdict: 'session', path: '/dashboard', flow: 'ok', steps: [step('enter', true), step('logout', true), step('stays_out', true), step('reenter', true), step('no_identity', true)] });
+  assert.equal(all.ok, true);
+  assert.match(all.detail, /entrar ok · cerrar sesión ok · no se reabre ok · volver a entrar ok · sin identidad ok/);
+  const reopens = loginProbeCheck({ pr: 101, verdict: 'session', path: '/dashboard', flow: 'failed', steps: [step('enter', true), step('logout', true), step('stays_out', false, 'se reabre sola')] });
+  assert.equal(reopens.ok, false);
+  assert.match(reopens.detail, /no se reabre MAL\. se reabre sola/);
+  assert.match(reopens.fix, /preview_logged_out/);
+  const half = loginProbeCheck({ pr: 101, verdict: 'session', path: '/dashboard', flow: 'untested', steps: [step('enter', true), step('logout', null)] });
+  assert.equal(half.ok, null);
+  assert.match(half.fix, /logout: POST \/api\/login intent=logout/);
+  const dir = mkdtempSync(join(tmpdir(), 'gd-flow-'));
+  assert.deepEqual(loginFlowOf(dir), { logout: null, relogin: null });
+  mkdirSync(join(dir, '.ghosty'));
+  writeFileSync(join(dir, '.ghosty', 'factory.md'), '---\nlogin_path: /dashboard\nlogout: POST /api/login intent=logout\nrelogin: "/api/login intent=ghosty-login"\n---\n');
+  assert.deepEqual(loginFlowOf(dir), { logout: 'POST /api/login intent=logout', relogin: 'POST /api/login intent=ghosty-login' });
+});

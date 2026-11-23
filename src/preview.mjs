@@ -150,11 +150,18 @@ export async function previewLogin(prArg, { path } = {}) {
 // regresa llaves ni tokens. verdict: session | no_session | public_path | app_error | unreachable.
 const VERDICTS = new Set(['session', 'no_session', 'public_path', 'app_error', 'unreachable']);
 const hopOf = (h) => (h && typeof h === 'object' ? { status: Number(h.status) || 0, location: routePath(h.location), final: routePath(h.final), finalStatus: Number(h.finalStatus) || null } : null);
-export async function previewLoginCheck(prArg, { path } = {}) {
+// `logout` / `relogin` («POST /api/login intent=logout»): con ellos gs recorre entrar → cerrar sesión → que no se reabra
+// → volver a entrar → sin identidad (Formmy fila 61) y regresa `steps` y `flow`.
+const STEP_NAMES = new Set(['enter', 'logout', 'stays_out', 'reenter', 'no_identity']);
+const stepOf = (x) => (x && STEP_NAMES.has(x.name) ? { name: x.name, ok: x.ok === true ? true : x.ok === false ? false : null, detail: cleanMessage(String(x.detail ?? '')) } : null);
+export async function previewLoginCheck(prArg, { path, logout, relogin } = {}) {
   const pr = prArg ?? currentPr();
   const repo = repoFullName();
   const want = routePath(path ?? '/dashboard') ?? '/dashboard';
-  const r = await request('GET', `${previewPath(repo, pr)}/login?path=${encodeURIComponent(want)}`, undefined, { scope: 'dev' });
+  const q = new URLSearchParams({ path: want });
+  if (logout) q.set('logout', String(logout));
+  if (relogin) q.set('relogin', String(relogin));
+  const r = await request('GET', `${previewPath(repo, pr)}/login?${q}`, undefined, { scope: 'dev' });
   return {
     repo,
     pr,
@@ -164,6 +171,8 @@ export async function previewLoginCheck(prArg, { path } = {}) {
     withIdentity: hopOf(r?.withIdentity),
     withoutIdentity: hopOf(r?.withoutIdentity),
     identity: IDENTITY(r?.identity),
+    steps: Array.isArray(r?.steps) ? r.steps.map(stepOf).filter(Boolean) : [],
+    flow: ['ok', 'failed', 'untested'].includes(r?.flow) ? r.flow : null,
   };
 }
 

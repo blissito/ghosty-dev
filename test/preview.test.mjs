@@ -196,6 +196,13 @@ test('preview <pr> --login --check: prueba de punta a punta; sale 0 con sesión 
     const red = await cli(['preview', '73', '--login', '--check']);
     assert.equal(red.code, 0, red.err);
     assert.match(red.out, /ok: entra con sesión\n  con identidad 302 → \/dashboard\/agentes \(200\) · sin identidad 302 → \/ \(200\)/);
+    // Formmy fila 61: --logout/--relogin viajan a gs y cada paso sale en su renglón; un paso en MAL sale 1.
+    gs.loginProbe = { ...gs.loginProbe, flow: 'failed', steps: [{ name: 'enter', ok: true, detail: 'entra' }, { name: 'logout', ok: true, detail: 'POST /api/login intent=logout → /login (200)' }, { name: 'stays_out', ok: false, detail: 'se reabre sola' }] };
+    gs.loginCalls.length = 0;
+    const flow = await cli(['preview', '73', '--login', '--check', '--logout', 'POST /api/login intent=logout', '--relogin', 'POST /api/login intent=ghosty-login']);
+    assert.equal(flow.code, 1);
+    assert.match(gs.loginCalls[0].query, /logout=POST\+%2Fapi%2Flogin\+intent%3Dlogout&relogin=POST/);
+    assert.match(flow.out, /pero el recorrido falla\n.*\n  ok  entrar: entra\n  ok  cerrar sesión: .*\n  MAL no se reabre: se reabre sola/);
   }));
 
 test('preview --with: combinada #73 + #101 sin PR borrador; --wait hasta lista, la liga sólo en stdout (fila 63)', () =>

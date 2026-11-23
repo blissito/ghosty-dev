@@ -41,20 +41,24 @@ La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van 
 - Arma el `state` con `previewOAuthState(state, '/ruta/del/callback')` (snippet de 10 líneas: docs de Ghosty Studio, fabrica/oauth-en-previews; usa `GS_PREVIEW_OAUTH_STATE_KEY`).
 - Una sola vez, el dueño registra `https://www.ghosty.studio/preview-oauth/callback` en el proveedor (GitHub: un OAuth App aparte para previews).
 - `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos.
-- **Primero la identidad de Ghosty (abajo), sin OAuth.** Si de verdad hace falta OAuth en previews: un cliente OAuth
+- **Primero la identidad de Ghosty (abajo, «Login en previews»: incluye Google real como paso 5), sin OAuth.** Si de verdad hace falta OAuth en previews: un cliente OAuth
   APARTE sólo para previews; nunca edites el cliente de producción ni copies su secreto a la vista previa.
 
-**Login en previews sin OAuth** (identidad de Ghosty, como Cloudflare Access): quien abre la vista previa desde Ghosty
-(dueño, miembro o invitado aceptado) llega con el header `X-Ghosty-Identity` (JWT EdDSA de 12 h, atado al host de la
-preview). La app lo verifica con el JWKS de Ghosty y crea su sesión; súbelo a main una vez y cualquier PR prueba logueado:
+**Login en previews: UNA receta completa** (identidad de Ghosty, como Cloudflare Access). Se adopta entera, una vez, en
+main: por partes se rompe la pieza de al lado (Formmy, fila 61: tres entregas y el logout reabría la sesión). Quien abre
+la vista previa desde Ghosty llega con `X-Ghosty-Identity` (JWT EdDSA de 12 h, `aud` = el host de la preview) en CADA
+petición; en producción `GS_PREVIEW_IDENTITY_JWKS_URL` no existe y nada de esto actúa.
 ```js
-// app/preview-identity.server.js — sólo en vistas previas de Ghosty (en producción la variable no existe)
+// app/preview-identity.server.js
 import { createRemoteJWKSet, jwtVerify } from "jose";
 const JWKS_URL = process.env.GS_PREVIEW_IDENTITY_JWKS_URL;
 const jwks = JWKS_URL ? createRemoteJWKSet(new URL(JWKS_URL)) : null;
-export async function previewIdentity(request) {
+export const isGhostyPreview = () => Boolean(jwks);
+export const LOGGED_OUT = "preview_logged_out"; // marca de logout: sin ella el header reabre la sesión
+export const loggedOut = (request) => /(?:^|;\s*)preview_logged_out=1/.test(request.headers.get("cookie") ?? "");
+export async function previewIdentity(request, { ignoreMark = false } = {}) {
   const token = request.headers.get("x-ghosty-identity");
-  if (!jwks || !token) return null;
+  if (!jwks || !token || (!ignoreMark && loggedOut(request))) return null;
   try {
     const { payload } = await jwtVerify(token, jwks, { issuer: process.env.GS_PREVIEW_IDENTITY_ISSUER, audience: process.env.PREVIEW_HOST, algorithms: ["EdDSA"] });
     return { id: payload.sub, email: payload.email, name: payload.name ?? null, role: payload.role };
@@ -62,23 +66,33 @@ export async function previewIdentity(request) {
     return null;
   }
 }
+export const enterFromGhosty = () => new Response(`<!doctype html><meta charset="utf-8"><title>Entra desde Ghosty</title><h1>Entra desde Ghosty</h1><p>Abre esta vista previa desde Ghosty («Abrir preview») y entrarás con tu cuenta.</p>`, { status: 401, headers: { "Content-Type": "text/html; charset=utf-8" } });
 ```
-En el loader de sesión: sin sesión y con `previewIdentity(request)` → entra como un **usuario de prueba sembrado en la
-base de la vista previa** (búscalo o créalo con un correo de prueba, p. ej. `preview-${role}@ghosty.test`, y guarda
-`sub`/`email` de la identidad sólo como dato) y crea la sesión: así el agente prueba con sesión sin elegir cuentas
-personales de Google. La base de la vista previa tiene que ser desechable (copia o vacía con seed), nunca la de
-producción: `ghosty-dev doctor` avisa si la preview trae `DATABASE_URL`, `MONGO_*`, etc. `ghosty-dev doctor` sugiere adoptarlo si la app tiene login. «Probado en la preview del PR #N» sólo vale en la
-evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
+1. **Entrar sola**: en el loader que lee la sesión (el del dashboard y el de `/login`), sin sesión y con
+   `previewIdentity(request)` → entra como un **usuario de prueba sembrado en la base de la vista previa** (búscalo o
+   créalo con `preview-${role}@ghosty.test`; `sub`/`email` sólo como dato) y crea la sesión normal. Si tu cookie lleva
+   `Domain` de producción, quítaselo con `isGhostyPreview()`.
+2. **Cerrar sesión**: además de destruir la sesión, en la preview pon `preview_logged_out=1; Path=/; HttpOnly; SameSite=Lax; Secure`.
+3. **Volver a entrar**: botón «Entrar con Ghosty» (sólo con `isGhostyPreview()`, p. ej. `intent=ghosty-login`) →
+   `previewIdentity(request, { ignoreMark: true })`, borra la marca (`Max-Age=0`) y crea la sesión; sin identidad, `enterFromGhosty()`.
+4. **Sin identidad ni llaves del proveedor**: `/login` y la action de Google responden `enterFromGhosty()` (401, sin
+   pedir credenciales), nunca «Oops» ni un 500.
+5. **Google real (opcional)**: con las llaves de un cliente OAuth APARTE sólo para previews, «Entrar con Google» usa
+   `redirect_uri = GS_PREVIEW_OAUTH_REDIRECT_URI` (al pedir el código y al canjearlo) y `state = previewOAuthState(csrf, "/auth/google/callback")`
+   (arriba). Sin llaves, el botón va apagado con el motivo.
 
-- **Sin proveedor OAuth en la vista previa** (lo normal: no se copian las llaves de producción), «Iniciar sesión» no
-  truena con un error genérico: en la ruta de login, `if (process.env.GS_PREVIEW_IDENTITY_JWKS_URL && !process.env.GOOGLE_CLIENT_ID)`
-  (o el id del proveedor que use la app) responde «Esta es una vista previa: ábrela desde Ghosty («Abrir preview») y
-  entrarás con tu cuenta» en vez de llamar al proveedor.
+La base de la vista previa tiene que ser desechable (copia o vacía con seed), nunca la de producción: `ghosty-dev doctor`
+avisa si la preview trae `DATABASE_URL`, `MONGO_*`, etc., y sugiere la receta si la app tiene login. «Probado en la
+preview del PR #N» sólo vale en la evidencia si #N contiene el mismo commit (`evidence` y la puerta lo verifican).
+
+- **Comprobarlo de punta a punta**: en el frontmatter de `.ghosty/factory.md`:
+  `login_path: /dashboard`, `logout: POST /api/login intent=logout`, `relogin: POST /api/login intent=ghosty-login`
+  (los de tu app). `ghosty-dev preview <pr> --login --check` (y `doctor`) siguen redirecciones como un navegador y dan
+  un renglón por paso: entrar · cerrar sesión · no se reabre (con el header todavía llegando) · volver a entrar · sin
+  identidad («Entra desde Ghosty», no 500). Sale 1 si alguno falla; sin `logout`/`relogin`, los pasos salen «sin probar».
 - **Entrar como agente**: `ghosty-dev preview <pr> --login [--path /dashboard]` da una liga de UN solo uso (10 min) con
-  la identidad de servicio (`smoke@ghosty.studio`); síguela con `curl -sL -c jar "<liga>" -o /dev/null` y usa `-b jar`,
-  o ábrela en el navegador. `ghosty-dev preview <pr> --login --check --path /ruta/con/sesion` (y `doctor`) prueba de
-  verdad que la app entra: misma ruta con y sin identidad. Pon la ruta protegida en `.ghosty/factory.md` como
-  `login_path: /dashboard`.
+  la identidad de servicio (`smoke@ghosty.studio`); generarla no la gasta, abrirla sí (`--open` la abre en tu
+  navegador). Síguela con `curl -sL -c jar "<liga>" -o /dev/null` y usa `-b jar`.
 
 **API de partner en previews sin llaves** (identidad de la caja, como el OIDC de GitHub Actions): cada vista previa trae
 `GHOSTY_PREVIEW_TOKEN` (JWT de Ghosty, `aud` = `ghosty-api`) y `/api/v2/partner/*` lo acepta como Bearer, sólo para
