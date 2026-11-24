@@ -2,7 +2,7 @@
 // Archivo autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/ para que lo use la Action.
 
 // Versión de ghosty-dev que instaló esta puerta (la lee readiness para distinguir «distinta» de «rota»). Se sube con cada release.
-export const GATE_VERSION = '0.9.42';
+export const GATE_VERSION = '0.9.43';
 export const EVIDENCE_MARKER = '<!-- ghosty-dev:evidencia v0.1 -->';
 
 // Normaliza un encabezado: minúsculas, sin acentos ni signos.
@@ -35,9 +35,11 @@ function section(sections, ...keys) {
 // Criterios de aceptación de un pendiente: renglones «- [ ] …» o «- [x] …».
 export function parseChecklist(text) {
   if (!text) return [];
-  return [...text.matchAll(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/gm)].map((m) => ({
-    done: m[1] !== ' ',
+  // `[~]` = «pendiente de la persona»: ni cumplido ni error de formato (ver `manualParts`).
+  return [...text.matchAll(/^\s*[-*]\s+\[([ xX~])\]\s+(.+?)\s*$/gm)].map((m) => ({
+    done: m[1] === 'x' || m[1] === 'X',
     text: m[2],
+    ...(m[1] === '~' ? { pending: true } : {}),
   }));
 }
 
@@ -64,9 +66,34 @@ export function ciRedLine(ci = '') {
   return ciWithoutGate(ci).split('\n').find((l) => CI_RED.test(l))?.trim() ?? null;
 }
 
-// Valida el cuerpo de una evidencia contra el pendiente. Regresa { ok, errors }.
+// ---------- verificación de la persona (`- [~] …`): sign-off de QA, explícito, rastreable y bloqueante para el merge ----------
+// Algunos criterios sólo los comprueba una persona (p. ej. /admin con sesión de administrador que el escritor de la nube
+// no tiene). En vez de obligarlo a mentir con `[x]`, los declara `- [~] <criterio> — verificación de la persona: <qué
+// comprobar y cómo>`. La puerta los acepta, pero el merge espera a que la persona dueña los confirme (`ghosty-dev confirm`).
+export const MANUAL_SEP = /\s+[—–-]{1,2}\s+verificaci[oó]n de la persona\s*:\s*/i;
+export const MANUAL_MIN = 15;
+
+// Separa «criterio — verificación de la persona: qué comprobar». `check` es '' si no hay separador.
+export function manualParts(text = '') {
+  const m = MANUAL_SEP.exec(text);
+  if (!m) return { criterion: text.trim(), check: '' };
+  return { criterion: text.slice(0, m.index).trim(), check: text.slice(m.index + m[0].length).trim() };
+}
+
+// Clave estable de un criterio (va en el marcador del comentario de confirmación). Puro.
+export const criterionKey = (text = '') => norm(manualParts(text).criterion).replace(/\s+/g, '-').slice(0, 80);
+
+// Los criterios `[~]` de una evidencia: [{ criterion, check }]. Puro.
+export function manualCriteria(md = '') {
+  return parseChecklist(section(parseSections(md), 'criterios'))
+    .filter((g) => g.pending)
+    .map((g) => manualParts(g.text));
+}
+
+// Valida el cuerpo de una evidencia contra el pendiente. Regresa { ok, errors, manual }.
 export function validateEvidence(md, issueBody = '') {
   const errors = [];
+  const manual = [];
   const s = parseSections(md);
 
   const done = section(s, 'que se hizo');
@@ -94,17 +121,30 @@ export function validateEvidence(md, issueBody = '') {
   const flow = mainFlowProblem(mainFlowOf(md));
   if (flow) errors.push(flow);
 
-  // Cada criterio de aceptación del pendiente debe venir marcado en la evidencia.
+  // Cada criterio de aceptación del pendiente debe venir marcado en la evidencia (o `[~]` con qué comprobar).
   const wanted = acceptanceCriteria(issueBody);
   if (wanted.length) {
     const given = parseChecklist(section(s, 'criterios'));
     for (const c of wanted) {
-      const hit = given.find((g) => norm(g.text) === norm(c.text));
-      if (!hit || !hit.done) errors.push(`Criterio sin cumplir en la evidencia: «${c.text}».`);
+      const hit = given.find((g) => norm(manualParts(g.text).criterion) === norm(c.text));
+      if (hit?.pending) {
+        const { check } = manualParts(hit.text);
+        if (check.length < MANUAL_MIN) errors.push(`Criterio «${c.text}» marcado [~] sin «qué comprobar»: escribe «- [~] ${c.text} — verificación de la persona: <qué debe comprobar y cómo, mínimo ${MANUAL_MIN} caracteres>».`);
+        else manual.push({ criterion: c.text, check });
+      } else if (!hit || !hit.done) {
+        errors.push(`Criterio sin cumplir en la evidencia: «${c.text}». Si sólo una persona puede comprobarlo (p. ej. una sesión de administrador que no tienes), NO lo marques [x] ni pidas publicar sin él: márcalo «- [~] ${c.text} — verificación de la persona: <qué comprobar y cómo>» y publica; la puerta espera su confirmación (ghosty-dev confirm).`);
+      }
+    }
+  }
+  // Un `[~]` suelto (sin criterio que lo respalde en el issue) también necesita su «qué comprobar».
+  for (const g of parseChecklist(section(s, 'criterios'))) {
+    if (g.pending && manualParts(g.text).check.length < MANUAL_MIN && !errors.some((e) => e.includes(manualParts(g.text).criterion))) {
+      errors.push(`«- [~] ${manualParts(g.text).criterion}» necesita «— verificación de la persona: <qué debe comprobar y cómo>» (mínimo ${MANUAL_MIN} caracteres).`);
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  // `manual` sólo aparece si hay `[~]`: sin ellos el resultado es idéntico al de siempre.
+  return manual.length ? { ok: errors.length === 0, errors, manual } : { ok: errors.length === 0, errors };
 }
 
 // ---------- «Flujo principal probado con sesión» (Formmy, filas 44 y 46) ----------
@@ -181,6 +221,36 @@ export function findValidEvidence(comments = [], issueBody = '') {
     if (validateEvidence(body, issueBody).ok) return c;
   }
   return null;
+}
+
+// ---------- confirmación de la persona ----------
+
+export const CONFIRM_MARKER = '<!-- ghosty-dev:confirmacion v0.1';
+const CONFIRM_RE = /<!-- ghosty-dev:confirmacion v0\.1 sha=([0-9a-f]{7,40}) criterio=([a-z0-9-]*) -->/;
+// Quién puede confirmar: quien tiene permiso de escritura (author_association de GitHub; sin el dato, se acepta).
+const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+export function formatConfirmation(number, { sha, criterion, index, by, at, note, check }) {
+  return `${CONFIRM_MARKER} sha=${sha} criterio=${criterionKey(criterion)} -->\n✅ **Verificación de la persona, pendiente #${number}, criterio ${index}** (commit ${String(sha).slice(0, 7)})\n\n- Quién: ${by}\n- Cuándo: ${at}\n- Criterio: ${criterion}\n${check ? `- Qué debía comprobar: ${check}\n` : ''}- Nota: ${note?.trim() || '—'}\n\n<sub>Confirmado con ghosty-dev confirm</sub>\n`;
+}
+
+// Puro. De los comentarios del issue: la evidencia vigente, sus `[~]`, cuáles ya confirmó una persona de confianza y
+// cuáles faltan. Una confirmación vale para el commit en que se dio y sobrevive a commits nuevos; lo que la invalida
+// es que la evidencia nueva ya no declare el `[~]` (entonces el criterio se juzga como cualquier otro).
+export function pendingVerification(comments = [], issueBody = '') {
+  const ev = findValidEvidence(comments, issueBody);
+  if (!ev) return { evidence: null, manual: [], confirmed: [], missing: [] };
+  const manual = validateEvidence(ev.body || '', issueBody).manual ?? [];
+  const confirms = comments.filter((c) => CONFIRM_RE.test(c.body || '') && (!c.author_association || TRUSTED.has(c.author_association)));
+  const confirmed = [];
+  const missing = [];
+  for (const m of manual) {
+    const key = criterionKey(m.criterion);
+    const hit = [...confirms].reverse().find((c) => CONFIRM_RE.exec(c.body)[2] === key);
+    if (hit) confirmed.push({ ...m, by: hit.user?.login ?? null, sha: CONFIRM_RE.exec(hit.body)[1] });
+    else missing.push(m);
+  }
+  return { evidence: ev, manual, confirmed, missing };
 }
 
 // ---------- revisión (Cognition: el revisor no comparte contexto; Anthropic: quien escribe se califica de más) ----------

@@ -35,6 +35,10 @@ Uso: ghosty-dev <comando> [opciones]
                                          (sin terminal, sólo con --yes) y lista los workflows que dispara el push
   protect [--dry-run]                    vuelve obligatorio ghosty-dev/evidencia en la rama principal; --dry-run
                                          lista los PR abiertos que quedarían bloqueados y por qué
+  confirm <n> --criterion <i> [--note "…"]
+                                         verificación de la persona: confirma el criterio i (1 = el primero) que la evidencia
+                                         declaró «- [~] … — verificación de la persona: …». Sólo con permiso de escritura;
+                                         deja un comentario de rastro (quién, cuándo, nota) y vuelve a correr la puerta
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
   criteria <n> [--set <i> "texto" --reason "…"]
@@ -193,6 +197,8 @@ const { values, positionals } = parseArgs({
     minutes: { type: 'string' },
     goal: { type: 'string' },
     criteria: { type: 'string', multiple: true },
+    criterion: { type: 'string' },
+    note: { type: 'string' },
     context: { type: 'string' },
     from: { type: 'string' },
     device: { type: 'boolean' },
@@ -543,12 +549,15 @@ try {
     print(cmd.checkReview(values.file), (x) => `Revisión válida: ${x.open} hallazgo(s) abierto(s). No se publicó nada.`);
   } else if (command === 'evidence' && values.check) {
     print(cmd.checkEvidence(values.file, values['issue-file']), (x) =>
-      `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}. No se publicó nada.`,
+      `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}.${x.manual?.length ? ` Pendiente de la persona: ${x.manual.map((m) => m.criterion).join('; ')}.` : ''} No se publicó nada.`,
     );
   } else if (command === 'review') {
     const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     if (r.brief) print(r, (x) => x.brief);
     else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
+  } else if (command === 'confirm') {
+    const r = cmd.confirm(num(arg), { criterion: values.criterion, note: values.note, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
+    print(r, (x) => `Criterio ${x.index} de #${x.number} confirmado por @${x.by} (commit ${x.sha.slice(0, 7)}): ${x.criterion}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.url ? `\n  ${x.url}` : ''}`);
   } else if (command === 'criteria') {
     const r = cmd.criteria(num(arg), { set: values.set, text: arg2, reason: values.reason });
     print(r, (x) => (x.criteria ? (x.criteria.length ? x.criteria.map((c) => `${c.index}. ${c.text}`).join('\n') : `#${x.number} no tiene criterios.`) : `Criterio ${x.index} de #${x.number} enmendado (comentario de rastro publicado).\n  antes: ${x.before}\n  ahora: ${x.after}`));
@@ -707,7 +716,7 @@ try {
     );
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
-    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
+    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.awaitingPerson?.length ? `\n  Falta tu verificación: ${x.awaitingPerson.join('; ')} → ghosty-dev confirm ${x.number} --criterion <i>` : ''}`);
   } else if (command === 'block') {
     const r = cmd.block(num(arg), values.by === undefined ? undefined : (() => { const b = refOf(values.by, '--by <m>'); return b.repo ? b : b.n; })(), { reason: values.reason, person: values.person === true });
     print(r, (x) =>

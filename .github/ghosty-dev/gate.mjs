@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync, appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { findValidEvidence, findRevisionFor, crossPreviewProblems } from './evidence.mjs';
+import { findValidEvidence, findRevisionFor, crossPreviewProblems, pendingVerification } from './evidence.mjs';
 
 const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/gi;
 
@@ -85,6 +85,8 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
   // Cada causa que falla va también a `failures`: main() la imprime como anotación ::error (gs la lee por
   // /check-runs/{id}/annotations; la primera es la causa principal).
   const failures = [];
+  // Criterios `[~]` que una persona debe confirmar: no son fallo (CI no se pone rojo), pero el merge espera.
+  const awaiting = [];
   const fail = (line) => {
     lines.push(line);
     failures.push(line);
@@ -118,11 +120,17 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
       for (const c of cross) fail(`#${n}: ${c}`);
     } else if (ev) {
       lines.push(`#${n}: evidencia válida.`);
+      const pv = pendingVerification(issue.comments, issue.body);
+      for (const c of pv.confirmed) lines.push(`#${n}: verificación de la persona confirmada por @${c.by ?? '?'}: ${c.criterion}.`);
+      for (const m of pv.missing) {
+        awaiting.push(m.criterion);
+        lines.push(`#${n}: Falta tu verificación: ${m.criterion} — comprueba: ${m.check} (ghosty-dev confirm ${n} --criterion <i>).`);
+      }
     } else {
       fail(`#${n}: sin comentario de evidencia válido (ghosty-dev evidence ${n} --file evidencia.md).`);
     }
   }
-  return { ok: failures.length === 0, lines, failures };
+  return { ok: failures.length === 0, lines, failures, awaiting };
 }
 
 // Una anotación de GitHub (::error) en una sola línea: %, \r y \n escapados como pide su formato.
@@ -131,6 +139,24 @@ export const annotation = (line, level = 'error') => `::${level} title=evidencia
 // Un borrador todavía se está iterando: se valida al cerrar, no mientras tanto. La puerta sale en verde con la
 // explicación, y el workflow vuelve a correr con `ready_for_review` (al marcarlo listo), donde ya se exige todo.
 export const DRAFT_NOTE = 'Borrador: la evidencia se exige al marcarlo listo.';
+
+// Commit status con el nombre de la puerta (para el estado «pendiente de la persona»). true si GitHub lo aceptó.
+function setStatus(gh, sha, state, description) {
+  try {
+    execFileSync(gh, ['api', '-X', 'POST', `repos/{owner}/{repo}/statuses/${sha}`, '-f', `state=${state}`, '-f', 'context=ghosty-dev/evidencia', '-f', `description=${description}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function hasPendingStatus(gh, sha) {
+  try {
+    const out = execFileSync(gh, ['api', '-X', 'GET', `repos/{owner}/{repo}/commits/${sha}/status`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return (JSON.parse(out).statuses || []).some((x) => x.context === 'ghosty-dev/evidencia' && x.state === 'pending');
+  } catch {
+    return false;
+  }
+}
 
 function report(lines) {
   const text = lines.map((l) => `- ${l}`).join('\n');
@@ -179,11 +205,28 @@ export function main() {
       return null;
     }
   };
-  const { ok, lines, informative, failures } = evaluatePullRequest(pr, fetchIssue, external, { unlinked, prCommits, preview });
+  const { ok, lines, informative, failures, awaiting = [] } = evaluatePullRequest(pr, fetchIssue, external, { unlinked, prCommits, preview });
   if (informative) console.log(annotation(lines[0], 'warning'));
   for (const f of failures) console.log(annotation(f));
+  // Estado «pendiente de la persona»: el job termina sin rojo, pero el contexto obligatorio queda `pending` (commit status
+  // con el mismo nombre) hasta que la persona confirme; al confirmar, la puerta vuelve a correr y lo pasa a `success`.
+  let exit = ok ? 0 : 1;
+  if (ok && pr.head?.sha) {
+    const sha = pr.head.sha;
+    if (awaiting.length) {
+      const desc = `Falta tu verificación: ${awaiting.join('; ')}`.slice(0, 140);
+      if (!setStatus(gh, sha, 'pending', desc)) {
+        // Falla cerrada: sin poder marcar «pendiente» no se deja pasar en verde un criterio sin confirmar.
+        lines.push('No pude marcar la puerta como pendiente (¿falta `statuses: write` en el workflow?): se bloquea hasta que se pueda.');
+        console.log(annotation(lines.at(-1)));
+        exit = 1;
+      }
+    } else if (hasPendingStatus(gh, sha)) {
+      setStatus(gh, sha, 'success', 'Verificación de la persona confirmada');
+    }
+  }
   report(lines);
-  process.exit(ok ? 0 : 1);
+  process.exit(exit);
 }
 
 // Corre sólo como script (no al importarlo en los tests); realpath por los symlinks de /tmp en macOS.

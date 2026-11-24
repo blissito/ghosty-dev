@@ -221,6 +221,8 @@ ghosty-dev add "título" --goal "…" --criteria "…" --from <n>
 
 Si un criterio no se puede cumplir (p. ej. «0 fallos» con fallos previos en main): NO lo marques ni cambies su texto en silencio; enmiéndalo con rastro: `ghosty-dev criteria <n> --set <i> "texto nuevo" --reason "…"` (sin `--set` lista los criterios).
 
+Si un criterio sólo lo puede comprobar la persona (p. ej. una sesión de administrador que no tienes), NO lo marques `[x]`, NO pidas publicar sin él y NO preguntes qué hacer: márcalo `- [~] <criterio> — verificación de la persona: <qué comprobar y cómo>`, enumera los pasos exactos y sigue. La puerta queda pendiente («Falta tu verificación») hasta que la persona corre `ghosty-dev confirm <n> --criterion <i>`; entonces pasa sola.
+
 ```sh
 # si tu pendiente no puede seguir sin él:
 ghosty-dev block <n> --by <nuevo>

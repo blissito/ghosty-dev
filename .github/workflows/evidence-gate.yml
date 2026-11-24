@@ -16,6 +16,8 @@ permissions:
   issues: read
   pull-requests: read
   checks: read
+  # Para marcar la puerta «pendiente de la persona» (criterios `- [~]`) sin ponerla roja.
+  statuses: write
 jobs:
   evidencia:
     name: ghosty-dev/evidencia
@@ -86,7 +88,7 @@ jobs:
     name: ghosty-dev/redisparo
     if: >-
       github.event_name == 'issue_comment' &&
-      (contains(github.event.comment.body, '<!-- ghosty-dev:evidencia') || contains(github.event.comment.body, '<!-- ghosty-dev:revision'))
+      (contains(github.event.comment.body, '<!-- ghosty-dev:evidencia') || contains(github.event.comment.body, '<!-- ghosty-dev:revision') || contains(github.event.comment.body, '<!-- ghosty-dev:confirmacion'))
     runs-on: ubuntu-latest
     permissions:
       actions: write

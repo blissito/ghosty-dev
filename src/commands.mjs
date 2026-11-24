@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
-import { GATE_CHECKS, validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
+import { GATE_CHECKS, validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems, manualCriteria, pendingVerification, formatConfirmation, criterionKey } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview, DEFAULT_REVIEW_CHECK } from './gate.mjs';
 import { readinessOf, prepareBrief, isPreparationIssue, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
@@ -657,7 +657,7 @@ export function checkEvidence(file, issueFile) {
   if (issueFile && !existsSync(issueFile)) throw new UserError(`No existe ${issueFile}.`);
   const { ok, errors } = validateEvidence(readFileSync(file, 'utf8'), issueFile ? readFileSync(issueFile, 'utf8') : '');
   if (!ok) throw new UserError(`Evidencia inválida:\n- ${errors.join('\n- ')}`);
-  return { ok: true, criteriaChecked: Boolean(issueFile) };
+  return { ok: true, criteriaChecked: Boolean(issueFile), manual: manualCriteria(readFileSync(file, 'utf8')) };
 }
 
 export function checkReview(file) {
@@ -686,7 +686,34 @@ export function evidence(n, file, { pr: m } = {}) {
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR (y el workflow también lo hace
   // solo con issue_comment, para la evidencia que se publique por otro lado).
   const rerun = rerunGate(n, pr);
-  return { number: n, posted: true, url: url || null, rerun };
+  const manual = manualCriteria(md);
+  return { number: n, posted: true, url: url || null, rerun, ...(manual.length ? { awaitingPerson: manual.map((m) => m.criterion) } : {}) };
+}
+
+// ---------- confirm (verificación de la persona: el sign-off de QA de los criterios `- [~]`) ----------
+
+/** Confirma el criterio `i` (1 = el primero del pendiente) que la evidencia declaró `[~]`. Sólo con permiso de escritura. Deja comentario de rastro y vuelve a correr la puerta. */
+export function confirm(n, { criterion, note, pr: m } = {}) {
+  const i = Number(criterion);
+  const issue = api('GET', `${REPO}/issues/${n}`);
+  const list = parseCriteria(issue.body);
+  if (!Number.isInteger(i) || i < 1 || i > list.length) throw new UserError(`Uso: ghosty-dev confirm ${n} --criterion <i> [--note "…"] (el pendiente tiene ${list.length} criterios: ghosty-dev criteria ${n}).`);
+  const who = me();
+  // Sólo quien puede escribir en el repo: si GitHub no contesta el permiso se deja pasar (el servidor ya exigió sesión).
+  const perm = api('GET', `${REPO}/collaborators/${who}/permission`, undefined, { allowFail: true })?.permission;
+  if (perm && !['admin', 'maintain', 'write'].includes(perm)) throw new UserError(`@${who} no tiene permiso de escritura en el repo (${perm}): sólo quien lo tiene confirma una verificación.`);
+  const comments = apiAll(`${API_ISSUE(n)}/comments`);
+  const pv = pendingVerification(comments, issue.body);
+  if (!pv.evidence) throw new UserError(`#${n} no tiene evidencia válida: no hay nada que confirmar todavía.`);
+  const c = list[i - 1];
+  const hit = pv.manual.find((x) => criterionKey(x.criterion) === criterionKey(c.text));
+  if (!hit) throw new UserError(`El criterio ${i} («${c.text}») no está declarado como «- [~]» en la evidencia vigente: ${pv.manual.length ? `los pendientes de tu verificación son ${pv.manual.map((x) => `«${x.criterion}»`).join(', ')}` : 'no hay ninguno pendiente de tu verificación'}.`);
+  const pr = prOf(n, m);
+  const sha = pr?.headRefOid || git(['rev-parse', 'HEAD'], { allowFail: true })?.trim() || '';
+  if (!sha) throw new UserError('No pude saber el commit que se confirma (¿hay PR o un repo git aquí?).');
+  const at = new Date().toISOString();
+  const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatConfirmation(n, { sha, criterion: hit.criterion, index: i, by: who, at, note, check: hit.check }) }).html_url;
+  return { number: n, index: i, criterion: hit.criterion, by: who, at, sha, url: url || null, rerun: rerunGate(n, pr) };
 }
 
 // ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------
