@@ -34,13 +34,22 @@ test('config sin reviewCheck cuenta como faltante (aviso); con otro check tambi�
   assert.equal(missing('{no es json'), false);
 });
 
-test('gate viejo o ausente bloquea; la rama sin la puerta obligatoria también', () => {
+test('gate viejo o ausente bloquea', () => {
   assert.equal(read({ [P.gate]: '// viejo' }).blocking[0].id, 'gate');
   assert.equal(read({ [P.gate]: null }).blocking[0].id, 'gate');
-  const r = readinessOf({ files: good(), requiredChecks: ['test'], expected: { gate, evidence } });
-  assert.deepEqual(r.blocking.map((c) => c.id), ['protection']);
   // Sin poder leer la protección no se inventa un bloqueo.
   assert.equal(readinessOf({ files: good(), requiredChecks: null, expected: { gate, evidence } }).ready, true);
+});
+
+test('repo sin protección + puerta instalada: ready con un aviso protection', () => {
+  const r = readinessOf({ files: good(), requiredChecks: ['test'], expected: { gate, evidence } });
+  assert.equal(r.ready, true);
+  assert.deepEqual(r.blocking, []);
+  const w = r.checks.find((c) => c.id === 'protection');
+  assert.equal(w.ok, false);
+  assert.equal(w.severity, 'warn');
+  assert.match(w.fix, /ghosty-dev protect/);
+  assert.match(w.fix, /persona dueña/);
 });
 
 test('plantilla y factory.md sólo avisan: no bloquean', () => {

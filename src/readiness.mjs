@@ -54,7 +54,9 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
     'ghosty-dev init (escribe .github/ghosty-dev/config.json con reviewCheck «Ghosty Review»)');
   if (requiredChecks !== null) {
     const ok = requiredChecks.includes(GATE_CHECK_NAME);
-    add('protection', ok, 'block', ok ? `${branch} exige ${GATE_CHECK_NAME}` : `${branch} no exige ${GATE_CHECK_NAME}: el merge no espera la evidencia`, 'ghosty-dev protect');
+    // Aviso, no bloqueo: activar la protección sólo puede la persona dueña (admin) con su token; ningún escritor la cumple
+    // (Formmy #118). Misma regla para ghosty-dev y Ghosty Studio.
+    add('protection', ok, 'warn', ok ? `${branch} exige ${GATE_CHECK_NAME}` : `${branch} no exige ${GATE_CHECK_NAME}: el merge no espera la evidencia`, 'ghosty-dev protect (lo corre la persona dueña del repo, con su token)');
   }
   const tpl = PR_TEMPLATES.find(has);
   add('pr-template', Boolean(tpl && files[tpl].includes(MAIN_FLOW)), 'warn',

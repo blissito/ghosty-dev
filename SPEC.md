@@ -485,7 +485,7 @@ forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.
 
 ## Preparación del repo (0.9.30)
 
-`readinessOf` (src/readiness.mjs, pura) revisa en la RAMA BASE: puerta instalada y al día, workflow, `reviewCheck` en `config.json`, protección con `ghosty-dev/evidencia` (bloquean) y plantilla del PR con «Flujo principal probado con sesión» y `.ghosty/factory.md` (avisan). `doctor` la muestra (`puerta-…`); `claim <n>` y `claim <n> --cloud` no arrancan con un bloqueo: abren «Preparar el repo para ghosty-dev» (una sola vez, por título), bloquean #n con `block --by` y salen 7. `--skip-readiness` (o `GHOSTY_DEV_SKIP_READINESS`) lo salta. Ghosty Studio lleva una copia exacta (scripts/sync-ghosty-dev-evidence.sh) y hace lo mismo en `dev_run_start`.
+`readinessOf` (src/readiness.mjs, pura) revisa en la RAMA BASE: puerta instalada y al día y workflow (bloquean), `reviewCheck` en `config.json`, protección con `ghosty-dev/evidencia`, plantilla del PR con «Flujo principal probado con sesión» y `.ghosty/factory.md` (avisan; la protección avisa porque sólo la persona dueña puede activarla con `ghosty-dev protect`). `doctor` la muestra (`puerta-…`); `claim <n>` y `claim <n> --cloud` no arrancan con un bloqueo: abren «Preparar el repo para ghosty-dev» (una sola vez, por título), bloquean #n con `block --by` y salen 7. `--skip-readiness` (o `GHOSTY_DEV_SKIP_READINESS`) lo salta. Ghosty Studio lleva una copia exacta (scripts/sync-ghosty-dev-evidence.sh) y hace lo mismo en `dev_run_start`.
 
 ## Traspaso local↔nube (0.9.33)
 
