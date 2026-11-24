@@ -53,7 +53,19 @@ test('prepareBrief: un criterio por bloqueo, con su arreglo', () => {
   const b = prepareBrief(read({ [P.workflow]: null }).blocking);
   assert.equal(b.title, 'Preparar el repo para ghosty-dev');
   assert.equal(b.criteria.length, 1);
-  assert.match(b.criteria[0], /ghosty-dev init/);
+  assert.match(b.criteria[0], /ghosty-dev init --force --files-only/);
+  assert.match(b.goal, /--files-only/);
+  assert.doesNotMatch(b.goal, /--no-protect/);
+});
+
+test('prepareBrief: la protección de la rama no es criterio del escritor', () => {
+  const b = prepareBrief([
+    { id: 'protection', ok: false, severity: 'block', why: 'main no exige la puerta', fix: 'ghosty-dev protect' },
+    { id: 'workflow', ok: false, severity: 'block', why: 'falta el workflow', fix: 'ghosty-dev init' },
+  ]);
+  assert.equal(b.criteria.length, 1);
+  assert.match(b.criteria[0], /falta el workflow/);
+  assert.match(b.goal, /ghosty-dev protect/);
 });
 
 import { setup, issue } from '../testkit/helpers.mjs';

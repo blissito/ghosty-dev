@@ -1184,6 +1184,16 @@ export function protectPreview(dir) {
   return { repo, branch, gateOnBase, already, blocked, drafts, informative, passing };
 }
 
+// Sin GitHub (init --files-only): repo y rama salen del git local; no hay etiquetas que crear.
+export function initTargetLocal(dir) {
+  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, allowFail: true })?.trim() || null;
+  const remote = git(['config', '--get', 'remote.origin.url'], { cwd: dir, allowFail: true })?.trim() || '';
+  const repo = remote.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?\/?$/)?.[1] ?? (remote || '(sin remoto origin)');
+  const head = git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { cwd: dir, allowFail: true })?.trim().replace(/^origin\//, '');
+  const defaultBranch = head || 'main';
+  return { repo, branch, defaultBranch, labelsToCreate: [], pushWorkflows: pushWorkflows(dir, defaultBranch) };
+}
+
 // Antes de escribir: a qué repo y rama va, qué etiquetas faltan y qué workflows dispara un push a la rama principal.
 export function initTarget(dir) {
   const info = api('GET', REPO, undefined, { cwd: dir, allowFail: true });
@@ -1273,7 +1283,7 @@ function prePushTarget(dir) {
 const REVIEW_CONFIG_PATH = '.github/ghosty-dev/config.json';
 const REVIEW_CHECK_DEFAULT = { name: 'Ghosty Review', app: 'ghosty-studio' };
 
-export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true } = {}) {
+export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true, filesOnly = false } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
@@ -1285,7 +1295,9 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
     ['agents/ghosty-dev-revisor.md', '.claude/agents/ghosty-dev-revisor.md'],
   ];
   const plan = [];
-  for (const state of STATES) plan.push(labels ? { action: 'label', name: label(state) } : { action: 'skip', name: `${label(state)} (etiqueta no creada: confirma con ghosty-dev init --yes)` });
+  // filesOnly: sólo archivos del árbol de trabajo; ni etiquetas ni protección ni una llamada a GitHub.
+  if (filesOnly) protectBranch = false;
+  if (!filesOnly) for (const state of STATES) plan.push(labels ? { action: 'label', name: label(state) } : { action: 'skip', name: `${label(state)} (etiqueta no creada: confirma con ghosty-dev init --yes)` });
   for (const [, to] of files) {
     const exists = existsSync(join(dir, to));
     plan.push({ action: exists && !force ? 'skip' : 'write', path: to });
@@ -1334,7 +1346,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
     writeFileSync(hook.path, PRE_PUSH, { mode: 0o755 });
   }
 
-  for (const state of labels ? STATES : []) {
+  for (const state of labels && !filesOnly ? STATES : []) {
     const [color, description] = LABEL_STYLE[state];
     if (LEGACY[state]) api('PATCH', `${REPO}/labels/${encodeURIComponent(LEGACY[state])}`, { new_name: label(state) }, { cwd: dir, allowFail: true });
     // Crear; si ya existe (422), actualizar color y descripción.

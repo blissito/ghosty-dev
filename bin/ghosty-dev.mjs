@@ -19,7 +19,9 @@ const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
 
-  init [--dir D] [--dry-run] [--force] [--no-protect] [--yes]
+  init [--dir D] [--dry-run] [--force] [--no-protect] [--files-only] [--yes]
+                                         --files-only: SÓLO escribe archivos (sin gh, sin etiquetas ni protección): para una caja
+                                         sin credenciales; se sube con commit + PR y la persona corre luego init y protect
                                          etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
                                          (protege la rama sólo si la puerta ya está en ella). Dice repo y rama antes
                                          de escribir (fuera de la rama principal pide --yes), confirma las etiquetas
@@ -167,6 +169,7 @@ const { values, positionals } = parseArgs({
     'dry-run': { type: 'boolean' },
     force: { type: 'boolean' },
     'no-protect': { type: 'boolean' },
+    'files-only': { type: 'boolean' },
     dir: { type: 'string' },
     file: { type: 'string' },
     check: { type: 'boolean' },
@@ -433,10 +436,11 @@ try {
   } else if (command === 'init') {
     const dir = resolve(values.dir ?? process.cwd());
     // Antes de escribir nada: a qué repo y rama va (con --json, a stderr para no ensuciar la salida).
-    const t = cmd.initTarget(dir);
+    const filesOnly = Boolean(values['files-only']);
+    const t = filesOnly ? cmd.initTargetLocal(dir) : cmd.initTarget(dir);
     const say = values.json ? console.error : console.log;
     say(`Repo: ${t.repo} · rama actual: ${t.branch ?? '?'} (principal: ${t.defaultBranch})`);
-    if (!values['dry-run'] && t.branch !== t.defaultBranch && !values.yes)
+    if (!filesOnly && !values['dry-run'] && t.branch !== t.defaultBranch && !values.yes)
       throw new cmd.UserError(`Estás en la rama ${t.branch ?? '(sin rama)'}, no en ${t.defaultBranch}: la instalación va directo a la rama principal. Cámbiate (git switch ${t.defaultBranch}) o, si es a propósito, ghosty-dev init --yes.`);
     // Las etiquetas se crean en GitHub en el acto: se confirman (o --yes). Sin terminal y sin --yes, no se crean.
     let labels = true;
@@ -449,7 +453,7 @@ try {
       } else labels = false;
       if (!labels) console.error(`No creé ${what}: confírmalo con ghosty-dev init --yes.`);
     } else if (t.labelsToCreate.length) say(`${values['dry-run'] ? 'Crearía' : 'Creo'} ${t.labelsToCreate.length} etiqueta(s) en ${t.repo}.`);
-    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'], labels });
+    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'], labels, filesOnly });
     // El push de la instalación va a la rama principal: qué workflows dispara (en un repo de producción, el deploy).
     plan.push({
       action: 'push',

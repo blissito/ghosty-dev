@@ -68,9 +68,11 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
 
 /** El pendiente «Preparar el repo»: objetivo y criterios a partir de lo que falta. Puro. */
 export function prepareBrief(blocking = []) {
+  const files = blocking.filter((c) => c.id !== 'protection');
   return {
     title: PREPARE_TITLE,
-    goal: 'Dejar el repo listo para que el trabajo (de la terminal y de la nube) pase la puerta de evidencia y la revisión de Ghosty. Corre `ghosty-dev init --force --no-protect` en una rama, abre el PR y una persona lo mezcla (la puerta se lee de la rama base). Al mezclarlo, corre `ghosty-dev protect`.',
-    criteria: blocking.length ? blocking.map((c) => `${c.why} → ${c.fix}`) : ['La puerta de ghosty-dev está instalada, al día y es obligatoria en la rama principal.'],
+    goal: 'Dejar el repo listo para que el trabajo (de la terminal y de la nube) pase la puerta de evidencia y la revisión de Ghosty. Corre `ghosty-dev init --force --files-only` en una rama (sólo escribe archivos: no usa `gh`, etiquetas ni protección), haz commit y sube el PR con tus herramientas de siempre; una persona lo mezcla (la puerta se lee de la rama base). Después la persona corre `ghosty-dev init` (etiquetas) y `ghosty-dev protect` en su terminal: no es parte de este pendiente.',
+    // Sólo lo que cabe en un PR: la protección de la rama es de la persona (admin en GitHub), no un criterio del escritor.
+    criteria: files.length ? files.map((c) => `${c.why} → ${c.fix.replace(/^ghosty-dev init( --force)?/, 'ghosty-dev init --force --files-only')}`) : ['La puerta de ghosty-dev está instalada y al día en la rama del PR.'],
   };
 }

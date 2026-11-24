@@ -205,6 +205,11 @@ ghosty-dev add "Paginar /pedidos" --goal "GET /pedidos responde por páginas de 
 ghosty-dev add "Exportar CSV" --goal "…" --criteria "…" --by 12   # bloqueado por #12
 ```
 
+## Preparar el repo sin credenciales de GitHub
+
+Si el pendiente es «Preparar el repo para ghosty-dev» y no tienes `gh` con escritura: `ghosty-dev init --force --files-only` en una rama
+(sólo escribe archivos; no usa `gh`), commit y PR con tus herramientas. Etiquetas y protección (`init`, `protect`) son de la persona.
+
 ## Lo que descubras
 
 Si encuentras un bug, un test roto que no es tuyo o trabajo que falta: **abre un pendiente nuevo**, no una nota

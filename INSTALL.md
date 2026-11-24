@@ -55,6 +55,11 @@ que primero tiene que estar ahí.
 
 Si un archivo ya existía, `init` no lo toca. Usa `--force` sólo si la persona te lo pide.
 
+**Sin credenciales de GitHub (caja de trabajo, pendiente «Preparar el repo para ghosty-dev»):** `ghosty-dev init --force --files-only`.
+Sólo escribe los archivos de arriba: no llama a `gh`, no crea etiquetas ni protege la rama, y no pide `--yes`. Haz commit y
+sube el PR con tus herramientas de siempre; la persona lo mezcla y luego corre en su terminal `ghosty-dev init` (etiquetas) y
+`ghosty-dev protect`.
+
 ### Mide el build una vez
 
 El valor de `memory:` que eligió `init` es una conjetura. Mídelo antes del commit del paso 4 (si el repo no tiene

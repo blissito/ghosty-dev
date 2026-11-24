@@ -221,6 +221,20 @@ test('--no-protect no toca la protección de la rama', () => {
   assert.equal(read().protection, undefined);
 });
 
+test('init --files-only escribe sólo archivos: ni una llamada a gh, ni etiquetas ni protección, y no pide --yes en otra rama', () => {
+  const { run, read, repo } = setup();
+  execFileSync('git', ['switch', '-q', '-c', 'ghosty/preparar'], { cwd: repo });
+  const dry = run('init', '--files-only', '--dry-run', '--json');
+  assert.equal(dry.code, 0, dry.err);
+  const plan = JSON.parse(dry.out);
+  assert.ok(!plan.some((p) => p.action === 'label' || p.action === 'gate'));
+  const r = run('init', '--force', '--files-only');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(read().calls, []);
+  assert.equal(read().protection, undefined);
+  for (const f of ['.github/workflows/evidence-gate.yml', '.github/ghosty-dev/gate.mjs', '.github/ghosty-dev/config.json', '.ghosty/factory.md', 'AGENTS.md']) assert.ok(existsSync(join(repo, f)), f);
+});
+
 test('add abre un pendiente con la plantilla y, con --by, lo bloquea con la dependencia nativa', () => {
   const { run, read } = setup({ issues: { 1: issue(1, 'Servidor con /health') } });
   const r = run('add', 'Endpoint /version', '--goal', 'GET /version responde la versión', '--criteria', 'responde 200', '--criteria', 'hay un test', '--by', '1', '--json');
