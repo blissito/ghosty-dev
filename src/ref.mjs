@@ -98,7 +98,7 @@ export const cloneCommand = (repo) => `gh repo clone ${repo} ~/${repo.split('/')
 
 // Prefijos «gs:», «formmy:»… que un título usa para decir de qué repo es. Los alias fijos cubren los repos de la casa;
 // el resto se deduce del nombre de un repo hermano (mismo dueño) cuando coincide exacto.
-const ALIASES = { gs: 'blissito/ghosty-studio', 'ghosty-studio': 'blissito/ghosty-studio', formmy: 'blissito/formmy', easybits: 'blissito/easybits', mailmask: 'blissito/mailmask', teams: 'blissito/ghosty-chat', 'ghosty-dev': 'blissito/ghosty-dev' };
+const ALIASES = { gs: 'blissito/ghosty-studio', 'ghosty-studio': 'blissito/ghosty-studio', formmy: 'blissito/formmy_rrv7', easybits: 'blissito/easybits', mailmask: 'blissito/mailmask', teams: 'blissito/ghosty-teams', 'ghosty-dev': 'blissito/ghosty-dev' };
 const NOT_REPO = new Set(['feat', 'fix', 'docs', 'chore', 'test', 'tests', 'refactor', 'perf', 'build', 'ci', 'style', 'wip', 'bug', 'todo', 'nota', 'idea', 'ux', 'ui', 'api']);
 
 /**
