@@ -281,6 +281,27 @@ export function claimBase(base, { onProgress = () => {} } = {}) {
 // Tope del `git worktree add` (Formmy, fila 51: 4 min sin decir nada). GHOSTY_DEV_WORKTREE_TIMEOUT_MS lo cambia.
 const WORKTREE_TIMEOUT_MS = () => Number(process.env.GHOSTY_DEV_WORKTREE_TIMEOUT_MS ?? 180_000);
 
+/**
+ * Suelta tu claim local de #n (lo contrario de `claim`, sin tocar la nube): quita tu assignee, restituye
+ * `ghosty-dev:por-hacer` y deja un comentario de rastro con el motivo. Rechaza si otra persona lo tiene.
+ * (El run vivo en la nube lo revisa el CLI antes: aquí sólo se habla con GitHub.)
+ */
+export function unclaim(n, { reason } = {}) {
+  const issue = viewIssue(n);
+  if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado: no hay nada que soltar.`);
+  const login = me();
+  const other = issue.assignees.find((a) => a.login !== login);
+  if (other) throw new UserError(`#${n} lo tiene @${other.login}, no tú: sólo esa persona puede soltarlo.`);
+  const mine = issue.assignees.some((a) => a.login === login);
+  const wasState = stateOf(issue);
+  if (!mine && wasState === 'listo') return { number: n, title: issue.title, released: false, state: 'listo', url: issue.url };
+  if (mine) api('DELETE', `${API_ISSUE(n)}/assignees`, { assignees: [login] });
+  setState(issue, 'listo');
+  const why = String(reason ?? '').replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 500);
+  const posted = api('POST', `${API_ISSUE(n)}/comments`, { body: `Soltado por @${login} con \`ghosty-dev unclaim\`: vuelve a «por hacer».${why ? ` Motivo: ${why}` : ''}` }, { allowFail: true });
+  return { number: n, title: issue.title, released: true, wasState, state: 'listo', reason: why || null, traced: Boolean(posted), url: issue.url };
+}
+
 export function claim(n, { worktree = true, base, onWarning = () => {}, onProgress = () => {} } = {}) {
   const from = worktree ? claimBase(base, { onProgress }) : null;
   if (from?.warning) onWarning(from.warning);

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
 // `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [], factory = null } = {}) {
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [], factory = null, localRows = [], claimBeatFail = false } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -22,6 +22,7 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     n: 0,
     runs: [...runs],
     devCalls: [],
+    claimBeats: [],
     // La fábrica del repo (gs «Pausar la fábrica»); null = gs viejo que no la conoce (404).
     factory: factory ? { repo: 'acme/demo', active: true, mode: 'on', until: null, reason: null, line: 'Fábrica encendida', queued: 0, ...factory } : null,
     factoryCalls: [],
@@ -98,6 +99,12 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       s.posted.push(body);
       const keys = body.dotenv.split('\n').filter((l) => /^\s*(export\s+)?\w+=/.test(l)).map((l) => l.replace(/^\s*export\s+/, '').split('=')[0]);
       return send(res, 200, { repo: 'acme/demo', workspace: 'acme', keys, sent: keys, kept: body.replace ? [] : s.saved.filter((k) => !keys.includes(k)), dropped: [], risks: [] });
+    }
+    let cb;
+    if ((cb = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/issues\/(\d+)\/claim-beat$/))) {
+      const pm = cb;
+      s.claimBeats.push({ repo: `${pm[1]}/${pm[2]}`, n: Number(pm[3]), method: req.method });
+      return claimBeatFail ? send(res, 500, { error: 'boom' }) : send(res, 200, { ok: true });
     }
     if (url.pathname === '/api/v2/me/repos/acme/demo/factory') {
       if (!s.factory) return send(res, 404, { error: 'not_found' });
@@ -203,7 +210,7 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
         return send(res, 200, body.start ? { repo: body.repo, retomados: c.map((x) => ({ pr: x.pr, ok: true })) } : { repo: body.repo, candidatos: c });
       }
       if (url.pathname === '/api/v2/me/dev-runs/capacity' && req.method === 'GET') return !capacity ? send(res, 404, { error: 'not_found' }) : capacity.status ? send(res, capacity.status, capacity.body) : send(res, 200, capacity);
-      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { prs: boardPrs, runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
+      if (url.pathname === '/api/v2/me/dev-runs' && req.method === 'GET') return send(res, 200, { prs: boardPrs, local: localRows, runs: s.runs.filter((r) => !url.searchParams.get('repo') || r.repo === url.searchParams.get('repo')) });
       const id = decodeURIComponent(url.pathname.split('/')[5] ?? '');
       const r = s.runs.find((x) => x.id === id);
       if (!r) return send(res, 404, { error: 'not_found', message: 'No existe ese pendiente' });

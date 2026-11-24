@@ -10,7 +10,7 @@ export class CloudError extends Error {}
 
 const RUNS = '/api/v2/me/dev-runs';
 const SCOPE = 'dev';
-const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'blocked', 'merging']);
+export const LIVE = new Set(['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'blocked', 'merging']);
 
 const call = (method, path, body) => request(method, path, body, { scope: SCOPE });
 
@@ -37,6 +37,61 @@ export function safeBranch(b) {
 const text = (v, max = 500) => (v == null ? null : plain(v, max));
 const number = (v) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : null);
 
+// Las acciones que manda gs ({id, label, kind, op?, href?, confirm?, destructive?, primary?, disabled?}) son datos:
+// se limpian y se descartan las malformadas. null = el servidor no manda `actions` (gs viejo).
+export function cleanActions(raw) {
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .filter((a) => a && typeof a === 'object' && /^[a-z_]{1,30}$/.test(String(a.id ?? '')))
+    .map((a) => ({
+      id: a.id,
+      label: text(a.label, 80) ?? a.id,
+      kind: ['op', 'link', 'start'].includes(a.kind) ? a.kind : 'op',
+      href: typeof a.href === 'string' && /^https:\/\/[^\s]{1,500}$/.test(a.href) ? a.href : null,
+      primary: a.primary === true,
+      destructive: a.destructive === true,
+      disabled: a.disabled && typeof a.disabled === 'object' ? { why: text(a.disabled.why, 200) ?? '' } : null,
+    }));
+}
+
+/** El comando exacto del CLI equivalente a una acción de gs en #n (PR m si se conoce). null = sin equivalente. Puro. */
+export function actionCommand(a, { n, pr = null } = {}) {
+  switch (a.id) {
+    case 'merge': return pr ? `ghosty-dev merge ${pr}` : 'ghosty-dev merge';
+    case 'stop': return `ghosty-dev stop ${n}`;
+    case 'resume': return `ghosty-dev tell ${n} --again`;
+    case 'decide': return `ghosty-dev tell ${n} "<tu respuesta>"`;
+    case 'reopen': return `ghosty-dev reopen ${n}`;
+    case 'confirm': return `ghosty-dev confirm ${n} --criterion <i>`;
+    case 'start': return `ghosty-dev claim ${n} --cloud`;
+    case 'release_claim': return `ghosty-dev unclaim ${n}`;
+    default: return a.href ?? null;
+  }
+}
+
+/** Renglones «→ etiqueta: comando» de las acciones de gs (deshabilitadas con su porqué). Puro. */
+export function actionLines(actions, ctx, indent = '  ') {
+  return (actions ?? []).map((a) => {
+    const c = actionCommand(a, ctx);
+    const tail = a.disabled ? `no disponible${a.disabled.why ? `: ${a.disabled.why}` : ''}` : c ?? '(sólo en Ghosty Studio)';
+    return `${indent}→ ${a.label}${a.primary ? ' *' : ''}: ${tail}`;
+  });
+}
+
+// Las acciones de la fila de #n en el tablero de gs: la del run vivo (o el más reciente); sin run, la fila `local` o la
+// del PR que lo cierra. null si gs no las manda (servidor viejo) o no responde: el CLI usa entonces su respaldo.
+export async function actionsFor(n) {
+  try {
+    const res = await call('GET', `${RUNS}?repo=${encodeURIComponent(repoName())}`);
+    const mine = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => r && (Number(r.issue) === n || Number(r.number) === n));
+    const runs = mine(res?.runs).sort((a, b) => Number(LIVE.has(b.phase)) - Number(LIVE.has(a.phase)));
+    const row = runs.find((r) => Array.isArray(r.actions)) ?? [...mine(res?.local), ...mine(res?.prs)].find((r) => Array.isArray(r.actions));
+    return row ? cleanActions(row.actions) : null;
+  } catch {
+    return null;
+  }
+}
+
 const view = (r) => ({
   number: number(r.issue),
   title: text(r.title) ?? '',
@@ -53,6 +108,8 @@ const view = (r) => ({
   // Fábrica en pausa: gs lo deja en fila (202) y arranca solo al reanudar.
   queued: r.enFila === true,
   note: r.error === 'factory_paused' ? text(r.message) : null,
+  // Lo que gs dice que se puede hacer con esta fila (servidor viejo: sin `actions`, null).
+  actions: cleanActions(r.actions),
 });
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.

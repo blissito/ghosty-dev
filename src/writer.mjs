@@ -19,7 +19,8 @@ export async function beat(n, state, what = null) {
   if (process.env.GHOSTY_DEV_GH || process.env.GHOSTY_DEV_NO_BEAT) return false;
   try {
     const pr = prOf(n);
-    if (!pr) return false;
+    // Sin PR todavía: el latido es el del claim del pendiente (gs lo usa para marcar «Sin señal» en un claim vencido).
+    if (!pr) return claimBeat(n);
     const [owner, name] = checkRepo(repoFullName());
     const path = `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/prs/${pr.number}/writer`;
     const body = { state, sha: pr.headRefOid, ...(what ? { what: whatOf(what) } : {}) };
@@ -44,6 +45,22 @@ export async function ack(n, { pr = null, seen = [], listening, minutes } = {}) 
     const path = `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/prs/${number}/reader`;
     const body = { seen: seen.filter((x) => Number.isInteger(x)), ...(typeof listening === 'boolean' ? { listening } : {}), ...(minutes ? { minutes } : {}) };
     await Promise.race([request('POST', path, body, { scope: 'dev' }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), TIMEOUT_MS).unref?.())]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// El latido del claim (gs: POST /api/v2/me/repos/:owner/:name/issues/:n/claim-beat): el pendiente #n está tomado y su
+// escritor sigue vivo aunque aún no haya PR. Lo emiten claim, show, wait, evidence y tell. Mismas reglas que `beat`:
+// nunca falla ni frena el comando (endpoint caído, servidor viejo sin la ruta, sin sesión, sin red). `force`/`send`/`repo`
+// existen para las pruebas.
+export async function claimBeat(n, { force = false, send = request, repo = null } = {}) {
+  if (!force && (process.env.GHOSTY_DEV_GH || process.env.GHOSTY_DEV_NO_BEAT)) return false;
+  try {
+    const [owner, name] = checkRepo(repo ?? repoFullName());
+    const path = `/api/v2/me/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues/${Number(n)}/claim-beat`;
+    await Promise.race([send('POST', path, {}, { scope: 'dev' }), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), TIMEOUT_MS).unref?.())]);
     return true;
   } catch {
     return false;
