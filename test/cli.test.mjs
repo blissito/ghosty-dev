@@ -452,7 +452,7 @@ test('init pide 8gb en un monorepo o con --max-old-space-size, y nunca pisa el m
 
 test('el CI no cuenta Review, Preview, Revisiones del push ni la puerta; el Smoke sí (C17)', async () => {
   const { ciVerdict, NOT_CI_CHECKS } = await import('../src/commands.mjs');
-  assert.deepEqual([...NOT_CI_CHECKS], ['Ghosty Review', 'ghosty-dev/evidencia', 'Ghosty · Preview', 'Ghosty · Revisiones del push']);
+  assert.deepEqual([...NOT_CI_CHECKS], ['Ghosty Review', 'ghosty-dev/evidencia', 'ghosty-dev/redisparo', 'Ghosty · Preview', 'Ghosty · Revisiones del push']);
   const done = (name, conclusion = 'success') => ({ name, status: 'completed', conclusion });
   const running = (name) => ({ name, status: 'in_progress', conclusion: null });
   // Un Preview o una revisión en curso no dejan el CI en pendiente.

@@ -46,6 +46,16 @@ export function acceptanceCriteria(issueBody = '') {
 const CI_GREEN = /✅|\bverde\b|\bpass(ed|ing)?\b|\bsuccess\b/i;
 const CI_RED = /❌|\brojo\b|\bfail(ed|ing|ure)?\b/i;
 
+// La puerta y su redisparo NO son CI: la puerta sólo se pone verde con esta evidencia, así que contarla como CI es un
+// círculo (Formmy #117/#95: la evidencia citaba «ghosty-dev/evidencia: failure» y se rechazaba por «CI en rojo»).
+// Una sola lista, compartida por la validación, `isCiCheck` de commands.mjs y el CI_IGNORE de gs.
+export const GATE_CHECKS = Object.freeze(['ghosty-dev/evidencia', 'ghosty-dev/redisparo']);
+const GATE_MENTION = /ghosty-dev\/(evidencia|redisparo)/i;
+// La sección CI sin los renglones que hablan de la puerta propia. Puro.
+export function ciWithoutGate(ci = '') {
+  return ci.split('\n').filter((l) => !GATE_MENTION.test(l)).join('\n');
+}
+
 // Valida el cuerpo de una evidencia contra el pendiente. Regresa { ok, errors }.
 export function validateEvidence(md, issueBody = '') {
   const errors = [];
@@ -66,8 +76,8 @@ export function validateEvidence(md, issueBody = '') {
     else if (lines.length === commands.length) errors.push('«Verificación» trae comandos pero no su salida.');
   }
 
-  const ci = section(s, 'ci');
-  if (!ci) errors.push('Falta «CI» (resultado y liga del run).');
+  const ci = ciWithoutGate(section(s, 'ci') ?? '');
+  if (!section(s, 'ci')) errors.push('Falta «CI» (resultado y liga del run).');
   else if (CI_RED.test(ci)) errors.push('El CI está en rojo: no se cierra un pendiente con CI rojo.');
   else if (!CI_GREEN.test(ci)) errors.push('«CI» debe decir el resultado (✅ / verde / passed).');
 

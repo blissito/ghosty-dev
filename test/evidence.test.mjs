@@ -188,3 +188,18 @@ test('revisor por defecto: sin config.json acepta «Ghosty Review» de ghosty-st
   assert.equal(gate([check({ app: { slug: 'otra-app' } })]).ok, false);
   assert.equal(gate([]).ok, false);
 });
+
+test('la puerta propia (evidencia/redisparo) no cuenta como CI en rojo en la sección CI', () => {
+  const withGate = VALID_EVIDENCE.replace(/## CI\n[\s\S]*?(?=\n## )/, '## CI\n✅ passed: https://github.com/a/b/actions/runs/1\nghosty-dev/evidencia: failure (se pone verde con esta evidencia)\nghosty-dev/redisparo: skipped');
+  assert.deepEqual(validateEvidence(withGate, ISSUE), { ok: true, errors: [] });
+  // Otro check rojo sigue rechazando.
+  const other = VALID_EVIDENCE.replace(/## CI\n[\s\S]*?(?=\n## )/, '## CI\n✅ passed\nlint: failure');
+  assert.match(validateEvidence(other, ISSUE).errors.join(), /CI está en rojo/);
+});
+
+test('NOT_CI_CHECKS e isCiCheck excluyen la puerta y su redisparo', async () => {
+  const { isCiCheck } = await import('../src/commands.mjs');
+  assert.equal(isCiCheck('ghosty-dev/evidencia'), false);
+  assert.equal(isCiCheck('ghosty-dev/redisparo'), false);
+  assert.equal(isCiCheck('lint'), true);
+});

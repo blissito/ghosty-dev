@@ -5,7 +5,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
-import { validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
+import { GATE_CHECKS, validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
 import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig } from './gate.mjs';
 import { readinessOf, prepareBrief, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
@@ -86,7 +86,7 @@ export const REVIEW_CHECK = 'Ghosty Review';
 export const PREVIEW_CHECK = 'Ghosty · Preview';
 export const PUSH_CHECK = 'Ghosty · Revisiones del push';
 export const SMOKE_CHECK = 'Ghosty · Smoke';
-export const NOT_CI_CHECKS = Object.freeze([REVIEW_CHECK, 'ghosty-dev/evidencia', PREVIEW_CHECK, PUSH_CHECK]);
+export const NOT_CI_CHECKS = Object.freeze([REVIEW_CHECK, ...GATE_CHECKS, PREVIEW_CHECK, PUSH_CHECK]);
 // Además de la lista, todo lo que empiece con `ghosty-dev` es de la propia bitácora (la puerta y sus variantes).
 export const isCiCheck = (name = '') => !NOT_CI_CHECKS.includes(name) && !name.startsWith('ghosty-dev');
 
@@ -948,7 +948,7 @@ export function showPr(m) {
 // ---------- «Siguiente: <qué> · le toca a <quién>», igual que el tablero de Ghosty (gs `nextStepOf`, fila 64) ----------
 // Orden real: vista previa → CI → prueba en vivo/Lighthouse → revisión → flujo principal y evidencia (el agente) → merge
 // (la persona). Un paso que aún no puede hacerse nunca es rojo: `failed` sólo con fallas reales.
-const NEXT_NOT_CI = new Set(['Ghosty Review', 'Ghosty · Preview', 'Ghosty · Revisiones del push', 'ghosty-dev/evidencia']);
+const NEXT_NOT_CI = new Set(['Ghosty Review', 'Ghosty · Preview', 'Ghosty · Revisiones del push', ...GATE_CHECKS]);
 const NEXT_BAD = /^(failure|error|cancelled|timed_out|action_required|startup_failure)$/i;
 export function boardNext(checks, { conflict = false, draft = false, reviewExpected = false } = {}) {
   const latest = new Map();
