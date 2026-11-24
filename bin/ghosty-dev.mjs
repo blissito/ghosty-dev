@@ -65,7 +65,8 @@ Uso: ghosty-dev <comando> [opciones]
   claim <n> [--no-worktree] [--base B]   te asigna el pendiente y crea su rama y worktree desde origin/main (o B)
                                          si el repo no está preparado (puerta, revisor Ghosty Review, protección) NO arranca:
                                          abre «Preparar el repo para ghosty-dev» (una vez), bloquea #n por él y sale 7;
-                                         --skip-readiness lo salta. doctor muestra el detalle («puerta-…»)
+                                         --skip-readiness lo salta (operador: sólo
+                                         quien opera la plataforma; un cliente prepara el repo, no lo salta). doctor muestra el detalle («puerta-…»)
   claim --pr <m> --issue <n>             adopta un PR que ya existe como el trabajo de #n (sin rama ni worktree
                                          nuevos; agrega «Closes #n» si falta)
   claim <n> --cloud [--yes] [--workspace S]
@@ -336,7 +337,7 @@ async function blockedByPreparation(n) {
   }
   if (!r) return false;
   const msg = `El repo no está preparado para ghosty-dev:\n${r.blocking.map((c) => `  - ${c.why} → ${c.fix}`).join('\n')}\n` +
-    `Preparar es el primer pendiente: #${r.prep}${r.created ? ' (lo abrí)' : ''}${r.blocked ? `; #${r.blocked} quedó bloqueado por él` : ''}.\n  ghosty-dev claim ${r.prep}   (o --skip-readiness si sabes lo que haces)`;
+    `Preparar es el primer pendiente: #${r.prep}${r.created ? ' (lo abrí)' : ''}${r.blocked ? `; #${r.blocked} quedó bloqueado por él` : ''}.\n  ghosty-dev claim ${r.prep}   (--skip-readiness es sólo de operador)`;
   if (values.json) console.log(JSON.stringify({ ok: false, notReady: true, ...r }));
   else console.error(msg);
   process.exitCode = 7;

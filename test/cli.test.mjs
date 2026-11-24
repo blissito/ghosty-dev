@@ -559,3 +559,9 @@ test('deployVerdict de show: igual que el tablero de gs', async () => {
   assert.equal(deployVerdict([r('Deploy', 'completed', 'success')], 60).state, 'success');
   assert.equal(deployVerdict([r('Deploy', 'in_progress', null), r('CI', 'completed', 'failure')], 60).state, 'failure');
 });
+
+test('--help marca --skip-readiness como sólo de operador (los clientes destraban desde la UI, no saltando la preparación)', () => {
+  const { run } = setup();
+  const r = run('--help');
+  assert.match(r.out, /--skip-readiness lo salta \(operador/);
+});
