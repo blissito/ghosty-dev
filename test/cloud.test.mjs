@@ -2,7 +2,7 @@
 // Se prueba contra un gs falso, con ojo de atacante: base URL, redirecciones, permisos y nada de tokens en la salida.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setup, issue } from '../testkit/helpers.mjs';
 import { fakeGs } from '../testkit/fake-gs.mjs';
@@ -288,3 +288,70 @@ test('cloud: un renglón por pendiente (el vivo manda) con sus intentos anterior
   assert.deepEqual(g.find((r) => r.number === 100), { number: 100, phase: 'working', id: 'b', attempts: 2 });
   assert.equal(g.find((r) => r.number === 103).attempts, 0);
 });
+
+test('tell le manda la nota al escritor de #n; con una pregunta pendiente dice que la respondió; - lee stdin y --file un archivo', () =>
+  withCloud({}, async ({ gs, s, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    const r = await cli(['tell', '5', 'usa', 'SQLite', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(gs.devCalls.at(-1), { method: 'POST', path: '/api/v2/me/dev-runs/run1', query: '', body: { op: 'tell', note: 'usa SQLite' } });
+    const out = JSON.parse(r.out);
+    assert.equal(out.phase, 'working');
+    assert.equal(out.answered, false);
+    // Si el escritor preguntó, es la respuesta.
+    gs.runs[0].phase = 'needs_person';
+    gs.runs[0].estado = 'te necesita';
+    const ans = await cli(['tell', '5', 'la opción B']);
+    assert.equal(ans.code, 0, ans.err);
+    assert.match(ans.out, /Respondí la pregunta del escritor de #5/);
+    assert.match(ans.out, /fase: Trabajando/);
+    const viaStdin = await s.runAsync(['tell', '5', '-'], { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' }, stdin: 'desde stdin\n' });
+    assert.equal(viaStdin.code, 0, viaStdin.err);
+    assert.equal(gs.devCalls.at(-1).body.note, 'desde stdin\n');
+    const file = s.write('m.md', 'desde archivo');
+    assert.equal((await cli(['tell', '5', '--file', file])).code, 0);
+    assert.equal(gs.devCalls.at(-1).body.note, 'desde archivo');
+    const empty = await cli(['tell', '5']);
+    assert.equal(empty.code, 1);
+    assert.match(empty.err, /Falta el mensaje/);
+    assert.doesNotMatch(r.out + r.err + ans.out + ans.err, TOKENS);
+  }));
+
+test('tell --again manda resume sin nota y reanuda un pendiente detenido', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    gs.runs[0].phase = 'stopped';
+    gs.runs[0].estado = 'detenido';
+    const r = await cli(['tell', '5', '--again', '--json']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(gs.devCalls.at(-1).body, { op: 'resume' });
+    assert.equal(JSON.parse(r.out).phase, 'working');
+    assert.match((await cli(['tell', '5', '--again'])).out, /Otra vuelta pedida/);
+  }));
+
+test('tell sin pendiente en la nube sale 1 y dice cómo mandarlo; sin sesión pide login', () =>
+  withCloud({}, async ({ gs, cli, authFile }) => {
+    const none = await cli(['tell', '5', 'hola']);
+    assert.equal(none.code, 1);
+    assert.match(none.err, /#5 no va en la nube\. Mándalo primero: ghosty-dev claim 5 --cloud/);
+    assert.equal(gs.devCalls.some((c) => c.method === 'POST'), false, 'no manda nada si no va en la nube');
+    rmSync(authFile);
+    const anon = await cli(['tell', '5', 'hola', '--json']);
+    assert.equal(anon.code, 1);
+    assert.match(anon.err, /login/i);
+  }));
+
+test('show <n> imprime la pregunta pendiente del escritor con sus opciones y la línea para contestar', () =>
+  withCloud({}, async ({ gs, cli }) => {
+    await cli(['claim', '5', '--cloud', '--yes']);
+    gs.runs[0].asked = { question: '¿SQLite o Postgres?', options: ['SQLite', 'Postgres'] };
+    const r = await cli(['show', '5']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /el escritor pregunta: ¿SQLite o Postgres\?/);
+    assert.match(r.out, /opciones: SQLite · Postgres/);
+    assert.match(r.out, /contesta: ghosty-dev tell 5 "SQLite"/);
+    const j = JSON.parse((await cli(['show', '5', '--json'])).out);
+    assert.deepEqual(j.asked, { question: '¿SQLite o Postgres?', options: ['SQLite', 'Postgres'] });
+    delete gs.runs[0].asked;
+    assert.doesNotMatch((await cli(['show', '5'])).out, /el escritor pregunta/);
+  }));

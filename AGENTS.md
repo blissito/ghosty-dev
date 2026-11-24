@@ -36,6 +36,7 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
 La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van con `ghosty-dev login --no-wait` → la persona aprueba la liga →
 `ghosty-dev login --wait` (sólo si `whoami` no encuentra sesión, y preguntando antes) y `ghosty-dev env ls | push <archivo>`
 (sesión propia de Ghosty Studio; GitHub sigue siendo `gh`). El archivo lo nombra la persona y ningún valor se imprime.
+Hablarle al escritor de un pendiente que va en la nube: `ghosty-dev tell <n> "mensaje"` (o `--file m.md`, o `-` por stdin); si `show <n>` muestra «el escritor pregunta», contesta con la línea `contesta: ghosty-dev tell <n> "<opción>"`; `tell <n> --again` = otra vuelta.
 
 **OAuth en previews** (entrar con Google/GitHub en la vista previa):
 - Si existe `GS_PREVIEW_OAUTH_REDIRECT_URI`, úsalo como `redirect_uri` al pedir el código **y al canjearlo** (si no, `redirect_uri_mismatch`).

@@ -59,6 +59,9 @@ Uso: ghosty-dev <comando> [opciones]
                                          y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
   stop <n>                               detiene #n en la nube y libera su caja
+  tell <n> "mensaje" | --file m.md | -   le manda un mensaje al escritor de #n en la nube (si preguntó, es la
+                                         respuesta; si trabaja, un aviso; si está detenido, lo reanuda); - lee stdin
+  tell <n> --again                       «otra vuelta»: el escritor reintenta sin mensaje nuevo
   reopen <n>                             retoma #n si lo detuvieron y su PR sigue abierto (misma rama, caja nueva)
   release <n>                            #n sigue sin esperar el PR que lo bloqueaba (no cierra nada)
   recover [--start] [--pr m,n]           PRs de este repo cerrados sin merge con su rama viva; con --start Ghosty los
@@ -158,6 +161,7 @@ const { values, positionals } = parseArgs({
     claim: { type: 'boolean' },
     cloud: { type: 'boolean' },
     reopen: { type: 'boolean' },
+    again: { type: 'boolean' },
     start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
     'dry-run': { type: 'boolean' },
@@ -554,6 +558,18 @@ try {
     print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}${x.preview ? `\n  Vista previa: ${PHASE_WORD[x.preview.phase] ?? x.preview.phase}${x.preview.phase === 'ready' ? '' : ` (síguela: ghosty-dev preview ${x.pr} --wait)`}` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
     print(cloud.groupByIssue(await cloud.list()), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}${r.attempts ? `\t(+${r.attempts} intento${r.attempts > 1 ? 's' : ''} anterior${r.attempts > 1 ? 'es' : ''})` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+  } else if (command === 'tell') {
+    const n = num(arg);
+    let note = null;
+    if (!values.again) {
+      const { readFileSync } = await import('node:fs');
+      if (values.file !== undefined) note = readFileSync(values.file, 'utf8');
+      else if (arg2 === '-') note = readFileSync(0, 'utf8');
+      else note = positionals.slice(2).join(' ');
+    }
+    const r = await cloud.tell(n, { note, again: values.again });
+    const PHASES = { needs_person: 'Te necesita', working: 'Trabajando', queued: 'En fila', waiting_ci: 'Esperando el CI', reviewing: 'En revisión', blocked: 'Esperando otro PR', merging: 'Mergeando', stopped: 'Detenido' };
+    print(r, (x) => `${x.op === 'resume' ? 'Otra vuelta pedida' : x.answered ? 'Respondí la pregunta del escritor' : 'Mensaje enviado al escritor'} de #${x.number} en la nube.\n  fase: ${PHASES[x.phase] ?? x.state ?? x.phase}\n  Síguelo: ghosty-dev cloud   ·   ghosty-dev show ${x.number}`);
   } else if (command === 'reopen') {
     const r = await cloud.reopen(num(arg));
     print(r, (x) => `#${x.number} retomado en la nube: ${x.state}.\n  ${x.pr ?? x.url}`);
@@ -823,6 +839,8 @@ try {
       const cloudRun = (await cloud.list().catch(() => [])).find((c) => c.number === r.number) ?? null;
       const localBranch = (git(['branch', '--list', `ghosty-dev/${r.number}-*`], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
       r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch });
+      // Si el escritor de la nube preguntó algo, se muestra con la línea exacta para contestar.
+      r.asked = cloudRun ? await cloud.asked(r.number) : null;
       const head = r.services?.sha ?? null;
       r.evidenceStale = Boolean(r.evidence && r.evidenceCommit && head && !head.startsWith(r.evidenceCommit) && !r.evidenceCommit.startsWith(head.slice(0, 7)));
       print(r, (x) =>
@@ -833,6 +851,7 @@ try {
           `  escritor: ${x.assignees.join(', ') || '—'}`,
           `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
           `  evidencia: ${x.evidence ? (x.evidenceStale ? `VIEJA: es del commit ${x.evidenceCommit}, la punta del PR es ${x.services.sha.slice(0, 7)} — hay que publicarla otra vez (ghosty-dev evidence ${x.number} --file e.md)` : 'sí') : 'no'}`,
+          ...(x.asked ? [`  el escritor pregunta: ${x.asked.question}`, ...(x.asked.options.length ? [`    opciones: ${x.asked.options.join(' · ')}`] : []), `    contesta: ghosty-dev tell ${x.number} "${x.asked.options[0] ?? '<tu respuesta>'}"`] : []),
           `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
           ...(x.pr ? [`  PR: ${x.pr}`] : x.closed ? [`  PR: ${cmd.closedLine(x.closed)}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
           ...previewLine(x.preview),

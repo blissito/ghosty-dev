@@ -219,4 +219,39 @@ export async function recover({ start = false, prs } = {}) {
   return { candidates: cands, started: done };
 }
 
+// La pregunta pendiente del escritor (campo `asked` del detalle GET /dev-runs/<id>), saneada. Acepta texto suelto o
+// {question|text, options[]}; sin pregunta, null. No se inventa nada: lo que gs no mande no se imprime.
+export function askedOf(d) {
+  const a = d?.asked;
+  if (a == null || a === false) return null;
+  const q = typeof a === 'string' ? text(a, 2000) : text(a.question ?? a.text ?? a.prompt, 2000);
+  if (!q) return null;
+  const raw = Array.isArray(a.options) ? a.options : [];
+  const options = raw.map((o) => text(typeof o === 'string' ? o : (o?.label ?? o?.text ?? o?.value), 200)).filter(Boolean).slice(0, 12);
+  return { question: q, options };
+}
+
+// Detalle del pendiente #n si va en la nube (para mostrar lo que pregunta el escritor). Sin red o sin sesión: null.
+export async function asked(n) {
+  try {
+    const run = (await list()).find((r) => r.number === n && LIVE.has(r.phase));
+    if (!run) return null;
+    return askedOf(await call('GET', `${RUNS}/${encodeURIComponent(runId(run.id))}`));
+  } catch {
+    return null;
+  }
+}
+
+// Le habla al escritor de #n en la nube (POST /dev-runs/<id> {op:'tell', note}); `again` = «otra vuelta» ({op:'resume'}
+// sin nota). El servidor decide por fase: si preguntó, es la respuesta; si trabaja, un aviso; si está detenido, lo reanuda.
+export async function tell(n, { note, again = false } = {}) {
+  if (!again && !String(note ?? '').trim()) throw new CloudError('Falta el mensaje: ghosty-dev tell <n> "mensaje" (o --file m.md, o - para leer de stdin).');
+  const rows = (await list()).filter((r) => r.number === n);
+  const run = rows.find((r) => LIVE.has(r.phase)) ?? rows[0];
+  if (!run) throw new CloudError(`#${n} no va en la nube. Mándalo primero: ghosty-dev claim ${n} --cloud`);
+  const before = run.phase;
+  const r = view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, again ? { op: 'resume' } : { op: 'tell', note: String(note) }));
+  return { ...r, op: again ? 'resume' : 'tell', before, answered: !again && before === 'needs_person' };
+}
+
 export { AuthError };

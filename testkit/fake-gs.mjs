@@ -208,9 +208,14 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       const r = s.runs.find((x) => x.id === id);
       if (!r) return send(res, 404, { error: 'not_found', message: 'No existe ese pendiente' });
       if (req.method === 'GET') return send(res, 200, { ...r, events: [] });
+      if (body?.op === 'tell') {
+        if (!body.note) return send(res, 400, { error: 'bad_request', message: 'note requerida' });
+        r.notes = [...(r.notes ?? []), body.note];
+        Object.assign(r, { phase: 'working', estado: 'trabajando' });
+      }
       if (body?.op === 'stop') Object.assign(r, { phase: 'stopped', estado: 'detenido' });
       if (body?.op === 'reopen') Object.assign(r, { phase: 'working', estado: 'trabajando' });
-      if (body?.op === 'resume' && r.phase === 'blocked') Object.assign(r, { phase: 'working', estado: 'trabajando' });
+      if (body?.op === 'resume' && (r.phase === 'blocked' || r.phase === 'stopped')) Object.assign(r, { phase: 'working', estado: 'trabajando' });
       return send(res, 200, r);
     }
     return send(res, 404, { error: 'not_found' });

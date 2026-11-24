@@ -59,7 +59,7 @@ export function setup(state = {}) {
   };
   // Igual que run, pero sin bloquear el proceso de la prueba (para hablar con un servidor falso en el mismo proceso).
   // `onLine` recibe cada renglón de stdout en cuanto llega; `extra` agrega o quita (undefined) variables de entorno.
-  const runAsync = (args, { extra = {}, onLine } = {}) =>
+  const runAsync = (args, { extra = {}, onLine, stdin = '' } = {}) =>
     new Promise((done) => {
       const e = { ...env, ...extra };
       for (const [k, v] of Object.entries(extra)) if (v === undefined) delete e[k];
@@ -78,7 +78,7 @@ export function setup(state = {}) {
         }
       });
       child.stderr.on('data', (c) => (err += c));
-      child.stdin.end();
+      child.stdin.end(stdin);
       child.on('close', (code) => done({ code, out, err }));
     });
   const read = () => JSON.parse(readFileSync(stateFile, 'utf8'));

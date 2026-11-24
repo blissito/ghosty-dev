@@ -106,7 +106,7 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
 - **La persona te pidió algo** (`ready` dice `reason: pedido`, o `wait` regresa con `asks`) → eso manda sobre lo
   demás: hazlo en la misma rama, sube y vuelve a esperar. `ghosty-dev asks <n>` los lee y los marca leídos. La
   persona te escribe en el issue o el PR con `@ghosty`, o desde Ghosty Studio (web, iOS o Teams): todo llega igual.
-- **La nube** (`claim <n> --cloud`, `cloud`, `stop`, `teleport`) usa la misma sesión de `ghosty-dev login` que las
+- **La nube** (`claim <n> --cloud`, `cloud`, `tell`, `stop`, `teleport`) usa la misma sesión de `ghosty-dev login` que las
   variables; no necesitas el CLI `ghosty`. Si dice «no tiene el permiso dev», pídele a la persona
   `ghosty-dev login --force` (no lo repitas en bucle).
 - **Tools de Ghosty desde la terminal (opcional):** con `ghosty login`, el CLI `ghosty` te da lo de Ghosty Studio (imágenes,
