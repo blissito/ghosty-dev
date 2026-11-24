@@ -207,8 +207,8 @@ ghosty-dev add "Exportar CSV" --goal "…" --criteria "…" --by 12   # bloquead
 
 ## Preparar el repo sin credenciales de GitHub
 
-Si el pendiente es «Preparar el repo para ghosty-dev» y no tienes `gh` con escritura: `ghosty-dev init --force --files-only` en una rama
-(sólo escribe archivos; no usa `gh`), commit y PR con tus herramientas. Etiquetas y protección (`init`, `protect`) son de la persona.
+Si el pendiente es «Preparar el repo para ghosty-dev» y no tienes `gh` con escritura: `ghosty-dev init --force --files-only --no-checks` en una rama
+(sólo escribe la puerta: no usa `gh` ni agrega el workflow extra ghosty-checks.yml, que es CI nuevo y no de la puerta; si `init` marca «NUEVO workflow», revísalo antes de commitear). Si el pendiente que reclamas ya ES esa preparación (aunque lo hayas abierto con `add` y otro título), `claim` lo toma tal cual: no abre otro ni se bloquea por él, commit y PR con tus herramientas. Etiquetas y protección (`init`, `protect`) son de la persona.
 
 ## Lo que descubras
 

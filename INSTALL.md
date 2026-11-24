@@ -55,7 +55,7 @@ que primero tiene que estar ahí.
 
 Si un archivo ya existía, `init` no lo toca. Usa `--force` sólo si la persona te lo pide.
 
-**Sin credenciales de GitHub (caja de trabajo, pendiente «Preparar el repo para ghosty-dev»):** `ghosty-dev init --force --files-only`.
+**Sin credenciales de GitHub (caja de trabajo, pendiente «Preparar el repo para ghosty-dev»):** `ghosty-dev init --force --files-only --no-checks` (`--no-checks`: sin el workflow extra ghosty-checks.yml; el PR de preparación sólo toca la puerta; mezclarlo es de la persona).
 Sólo escribe los archivos de arriba: no llama a `gh`, no crea etiquetas ni protege la rama, y no pide `--yes`. Haz commit y
 sube el PR con tus herramientas de siempre; la persona lo mezcla y luego corre en su terminal `ghosty-dev init` (etiquetas) y
 `ghosty-dev protect`.

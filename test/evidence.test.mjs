@@ -203,3 +203,12 @@ test('NOT_CI_CHECKS e isCiCheck excluyen la puerta y su redisparo', async () => 
   assert.equal(isCiCheck('ghosty-dev/redisparo'), false);
   assert.equal(isCiCheck('lint'), true);
 });
+
+test('la prosa que habla de la puerta no es CI en rojo, y el error dice qué renglón disparó el rojo', async () => {
+  const { ciRedLine } = await import('../src/evidence.mjs');
+  const prose = VALID_EVIDENCE.replace(/## CI\n[\s\S]*?(?=\n## )/, '## CI\n✅ passed\nEl único check en rojo es la propia puerta de evidencia, se pone verde con esta evidencia');
+  assert.deepEqual(validateEvidence(prose, ISSUE), { ok: true, errors: [] });
+  const other = VALID_EVIDENCE.replace(/## CI\n[\s\S]*?(?=\n## )/, '## CI\n✅ passed\nlint: failure en CI');
+  assert.match(validateEvidence(other, ISSUE).errors.join(), /«lint: failure en CI»/);
+  assert.equal(ciRedLine('verde\nlint: failure'), 'lint: failure');
+});

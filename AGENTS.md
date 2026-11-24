@@ -33,7 +33,7 @@ evidencia. No uses listas TODO en markdown para llevar el trabajo.
    La liga lleva la llave de la vista previa: nunca la pegues en la evidencia, el issue ni el PR.
    `ghosty-dev ready` te lo vuelve a ofrecer cuando el CI resuelva.
 
-Preparar el repo sin credenciales de GitHub: `ghosty-dev init --force --files-only` (sólo archivos; commit y PR; etiquetas y `protect` son de la persona).
+Preparar el repo sin credenciales de GitHub: `ghosty-dev init --force --files-only --no-checks` (sólo los archivos de la puerta, sin el workflow extra ghosty-checks.yml; commit y PR; etiquetas y `protect` son de la persona).
 
 La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van con `ghosty-dev login --no-wait` → la persona aprueba la liga →
 `ghosty-dev login --wait` (sólo si `whoami` no encuentra sesión, y preguntando antes) y `ghosty-dev env ls | push <archivo>`

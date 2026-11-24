@@ -19,7 +19,9 @@ const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
 
-  init [--dir D] [--dry-run] [--force] [--no-protect] [--files-only] [--yes]
+  init [--dir D] [--dry-run] [--force] [--no-protect] [--files-only] [--no-checks] [--yes]
+                                         --no-checks: no escribe .github/workflows/ghosty-checks.yml (CI extra que no es de la puerta;
+                                         el PR de preparación sólo toca la puerta)
                                          --files-only: SÓLO escribe archivos (sin gh, sin etiquetas ni protección): para una caja
                                          sin credenciales; se sube con commit + PR y la persona corre luego init y protect
                                          etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
@@ -175,6 +177,7 @@ const { values, positionals } = parseArgs({
     force: { type: 'boolean' },
     'no-protect': { type: 'boolean' },
     'files-only': { type: 'boolean' },
+    'no-checks': { type: 'boolean' },
     dir: { type: 'string' },
     file: { type: 'string' },
     check: { type: 'boolean' },
@@ -459,7 +462,7 @@ try {
       } else labels = false;
       if (!labels) console.error(`No creé ${what}: confírmalo con ghosty-dev init --yes.`);
     } else if (t.labelsToCreate.length) say(`${values['dry-run'] ? 'Crearía' : 'Creo'} ${t.labelsToCreate.length} etiqueta(s) en ${t.repo}.`);
-    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'], labels, filesOnly });
+    const plan = cmd.init(dir, { dryRun: values['dry-run'], force: values.force, protectBranch: !values['no-protect'], labels, filesOnly, noChecks: Boolean(values['no-checks']) });
     // El push de la instalación va a la rama principal: qué workflows dispara (en un repo de producción, el deploy).
     plan.push({
       action: 'push',
@@ -516,7 +519,7 @@ try {
       discoveredIn: values.from ? num(values.from, '--from <n>') : undefined,
       flow: values.flow,
     });
-    print(r, (x) => `Pendiente #${x.number} abierto: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
+    print(r, (x) => `Pendiente #${x.number} ${x.reused ? 'ya existía (lo reutilicé)' : 'abierto'}: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
   } else if (command === 'ready') {
     const list = cmd.ready();
     if (values.claim) {

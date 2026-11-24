@@ -26,6 +26,17 @@ export const READINESS_PATHS = {
   factory: '.ghosty/factory.md',
 };
 const PR_TEMPLATES = ['.github/pull_request_template.md', '.github/PULL_REQUEST_TEMPLATE.md', 'pull_request_template.md', 'docs/pull_request_template.md'];
+/**
+ * ¿Este pendiente YA es el trabajo de preparar el repo? Por título («Preparar el repo para ghosty-dev») o porque su
+ * objetivo/criterios son los chequeos de readiness (puerta, gate.mjs, evidence.mjs, workflow, `ghosty-dev init`).
+ * Reclamarlo no debe abrir otro pendiente de preparación ni bloquearse por él. Puro.
+ */
+export function isPreparationIssue(issue = {}) {
+  if (String(issue.title ?? '').trim().toLowerCase() === PREPARE_TITLE.toLowerCase()) return true;
+  const text = `${issue.title ?? ''}\n${issue.body ?? ''}`;
+  return /gate\.mjs|evidence\.mjs|evidence-gate\.yml|ghosty-dev init|puerta de (ghosty-dev|evidencia)|puerta.{0,40}al d[ií]a/i.test(text) && /puerta|gate\.mjs|evidence\.mjs/i.test(text);
+}
+
 export const READINESS_READS = [...Object.values(READINESS_PATHS), ...PR_TEMPLATES];
 
 const MAIN_FLOW = 'Flujo principal probado con sesión';
@@ -44,8 +55,8 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
   const missingGate = [READINESS_PATHS.gate, READINESS_PATHS.evidence].filter((p) => !has(p));
   const stale = [['gate', READINESS_PATHS.gate], ['evidence', READINESS_PATHS.evidence]].filter(([k, p]) => has(p) && typeof expected[k] === 'string' && files[p] !== expected[k]).map(([, p]) => p);
   add('gate', !missingGate.length && !stale.length, 'block',
-    missingGate.length ? `faltan ${missingGate.join(' y ')} en ${branch}` : stale.length ? `${stale.join(' y ')} no está al día con ghosty-dev` : 'la puerta está instalada y al día',
-    'ghosty-dev init --force (y mezclar ese PR)');
+    missingGate.length ? `faltan ${missingGate.join(' y ')} en ${branch} (se compara contra la rama base: se corrige al mezclar el PR de preparación)` : stale.length ? `${stale.join(' y ')} no está al día con ghosty-dev (se compara contra ${branch}: se corrige al mezclar el PR de preparación)` : 'la puerta está instalada y al día',
+    'ghosty-dev init --force --no-checks');
   add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
   const rc = has(READINESS_PATHS.config) ? reviewCheckConfig(files[READINESS_PATHS.config]) : null;
   // Sin config la puerta usa el revisor por defecto «Ghosty Review» (gate.mjs): ya no bloquea, sólo se recomienda fijarlo.
@@ -73,8 +84,8 @@ export function prepareBrief(blocking = []) {
   const files = blocking.filter((c) => c.id !== 'protection');
   return {
     title: PREPARE_TITLE,
-    goal: 'Dejar el repo listo para que el trabajo (de la terminal y de la nube) pase la puerta de evidencia y la revisión de Ghosty. Corre `ghosty-dev init --force --files-only` en una rama (sólo escribe archivos: no usa `gh`, etiquetas ni protección), haz commit y sube el PR con tus herramientas de siempre; una persona lo mezcla (la puerta se lee de la rama base). Después la persona corre `ghosty-dev init` (etiquetas) y `ghosty-dev protect` en su terminal: no es parte de este pendiente.',
+    goal: 'Dejar el repo listo para que el trabajo (de la terminal y de la nube) pase la puerta de evidencia y la revisión de Ghosty. Corre `ghosty-dev init --force --files-only --no-checks` en una rama (sólo escribe los archivos de la puerta: no usa `gh`, etiquetas, protección ni el workflow extra ghosty-checks.yml), haz commit y sube el PR con tus herramientas de siempre; mezclarlo es de la persona (la puerta se lee de la rama base). Después la persona corre `ghosty-dev init` (etiquetas) y `ghosty-dev protect` en su terminal: no es parte de este pendiente.',
     // Sólo lo que cabe en un PR: la protección de la rama es de la persona (admin en GitHub), no un criterio del escritor.
-    criteria: files.length ? files.map((c) => `${c.why} → ${c.fix.replace(/^ghosty-dev init( --force)?/, 'ghosty-dev init --force --files-only')}`) : ['La puerta de ghosty-dev está instalada y al día en la rama del PR.'],
+    criteria: files.length ? files.map((c) => `${c.why} → ${c.fix.replace(/^ghosty-dev init( --force)?( --no-checks)?/, 'ghosty-dev init --force --files-only --no-checks')} (mezclarlo es de la persona)`) : ['La puerta de ghosty-dev está instalada y al día en la rama del PR.'],
   };
 }

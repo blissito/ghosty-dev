@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { api, apiAll, git } from './gh.mjs';
 import { GATE_CHECKS, validateEvidence, formatEvidence, findValidEvidence, findRevisionFor, validateRevision, formatRevision, crossPreviewProblems } from './evidence.mjs';
-import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig } from './gate.mjs';
-import { readinessOf, prepareBrief, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
+import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview, DEFAULT_REVIEW_CHECK } from './gate.mjs';
+import { readinessOf, prepareBrief, isPreparationIssue, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
 
@@ -672,6 +672,11 @@ export function pendienteBody({ goal, criteria = [], context, discoveredIn, flow
 
 export function add(title, { goal, criteria, context, blockedBy, discoveredIn, flow } = {}) {
   if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--flow "…"] [--by <m>].');
+  // «Preparar el repo para ghosty-dev» no se duplica: si ya hay uno vivo, se reutiliza.
+  if (title.trim() === PREPARE_TITLE) {
+    const live = findPreparationIssue(openIssues());
+    if (live) return { number: live.number, title: live.title, url: live.url, blockedBy: null, board: null, reused: true };
+  }
   const body = pendienteBody({ goal, criteria, context, discoveredIn, flow });
   const created = api('POST', `${REPO}/issues`, { title: title.trim(), body, labels: [label('listo')] });
   const { number, html_url: url } = created;
@@ -887,6 +892,12 @@ export function repoReadiness({ dir } = {}) {
   return { repo, branch, ...readinessOf({ files, requiredChecks, branch, expected }) };
 }
 
+/** El pendiente de preparación vivo: primero por título exacto, luego por contenido. Puro. */
+export function findPreparationIssue(open = []) {
+  const issues = open.filter((i) => !i.pull_request);
+  return issues.find((i) => String(i.title).trim() === PREPARE_TITLE) ?? issues.find((i) => isPreparationIssue(i)) ?? null;
+}
+
 /**
  * Antes de tomar #n: si el repo no está preparado, PREPARAR es el primer pendiente y #n queda bloqueado por él.
  * Devuelve null si todo está en orden (o #n es el propio pendiente de preparación); si no, { prep, created, blocking, blocked }.
@@ -895,8 +906,13 @@ export function repoReadiness({ dir } = {}) {
 export function ensurePreparation(n, { dir } = {}) {
   const r = repoReadiness({ dir });
   if (r.ready) return null;
+  // Si #n YA es el trabajo de preparar (por título o porque sus criterios son los chequeos), se toma tal cual.
+  if (n) {
+    const own = api('GET', API_ISSUE(n), undefined, { allowFail: true });
+    if (own && isPreparationIssue(own)) return null;
+  }
   const open = apiAll(`${REPO}/issues?state=open&per_page=100`, { allowFail: true }) ?? [];
-  const existing = open.find((i) => !i.pull_request && String(i.title).trim() === PREPARE_TITLE);
+  const existing = findPreparationIssue(open);
   if (existing && existing.number === n) return null;
   const brief = prepareBrief(r.blocking);
   const prep = existing ? { number: existing.number, url: existing.html_url } : add(PREPARE_TITLE, { goal: brief.goal, criteria: brief.criteria });
@@ -1065,6 +1081,13 @@ export function repoLock() {
   return top ? checkLock(top) : null;
 }
 
+// Revisor externo de la rama base (config.json) o el de por defecto, igual que la puerta.
+function reviewConfigOnBase(base) {
+  const f = api('GET', `${REPO}/contents/.github/ghosty-dev/config.json?ref=${encodeURIComponent(base)}`, undefined, { allowFail: true });
+  const raw = f?.content ? Buffer.from(f.content, 'base64').toString('utf8') : '';
+  return reviewCheckConfig(raw) ?? { ...DEFAULT_REVIEW_CHECK };
+}
+
 export function next() {
   const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
   const info = api('GET', REPO);
@@ -1099,7 +1122,10 @@ export function next() {
     if (ci === 'pendiente' || ci === 'sin-checks') return out('esperar-ci', `ghosty-dev wait --pr ${pr.number} --until ci`, `el CI del commit ${pr.headRefOid.slice(0, 7)} no ha resuelto`, extra);
     if (ci === 'rojo') return out('arreglar-ci', `ghosty-dev show --pr ${pr.number}`, 'el CI salió rojo: arréglalo en la rama y vuelve a subir', extra);
     const issue = viewIssue(n, { comments: true });
-    const rev = findRevisionFor(issue.comments, pr.headRefOid);
+    // El check del revisor externo (misma lógica que la puerta: externalReview) cuenta como revisión del commit.
+    const ext = externalReview(reviewConfigOnBase(def), checks.runs, pr.headRefOid);
+    if (ext?.state === 'pending') return out('esperar-ci', `ghosty-dev wait --pr ${pr.number} --until ci`, `el check «${ext.name}» del commit ${pr.headRefOid.slice(0, 7)} sigue corriendo`, extra);
+    const rev = ext?.state === 'passed' ? { open: 0 } : ext?.state === 'findings' ? { open: 1 } : findRevisionFor(issue.comments, pr.headRefOid);
     if (!rev) return out('revision', `ghosty-dev review ${n} --pr ${pr.number}`, `falta la revisión del commit ${pr.headRefOid.slice(0, 7)} (otra sesión con contexto limpio: subagente ghosty-dev-revisor)`, extra);
     if (rev.open > 0) return out('hallazgos', `ghosty-dev review ${n} --pr ${pr.number}`, `la revisión tiene ${rev.open} hallazgo(s) abierto(s): arréglalos, sube y pide revisión otra vez`, extra);
     if (!findValidEvidence(issue.comments, issue.body))
@@ -1322,12 +1348,12 @@ function prePushTarget(dir) {
 const REVIEW_CONFIG_PATH = '.github/ghosty-dev/config.json';
 const REVIEW_CHECK_DEFAULT = { name: 'Ghosty Review', app: 'ghosty-studio' };
 
-export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true, filesOnly = false } = {}) {
+export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true, filesOnly = false, noChecks = false } = {}) {
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
     ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
     // Revisiones de Ghosty: llama al workflow reutilizable blissito/ghosty-dev/.github/workflows/checks.yml@v1.
-    ['templates/ghosty-checks.yml', '.github/workflows/ghosty-checks.yml'],
+    ...(noChecks ? [] : [['templates/ghosty-checks.yml', '.github/workflows/ghosty-checks.yml']]),
     ['src/evidence.mjs', '.github/ghosty-dev/evidence.mjs'],
     ['src/gate.mjs', '.github/ghosty-dev/gate.mjs'],
     ['skill/SKILL.md', '.claude/skills/ghosty-dev/SKILL.md'],
@@ -1339,7 +1365,9 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
   if (!filesOnly) for (const state of STATES) plan.push(labels ? { action: 'label', name: label(state) } : { action: 'skip', name: `${label(state)} (etiqueta no creada: confirma con ghosty-dev init --yes)` });
   for (const [, to] of files) {
     const exists = existsSync(join(dir, to));
-    plan.push({ action: exists && !force ? 'skip' : 'write', path: to });
+    // Un workflow NUEVO no es de la puerta: CI extra que la persona debe revisar antes de commitear.
+    const fresh = !exists && to === '.github/workflows/ghosty-checks.yml';
+    plan.push({ action: exists && !force ? 'skip' : 'write', path: to, ...(fresh ? { name: `${to} (NUEVO workflow, no es de la puerta: revisa antes de commitear; --no-checks lo omite)`, newWorkflow: true } : {}) });
   }
   // Plantilla del PR con el renglón obligatorio «Flujo principal probado con sesión» (Formmy, fila 46). GitHub usa una
   // sola: si el repo ya tiene la suya (en cualquiera de sus rutas), no se escribe otra y se dice qué agregarle.

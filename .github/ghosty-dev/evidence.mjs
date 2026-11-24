@@ -50,10 +50,16 @@ const CI_RED = /❌|\brojo\b|\bfail(ed|ing|ure)?\b/i;
 // círculo (Formmy #117/#95: la evidencia citaba «ghosty-dev/evidencia: failure» y se rechazaba por «CI en rojo»).
 // Una sola lista, compartida por la validación, `isCiCheck` de commands.mjs y el CI_IGNORE de gs.
 export const GATE_CHECKS = Object.freeze(['ghosty-dev/evidencia', 'ghosty-dev/redisparo']);
-const GATE_MENTION = /ghosty-dev\/(evidencia|redisparo)/i;
+// También la prosa que habla de la puerta («el único check en rojo es la propia puerta de evidencia»).
+const GATE_MENTION = /ghosty-dev\/(evidencia|redisparo)|\bla\s+(propia\s+)?puerta\b|\bpuerta\s+de\s+evidencia\b/i;
 // La sección CI sin los renglones que hablan de la puerta propia. Puro.
 export function ciWithoutGate(ci = '') {
   return ci.split('\n').filter((l) => !GATE_MENTION.test(l)).join('\n');
+}
+
+// El primer renglón de la sección CI que dispara el rojo (o null). Puro.
+export function ciRedLine(ci = '') {
+  return ciWithoutGate(ci).split('\n').find((l) => CI_RED.test(l))?.trim() ?? null;
 }
 
 // Valida el cuerpo de una evidencia contra el pendiente. Regresa { ok, errors }.
@@ -78,7 +84,7 @@ export function validateEvidence(md, issueBody = '') {
 
   const ci = ciWithoutGate(section(s, 'ci') ?? '');
   if (!section(s, 'ci')) errors.push('Falta «CI» (resultado y liga del run).');
-  else if (CI_RED.test(ci)) errors.push('El CI está en rojo: no se cierra un pendiente con CI rojo.');
+  else if (CI_RED.test(ci)) errors.push(`El CI está en rojo (renglón que lo dice: «${ciRedLine(section(s, 'ci') ?? '')}»): no se cierra un pendiente con CI rojo. Si el renglón habla de la puerta, nómbrala como «ghosty-dev/evidencia».`);
   else if (!CI_GREEN.test(ci)) errors.push('«CI» debe decir el resultado (✅ / verde / passed).');
 
   // El flujo principal ejercido con sesión (Formmy, filas 44 y 46): smoke, revisión y evidencia pasaron con el chat

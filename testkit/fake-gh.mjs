@@ -188,7 +188,7 @@ if (group === 'label' && verb === 'create') {
     const p = prBySha(m[1]);
     // Simula que el CI termina mientras se espera: la segunda lectura de un check corriendo ya lo ve terminado.
     const runs = (p?.statusCheckRollup || []).map((c) => {
-      const seen = { id: c.id, name: c.name, status: c.status === 'COMPLETED' ? 'completed' : 'in_progress', conclusion: c.conclusion ? c.conclusion.toLowerCase() : null, details_url: c.detailsUrl, output: c.title ? { title: c.title } : undefined };
+      const seen = { id: c.id, head_sha: m[1], ...(c.app ? { app: { slug: c.app } } : {}), name: c.name, status: c.status === 'COMPLETED' ? 'completed' : 'in_progress', conclusion: c.conclusion ? c.conclusion.toLowerCase() : null, details_url: c.detailsUrl, output: c.title ? { title: c.title } : undefined };
       // `then` simula un servicio de la plataforma que termina con otra conclusión (y título) que el CI.
       if (c.status !== 'COMPLETED' && c.then) Object.assign(c, { status: 'COMPLETED', ...c.then });
       else if (c.status !== 'COMPLETED' && db.ciResult !== undefined) Object.assign(c, { status: 'COMPLETED', conclusion: db.ciResult });

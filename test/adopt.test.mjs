@@ -119,6 +119,19 @@ test('next dice el siguiente paso: ligar → CI → revisión → evidencia → 
   assert.deepEqual([JSON.parse(t.run('next', '--json').out).step, JSON.parse(t.run('next', '--json').out).command], ['tomar', 'ghosty-dev claim 3']);
 });
 
+test('next reconoce la revisión externa del commit (check «Ghosty Review» de ghosty-studio) y pasa a evidencia', () => {
+  const s = setup({ issues: { 5: issue(5, 'Salud') }, prs: [handPr({ statusCheckRollup: [{ id: 1, name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })] });
+  spawnSync('git', ['checkout', '-q', '-b', 'fix/puerta'], { cwd: s.repo });
+  s.run('claim', '--pr', '76', '--issue', '5');
+  const step = () => JSON.parse(s.run('next', '--json').out).step;
+  assert.equal(step(), 'revision');
+  edit(s, (db) => db.prs[0].statusCheckRollup.push({ id: 2, name: 'Ghosty Review', app: 'ghosty-studio', status: 'COMPLETED', conclusion: 'SUCCESS' }));
+  assert.equal(step(), 'evidencia');
+  // Con hallazgos del revisor externo no pasa a evidencia.
+  edit(s, (db) => { db.prs[0].statusCheckRollup[1].conclusion = 'FAILURE'; });
+  assert.equal(step(), 'hallazgos');
+});
+
 test('PR en conflicto con la base: next lo pone primero con el comando; show y ready lo dicen; reintenta si GitHub aún no sabe (C28)', () => {
   const s = setup({ issues: { 5: issue(5, 'Salud') }, prs: [handPr({ body: 'Closes #5', mergeable: false, mergeableState: 'dirty', mergeableNull: 1, statusCheckRollup: [{ id: 1, name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })] });
   spawnSync('git', ['checkout', '-q', '-b', 'fix/puerta'], { cwd: s.repo });

@@ -110,3 +110,32 @@ test('readiness.mjs lee reviewCheck igual que gate.mjs (copia autocontenida sin 
     assert.equal(r(cfg), Boolean(reviewCheckConfig(cfg)), cfg);
   }
 });
+
+test('prepareBrief: el escritor no mezcla; usa --no-checks y dice que mezclar es de la persona', () => {
+  const b = prepareBrief(read({ [P.workflow]: null }).blocking);
+  assert.doesNotMatch(b.criteria[0], /y mezclar ese PR/);
+  assert.match(b.criteria[0], /--files-only --no-checks/);
+  assert.match(b.criteria[0], /mezclarlo es de la persona/);
+  assert.match(b.goal, /--no-checks/);
+});
+
+test('puerta-gate MAL dice que compara contra la rama base y que se corrige al mezclar el PR de preparación', () => {
+  const r = read({ [P.gate]: 'viejo' });
+  assert.match(r.checks.find((c) => c.id === 'gate').why, /rama|main|la rama principal/);
+  assert.match(r.checks.find((c) => c.id === 'gate').why, /se corrige al mezclar el PR de preparación/);
+});
+
+test('isPreparationIssue: por título o porque su objetivo son los chequeos de readiness', async () => {
+  const { isPreparationIssue } = await import('../src/readiness.mjs');
+  assert.equal(isPreparationIssue({ title: 'Preparar el repo para ghosty-dev', body: '' }), true);
+  assert.equal(isPreparationIssue({ title: 'gate.mjs al día', body: '## Objetivo\nActualizar la puerta: ghosty-dev init --force' }), true);
+  assert.equal(isPreparationIssue({ title: 'Endpoint /version', body: 'GET /version responde' }), false);
+});
+
+test('findPreparationIssue reutiliza el vivo (título o contenido) y ensurePreparation no bloquea al que ya es de preparación', async () => {
+  const { findPreparationIssue } = await import('../src/commands.mjs');
+  const open = [{ number: 3, title: 'Otra cosa', body: '' }, { number: 125, title: 'gate.mjs al día', body: 'Actualizar la puerta con ghosty-dev init --force' }];
+  assert.equal(findPreparationIssue(open).number, 125);
+  assert.equal(findPreparationIssue([...open, { number: 9, title: 'Preparar el repo para ghosty-dev', body: '' }]).number, 9);
+  assert.equal(findPreparationIssue([{ number: 3, title: 'x', body: '' }]), null);
+});

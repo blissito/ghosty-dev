@@ -54,7 +54,7 @@ ghosty-dev protect --dry-run           # qué PR abiertos quedarían bloqueados 
 ghosty-dev protect                     # ghosty-dev/evidencia obligatorio en main
 ```
 
-Sin credenciales de GitHub (una caja de trabajo en la nube): `ghosty-dev init --force --files-only` sólo escribe los archivos (sin `gh`, etiquetas ni protección); se sube como PR y la persona corre después `init` y `protect`.
+Sin credenciales de GitHub (una caja de trabajo en la nube): `ghosty-dev init --force --files-only --no-checks` sólo escribe los archivos de la puerta (`--no-checks` omite `.github/workflows/ghosty-checks.yml`, CI extra que `init` marca como «NUEVO workflow» y no es de la puerta) (sin `gh`, etiquetas ni protección); se sube como PR y la persona corre después `init` y `protect`.
 
 `protect` usa tu propio `gh`: hace falta ser admin del repo (en repos privados, GitHub lo pide con plan de pago).
 

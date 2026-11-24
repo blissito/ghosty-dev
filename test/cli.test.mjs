@@ -235,6 +235,25 @@ test('init --files-only escribe sólo archivos: ni una llamada a gh, ni etiqueta
   for (const f of ['.github/workflows/evidence-gate.yml', '.github/ghosty-dev/gate.mjs', '.github/ghosty-dev/config.json', '.ghosty/factory.md', 'AGENTS.md']) assert.ok(existsSync(join(repo, f)), f);
 });
 
+test('init --no-checks no escribe ghosty-checks.yml; sin él el resumen marca el workflow NUEVO', () => {
+  const { run, repo } = setup();
+  const dry = JSON.parse(run('init', '--files-only', '--dry-run', '--json').out);
+  assert.ok(dry.find((p) => p.path === '.github/workflows/ghosty-checks.yml' && /NUEVO workflow/.test(p.name)));
+  const r = run('init', '--force', '--files-only', '--no-checks');
+  assert.equal(r.code, 0, r.err);
+  assert.ok(!existsSync(join(repo, '.github/workflows/ghosty-checks.yml')));
+  assert.ok(existsSync(join(repo, '.github/workflows/evidence-gate.yml')));
+});
+
+test('add «Preparar el repo para ghosty-dev» reutiliza el pendiente vivo en vez de duplicarlo', () => {
+  const { run } = setup({ issues: { 1: issue(1, 'Preparar el repo para ghosty-dev') } });
+  const r = run('add', 'Preparar el repo para ghosty-dev', '--goal', 'x', '--criteria', 'y', '--json');
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.number, 1);
+  assert.equal(out.reused, true);
+});
+
 test('add abre un pendiente con la plantilla y, con --by, lo bloquea con la dependencia nativa', () => {
   const { run, read } = setup({ issues: { 1: issue(1, 'Servidor con /health') } });
   const r = run('add', 'Endpoint /version', '--goal', 'GET /version responde la versión', '--criteria', 'responde 200', '--criteria', 'hay un test', '--by', '1', '--json');
