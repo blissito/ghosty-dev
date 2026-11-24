@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { readinessOf, prepareBrief, READINESS_PATHS as P } from '../src/readiness.mjs';
+import { readinessOf, prepareBrief, installedGateVersion, MIN_GATE_VERSION, READINESS_PATHS as P } from '../src/readiness.mjs';
 
 const gate = readFileSync(new URL('../src/gate.mjs', import.meta.url), 'utf8');
 const evidence = readFileSync(new URL('../src/evidence.mjs', import.meta.url), 'utf8');
@@ -34,8 +34,29 @@ test('config sin reviewCheck cuenta como faltante (aviso); con otro check tambi�
   assert.equal(missing('{no es json'), false);
 });
 
+test('copia distinta pero >= mínima: ready con aviso gate-version (Formmy 0.9.39→0.9.40)', () => {
+  const r = read({ [P.gate]: gate + '\n// otra versión', [P.evidence]: evidence.replace(/GATE_VERSION = '[\d.]+'/, `GATE_VERSION = '${MIN_GATE_VERSION}'`) });
+  assert.equal(r.ready, true);
+  assert.deepEqual(r.blocking, []);
+  const w = r.checks.find((c) => c.id === 'gate-version');
+  assert.equal(w.ok, false);
+  assert.equal(w.severity, 'warn');
+  assert.match(w.fix, /init --force --no-checks --files-only/);
+  // Sin marcador pero con GATE_CHECKS (0.9.38–0.9.40) también cuenta como compatible.
+  assert.equal(installedGateVersion("export const GATE_CHECKS = [];"), '0.9.38');
+  assert.equal(read({ [P.evidence]: "export const GATE_CHECKS = [];" }).ready, true);
+});
+
+test('puerta anterior a la mínima, o sin marcador ni GATE_CHECKS: bloquea', () => {
+  const old = read({ [P.evidence]: "export const GATE_VERSION = '0.9.37';" });
+  assert.equal(old.ready, false);
+  assert.equal(old.blocking[0].id, 'gate');
+  assert.equal(read({ [P.evidence]: '// viejísima' }).blocking[0].id, 'gate');
+  assert.equal(read({ [P.evidence]: null }).blocking[0].id, 'gate');
+});
+
 test('gate viejo o ausente bloquea', () => {
-  assert.equal(read({ [P.gate]: '// viejo' }).blocking[0].id, 'gate');
+  assert.equal(read({ [P.gate]: null }).blocking[0].id, 'gate');
   assert.equal(read({ [P.gate]: null }).blocking[0].id, 'gate');
   // Sin poder leer la protección no se inventa un bloqueo.
   assert.equal(readinessOf({ files: good(), requiredChecks: null, expected: { gate, evidence } }).ready, true);
@@ -119,8 +140,8 @@ test('prepareBrief: el escritor no mezcla; usa --no-checks y dice que mezclar es
   assert.match(b.goal, /--no-checks/);
 });
 
-test('puerta-gate MAL dice que compara contra la rama base y que se corrige al mezclar el PR de preparación', () => {
-  const r = read({ [P.gate]: 'viejo' });
+test('puerta-gate ausente dice que compara contra la rama base y que se corrige al mezclar el PR de preparación', () => {
+  const r = read({ [P.gate]: null });
   assert.match(r.checks.find((c) => c.id === 'gate').why, /rama|main|la rama principal/);
   assert.match(r.checks.find((c) => c.id === 'gate').why, /se corrige al mezclar el PR de preparación/);
 });
@@ -138,4 +159,9 @@ test('findPreparationIssue reutiliza el vivo (título o contenido) y ensurePrepa
   assert.equal(findPreparationIssue(open).number, 125);
   assert.equal(findPreparationIssue([...open, { number: 9, title: 'Preparar el repo para ghosty-dev', body: '' }]).number, 9);
   assert.equal(findPreparationIssue([{ number: 3, title: 'x', body: '' }]), null);
+});
+
+test('GATE_VERSION de evidence.mjs coincide con la versión del paquete', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(installedGateVersion(evidence), pkg.version);
 });

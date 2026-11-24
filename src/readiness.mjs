@@ -16,6 +16,17 @@ function reviewCheckConfig(raw) {
   }
 }
 
+// Versión mínima COMPATIBLE de la puerta instalada (hoy 0.9.38: la puerta propia no cuenta como CI). Una sola constante.
+// Una copia distinta pero >= mínima funciona: sólo avisa (`gate-version`). Anterior a la mínima, ausente o rota: bloquea.
+export const MIN_GATE_VERSION = '0.9.38';
+const cmpVer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+/** Versión de la puerta que declara su evidence.mjs (`GATE_VERSION`); sin marcador, 0.9.38 si ya exporta GATE_CHECKS, si no 0.0.0. */
+export function installedGateVersion(evidenceText = '') {
+  const m = /GATE_VERSION\s*=\s*'(\d+\.\d+\.\d+)'/.exec(evidenceText);
+  if (m) return m[1];
+  return /export const GATE_CHECKS\b/.test(evidenceText) ? '0.9.38' : '0.0.0';
+}
+
 export const GATE_CHECK_NAME = 'ghosty-dev/evidencia';
 export const PREPARE_TITLE = 'Preparar el repo para ghosty-dev';
 export const READINESS_PATHS = {
@@ -54,9 +65,17 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
 
   const missingGate = [READINESS_PATHS.gate, READINESS_PATHS.evidence].filter((p) => !has(p));
   const stale = [['gate', READINESS_PATHS.gate], ['evidence', READINESS_PATHS.evidence]].filter(([k, p]) => has(p) && typeof expected[k] === 'string' && files[p] !== expected[k]).map(([, p]) => p);
-  add('gate', !missingGate.length && !stale.length, 'block',
-    missingGate.length ? `faltan ${missingGate.join(' y ')} en ${branch} (se compara contra la rama base: se corrige al mezclar el PR de preparación)` : stale.length ? `${stale.join(' y ')} no está al día con ghosty-dev (se compara contra ${branch}: se corrige al mezclar el PR de preparación)` : 'la puerta está instalada y al día',
-    'ghosty-dev init --force --no-checks');
+  // Sólo bloquea si falta o es anterior a la mínima; una diferencia de versión por encima de ella es un aviso.
+  const installed = has(READINESS_PATHS.evidence) ? installedGateVersion(files[READINESS_PATHS.evidence]) : null;
+  const tooOld = installed !== null && cmpVer(installed, MIN_GATE_VERSION) < 0;
+  add('gate', !missingGate.length && !tooOld, 'block',
+    missingGate.length ? `faltan ${missingGate.join(' y ')} en ${branch} (se compara contra la rama base: se corrige al mezclar el PR de preparación)` : tooOld ? `la puerta instalada (${installed}) es anterior a la mínima compatible (${MIN_GATE_VERSION}) en ${branch}` : 'la puerta está instalada y es compatible',
+    'ghosty-dev init --force --no-checks --files-only');
+  if (!missingGate.length && !tooOld) {
+    add('gate-version', !stale.length, 'warn',
+      stale.length ? `${stale.join(' y ')} difiere de ghosty-dev (instalada ${installed}, mínima ${MIN_GATE_VERSION}); funciona, conviene actualizarla` : 'la puerta está al día con ghosty-dev',
+      'ghosty-dev init --force --no-checks --files-only (PR de la persona)');
+  }
   add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
   const rc = has(READINESS_PATHS.config) ? reviewCheckConfig(files[READINESS_PATHS.config]) : null;
   // Sin config la puerta usa el revisor por defecto «Ghosty Review» (gate.mjs): ya no bloquea, sólo se recomienda fijarlo.

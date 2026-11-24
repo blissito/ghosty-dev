@@ -1,6 +1,8 @@
 // Formato y validación del comentario de evidencia (Ley 2: se revisa la evidencia, no el código).
 // Archivo autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/ para que lo use la Action.
 
+// Versión de ghosty-dev que instaló esta puerta (la lee readiness para distinguir «distinta» de «rota»). Se sube con cada release.
+export const GATE_VERSION = '0.9.41';
 export const EVIDENCE_MARKER = '<!-- ghosty-dev:evidencia v0.1 -->';
 
 // Normaliza un encabezado: minúsculas, sin acentos ni signos.

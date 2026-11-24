@@ -46,7 +46,7 @@ Hablarle al escritor de un pendiente que va en la nube: `ghosty-dev tell <n> "me
 - Si existe `GS_PREVIEW_OAUTH_REDIRECT_URI`, úsalo como `redirect_uri` al pedir el código **y al canjearlo** (si no, `redirect_uri_mismatch`).
 - Arma el `state` con `previewOAuthState(state, '/ruta/del/callback')` (snippet de 10 líneas: docs de Ghosty Studio, fabrica/oauth-en-previews; usa `GS_PREVIEW_OAUTH_STATE_KEY`).
 - Una sola vez, el dueño registra `https://www.ghosty.studio/preview-oauth/callback` en el proveedor (GitHub: un OAuth App aparte para previews).
-- `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos.
+- `ghosty-dev doctor` dice qué falta (llaves, callback, registro) y los pasos. Una puerta instalada distinta de la de ghosty-dev pero ≥ 0.9.38 sólo avisa (`puerta-gate-version`, arréglalo con `ghosty-dev init --force --no-checks --files-only` en un PR); sólo bloquea si falta o es anterior.
 - **Primero la identidad de Ghosty (abajo, «Login en previews»: incluye Google real como paso 5), sin OAuth.** Si de verdad hace falta OAuth en previews: un cliente OAuth
   APARTE sólo para previews; nunca edites el cliente de producción ni copies su secreto a la vista previa.
 

@@ -106,6 +106,8 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 ## Comandos
 
 `next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria …` · `criteria <n> [--set <i> "texto" --reason "…"]` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
+> La puerta del repo sólo bloquea `claim` si falta o es anterior a 0.9.38; si únicamente difiere de tu versión, `doctor` avisa (`init --force --no-checks --files-only`).
+
 `show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
