@@ -82,6 +82,12 @@ test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 
+test('«Refs #95» no cierra: el mensaje trae el comando exacto con el número', () => {
+  const r = evaluatePullRequest({ number: 120, body: 'Refs #95 (el pendiente sigue abierto)' }, () => null);
+  assert.equal(r.ok, false);
+  assert.match(r.lines[0], /ghosty-dev claim --pr 120 --issue 95 \(o cambia «Refs #95» por «Closes #95»/);
+});
+
 test('un PR que no cierra ningún pendiente bloquea con el comando que lo liga; con unlinked: warn, pasa con aviso (C9)', () => {
   const r = evaluatePullRequest({ number: 76, body: 'arreglos varios' }, () => null);
   assert.equal(r.ok, false);

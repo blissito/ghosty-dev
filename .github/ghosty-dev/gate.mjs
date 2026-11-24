@@ -71,7 +71,12 @@ export function unlinkedPolicy(raw) {
 export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block', prCommits = null, preview = null } = {}) {
   const refs = closingRefs(pr.body || '');
   if (refs.length === 0) {
-    const fix = `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
+    // «Refs #95» enlaza pero no cierra: si la descripción nombra un solo pendiente, el comando sale exacto (sin «<n>»).
+    const mentioned = [...new Set([...(pr.body || '').matchAll(/(?:^|[^\w&])#(\d+)\b/g)].map((m) => Number(m[1])))].filter((n) => n !== pr.number);
+    const fix =
+      mentioned.length === 1
+        ? `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue ${mentioned[0]} (o cambia «Refs #${mentioned[0]}» por «Closes #${mentioned[0]}» en la descripción: «Refs» sólo enlaza, «Closes» cierra)`
+        : `ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n> (o agrega «Closes #n» a la descripción)`;
     if (unlinked === 'block') {
       const line = `El PR no cierra ningún pendiente: ${fix}.`;
       return { ok: false, lines: [line], failures: [line] };

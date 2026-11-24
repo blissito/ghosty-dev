@@ -920,6 +920,7 @@ try {
         [
           `#${x.number} ${x.title}`,
           `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
+          ...(x.stopReason ? [`  detenido por: ${x.stopReason}`] : []),
           `  escribe: ${x.writer.where}${x.writer.detail ? ` (${x.writer.detail})` : ''} — para cambiarlo: ${x.writer.move}`,
           `  escritor: ${x.assignees.join(', ') || '—'}`,
           `  bloqueado por: ${x.blockedBy.map(blockerLabel).join(', ') || '—'}`,

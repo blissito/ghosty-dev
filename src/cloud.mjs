@@ -44,6 +44,8 @@ const view = (r) => ({
   id: runId(r.id),
   state: text(r.estado ?? r.phase, 80),
   phase: text(r.phase, 40),
+  // Por qué se detuvo (factory_paused, person, guard_loop, writer_idle, box_expired, pr_closed, failed:…); null si no.
+  stopReason: text(r.stopReason, 120),
   pr: text(r.prUrl),
   url: text(r.issueUrl),
   branch: safeBranch(r.branch),
