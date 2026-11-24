@@ -38,6 +38,8 @@ Preparar el repo sin credenciales de GitHub: `ghosty-dev init --force --files-on
 La nube (`claim <n> --cloud`) y las variables de la vista previa (secretos) van con `ghosty-dev login --no-wait` → la persona aprueba la liga →
 `ghosty-dev login --wait` (sólo si `whoami` no encuentra sesión, y preguntando antes) y `ghosty-dev env ls | push <archivo>`
 (sesión propia de Ghosty Studio; GitHub sigue siendo `gh`). El archivo lo nombra la persona y ningún valor se imprime.
+Si un criterio de aceptación NO se puede cumplir (p. ej. «0 fallos» y main ya tenía fallos), no lo marques ni lo edites a escondidas: `ghosty-dev criteria <n> --set <i> "texto nuevo" --reason "…"` cambia sólo ese renglón y deja el comentario de rastro (quién, cuándo, antes, ahora, motivo). Sin `--set` lista los criterios. En la nube el escritor usa `dev_run_propose_criteria` y la persona aprueba.
+
 Hablarle al escritor de un pendiente que va en la nube: `ghosty-dev tell <n> "mensaje"` (o `--file m.md`, o `-` por stdin); si `show <n>` muestra «el escritor pregunta», contesta con la línea `contesta: ghosty-dev tell <n> "<opción>"`; `tell <n> --again` = otra vuelta.
 
 **OAuth en previews** (entrar con Google/GitHub en la vista previa):

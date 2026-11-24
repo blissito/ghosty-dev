@@ -30,6 +30,11 @@ Uso: ghosty-dev <comando> [opciones]
                                          lista los PR abiertos que quedarían bloqueados y por qué
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
                                          --context, --from <n> si lo descubriste trabajando #n)
+  criteria <n> [--set <i> "texto" --reason "…"]
+                                         sin --set lista los criterios de #n; con --set cambia SÓLO el criterio i (1 = el
+                                         primero, conserva su casilla) y deja un comentario con quién, cuándo, el texto
+                                         anterior, el nuevo y el motivo. Para un criterio que no se puede cumplir: se
+                                         enmienda con rastro, nunca se marca ni se edita a escondidas
   review <n> [--pr <m>] [--file r.md]    sin --file: el encargo para el revisor (otra sesión, contexto limpio);
                                          con --file: el revisor publica su revisión atada al commit del PR
   board                                  abre en el navegador los pendientes abiertos del repo
@@ -204,6 +209,7 @@ const { values, positionals } = parseArgs({
     method: { type: 'string' },
     'no-deploy': { type: 'boolean' },
     flow: { type: 'string' },
+    set: { type: 'string' },
     reason: { type: 'string' },
     person: { type: 'boolean' },
     all: { type: 'boolean' },
@@ -495,6 +501,9 @@ try {
     const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     if (r.brief) print(r, (x) => x.brief);
     else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
+  } else if (command === 'criteria') {
+    const r = cmd.criteria(num(arg), { set: values.set, text: arg2, reason: values.reason });
+    print(r, (x) => (x.criteria ? (x.criteria.length ? x.criteria.map((c) => `${c.index}. ${c.text}`).join('\n') : `#${x.number} no tiene criterios.`) : `Criterio ${x.index} de #${x.number} enmendado (comentario de rastro publicado).\n  antes: ${x.before}\n  ahora: ${x.after}`));
   } else if (command === 'board') {
     const r = cmd.board();
     print(r, (x) => `Pendientes abiertos en el navegador: ${x.url}`);

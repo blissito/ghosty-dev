@@ -217,6 +217,11 @@ ni un comentario perdido, y sigue con el tuyo.
 
 ```sh
 ghosty-dev add "título" --goal "…" --criteria "…" --from <n>
+```
+
+Si un criterio no se puede cumplir (p. ej. «0 fallos» con fallos previos en main): NO lo marques ni cambies su texto en silencio; enmiéndalo con rastro: `ghosty-dev criteria <n> --set <i> "texto nuevo" --reason "…"` (sin `--set` lista los criterios).
+
+```sh
 # si tu pendiente no puede seguir sin él:
 ghosty-dev block <n> --by <nuevo>
 ```

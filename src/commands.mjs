@@ -682,6 +682,45 @@ export function add(title, { goal, criteria, context, blockedBy, discoveredIn, f
   return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null, board };
 }
 
+// ---------- criteria (enmendar un criterio incumplible, con rastro) ----------
+
+// Los renglones «- [ ] …» de «## Criterios de aceptación»: línea del cuerpo, prefijo (con su casilla) y texto.
+export function parseCriteria(body) {
+  const out = [];
+  let inside = false;
+  String(body ?? '').split('\n').forEach((l, i) => {
+    if (/^##\s+/.test(l)) inside = /^##\s+Criterios de aceptaci[oó]n/i.test(l);
+    else if (inside) {
+      const m = l.match(/^(\s*[-*]\s+\[[ xX]\]\s+)(.*\S)\s*$/);
+      if (m) out.push({ line: i, prefix: m[1], text: m[2] });
+    }
+  });
+  return out;
+}
+
+/** Sin `set`, lista los criterios. Con `set` (1 = el primero) cambia SÓLO ese renglón (conserva su casilla) y deja un comentario con quién, cuándo, el texto anterior, el nuevo y el motivo. */
+export function criteria(n, { set, text, reason } = {}) {
+  const issue = api('GET', `${REPO}/issues/${n}`);
+  const list = parseCriteria(issue.body);
+  if (set === undefined) return { number: n, criteria: list.map((c, i) => ({ index: i + 1, text: c.text })) };
+  const i = Number(set);
+  if (!Number.isInteger(i) || i < 1 || i > list.length) throw new UserError(`#${n} no tiene el criterio ${set} (tiene ${list.length}).`);
+  const next = String(text ?? '').trim().replace(/\s*\n\s*/g, ' ');
+  if (!next) throw new UserError('Uso: ghosty-dev criteria <n> --set <i> "texto nuevo" --reason "por qué".');
+  if (!reason?.trim()) throw new UserError('Falta --reason "…": una enmienda sin motivo no deja rastro útil.');
+  const c = list[i - 1];
+  if (c.text === next) throw new UserError('El texto nuevo es igual al actual.');
+  const lines = String(issue.body).split('\n');
+  lines[c.line] = `${c.prefix}${next}`;
+  api('PATCH', `${REPO}/issues/${n}`, { body: lines.join('\n') });
+  const who = me();
+  const when = new Date().toISOString();
+  api('POST', `${REPO}/issues/${n}/comments`, {
+    body: `✏️ Criterio ${i} enmendado.\n\n- Quién: ${who}\n- Cuándo: ${when}\n- Texto anterior: ${c.text}\n- Texto nuevo: ${next}\n- Motivo: ${reason.trim()}\n\n<sub>Enmendado con ghosty-dev criteria</sub>`,
+  });
+  return { number: n, index: i, before: c.text, after: next, reason: reason.trim(), by: who, at: when };
+}
+
 // ---------- review (Cognition: un escritor, el revisor no comparte contexto; Anthropic: evaluador separado) ----------
 
 // El encargo del revisor: el mismo texto que usa el subagente de Claude Code, sin su frontmatter.
