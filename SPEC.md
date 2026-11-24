@@ -424,6 +424,7 @@ Una implementación cumple v0.1 si pasa esto (en este repo: `node --test`, con u
 | C36 | `next` reconoce la revisión externa del commit con la misma `externalReview` de la puerta (config.json de la base o «Ghosty Review»/ghosty-studio): `passed` salta a evidencia, `findings` a hallazgos, `pending` a esperar | `next reconoce la revisión externa…` |
 | C37 | `init --no-checks` no escribe `ghosty-checks.yml`; sin él, el resumen marca «NUEVO workflow»; `prepareBrief` usa `--files-only --no-checks` y no pide mezclar (es de la persona); `doctor` dice que `puerta-gate` se corrige al mezclar el PR de preparación | `init --no-checks…`, `prepareBrief…` |
 | C38 | La evidencia ignora en «CI» los renglones que hablan de «la (propia) puerta» y el error dice QUÉ renglón disparó el rojo | `la prosa que habla de la puerta…` |
+| C39 | `owner/repo#n` (también `n` y `#n`): un parser único (`parseRef`); con otro repo el comando corre en su clon (o con GH_REPO si no hay) y `claim` jamás crea rama o worktree en el repo del directorio; `add --repo` abre en otro repo con enlace cruzado y etiquetas allí; `--from`/`--by` entre repos; `claim` avisa del prefijo «gs:» sin bloquear | `test/ref.test.mjs` |
 | C16 | `init` crea `.ghosty/factory.md` con `memory:` (8gb en monorepo o con `--max-old-space-size`, si no 4gb), dice por qué y nunca lo pisa, ni con `--force` | `init crea .ghosty/factory.md…`, `init pide 8gb…` |
 
 ## 7. Fuera de v0.1
@@ -501,3 +502,14 @@ Un solo escritor, y hereda el trabajo (patrón de Copilot `/delegate` y Devin Ha
 Sin `reviewCheck` en `config.json` de la RAMA BASE, la puerta acepta el check «Ghosty Review» de la app `ghosty-studio` como revisor externo (identidad name + app obligatoria, atado al commit exacto). Así el PR que instala el config no se bloquea a sí mismo (Formmy #116). Un `config.json` explícito sigue mandando y nunca se afloja desde el PR. En `readinessOf`, `review-check` pasó de bloqueo a aviso («conviene fijarlo»; `ghosty-dev init`).
 
 **Patrón (bliss, 23-nov-2026): sin envs para sistemas.** Lo que la plataforma ya sabe (slug de la app, URL de gs, identidad de la preview) lo inyecta gs; el cliente no sube variables para que el sistema funcione, y todo se diseña para escalar a miles de clientes de forma automática.
+
+## Referencias entre repos (0.9.42)
+
+Un número solo es ambiguo cuando hay ≥2 repos en juego (el #94 de Formmy no es el #94 de gs). Toda referencia acepta el patrón de GitHub: `94`, `#94` u `owner/repo#94` (también la URL del issue o PR). Sin repo explícito es el del directorio (igual que siempre). Con `owner/repo#n` de OTRO repo el comando corre allá: ubica su clon local (directorio actual, `~/` a dos niveles y `GHOSTY_DEV_REPOS`, buscando por remoto) y trabaja ahí; **nunca crea ramas ni worktrees en el repo del directorio**. Sin clon, `claim` y `teleport` se detienen y dicen el comando exacto (`gh repo clone owner/repo ~/repo`); el resto sólo necesita GitHub. Con ≥2 repos en juego imprime `owner/repo#n`.
+
+- `ghosty-dev claim owner/repo#n` · `show` · `block` · `criteria` · `evidence` · `review` · `tell` · `stop` · `teleport` · `claim --cloud` aceptan la referencia completa; `--issue`/`--pr` también.
+- `ghosty-dev add "título" --repo owner/repo [--from <n>] …` abre el pendiente en OTRO repo, asegura allí las etiquetas del tablero y deja el enlace cruzado (`Descubierto en origen#n` en el cuerpo y un comentario en el pendiente de origen). `--from` sin repo es del repo donde corres el comando; `--by` sin repo, del repo donde se abre.
+- `--from owner/repo#n` y `--by owner/repo#m` entienden pendientes de otro repo (el bloqueo usa la dependencia nativa de GitHub, o `- owner/repo#m` en «Bloqueado por»).
+- `claim <n>` avisa (sin bloquear) si el título empieza con un prefijo de otro repo («gs:», «formmy:») o el cuerpo menciona otro repo del mismo dueño: «este pendiente parece de <repo>; usa `ghosty-dev claim <repo>#N` o ábrelo allí con `add --repo`».
+
+Implementación: `src/ref.mjs` (`parseRef`, `findCheckout`, `suspectRepo`); `bin/ghosty-dev.mjs` (`useTargetRepo`: GH_REPO + cambio de directorio al clon). Pruebas: `test/ref.test.mjs`.

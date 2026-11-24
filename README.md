@@ -105,7 +105,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 
 ## Comandos
 
-`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria …` · `criteria <n> [--set <i> "texto" --reason "…"]` · `ready [--json] [--claim]` · `claim <n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
+`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 > La puerta del repo sólo bloquea `claim` si falta o es anterior a 0.9.38; si únicamente difiere de tu versión, `doctor` avisa (`init --force --no-checks --files-only`).
 
 `show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n>` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
@@ -149,3 +149,5 @@ node --test      # sin red: usa un gh falso (testkit/fake-gh.mjs)
 ## Licencia
 
 MIT © Ghosty Studio. En [ghosty.studio](https://ghosty.studio) la bitácora trabaja sin tu compu prendida.
+
+**Entre repos (0.9.42).** Toda referencia acepta `n`, `#n` u `owner/repo#n`; con otro repo el comando corre en su clon local (nunca crea ramas ni worktrees en el repo del directorio), `add --repo owner/repo` abre el pendiente allá con enlace cruzado y `--from`/`--by` entienden `owner/repo#n`. Ver [SPEC.md](SPEC.md).

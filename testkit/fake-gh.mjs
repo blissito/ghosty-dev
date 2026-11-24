@@ -6,6 +6,8 @@ const file = process.env.FAKE_GH_STATE;
 const db = JSON.parse(readFileSync(file, 'utf8'));
 const args = process.argv.slice(2);
 db.calls.push(args);
+// El repo al que apuntaba GH_REPO en cada llamada (paralelo a calls): las pruebas de owner/repo#n lo leen.
+(db.callRepos ??= []).push(process.env.GH_REPO ?? null);
 const save = () => writeFileSync(file, JSON.stringify(db, null, 2));
 const out = (v) => process.stdout.write(typeof v === 'string' ? v : JSON.stringify(v));
 const fail = (msg) => {

@@ -238,3 +238,12 @@ ghosty-dev block <n> --by <nuevo>
   archivo y diga que sí.
 - Sondear el CI (`sleep`, loops, preguntar una y otra vez). La única espera es `ghosty-dev wait <n> --watch`.
 - Calificarte a ti mismo, escribir o publicar tú la revisión, o contarle al revisor lo que hiciste.
+
+## Referencias entre repos (0.9.42)
+
+Un número solo es ambiguo cuando hay ≥2 repos en juego (el #94 de Formmy no es el #94 de gs). Toda referencia acepta el patrón de GitHub: `94`, `#94` u `owner/repo#94` (también la URL del issue o PR). Sin repo explícito es el del directorio (igual que siempre). Con `owner/repo#n` de OTRO repo el comando corre allá: ubica su clon local (directorio actual, `~/` a dos niveles y `GHOSTY_DEV_REPOS`, buscando por remoto) y trabaja ahí; **nunca crea ramas ni worktrees en el repo del directorio**. Sin clon, `claim` y `teleport` se detienen y dicen el comando exacto (`gh repo clone owner/repo ~/repo`); el resto sólo necesita GitHub. Con ≥2 repos en juego imprime `owner/repo#n`.
+
+- `ghosty-dev claim owner/repo#n` · `show` · `block` · `criteria` · `evidence` · `review` · `tell` · `stop` · `teleport` · `claim --cloud` aceptan la referencia completa; `--issue`/`--pr` también.
+- `ghosty-dev add "título" --repo owner/repo [--from <n>] …` abre el pendiente en OTRO repo, asegura allí las etiquetas del tablero y deja el enlace cruzado (`Descubierto en origen#n` en el cuerpo y un comentario en el pendiente de origen). `--from` sin repo es del repo donde corres el comando; `--by` sin repo, del repo donde se abre.
+- `--from owner/repo#n` y `--by owner/repo#m` entienden pendientes de otro repo (el bloqueo usa la dependencia nativa de GitHub, o `- owner/repo#m` en «Bloqueado por»).
+- `claim <n>` avisa (sin bloquear) si el título empieza con un prefijo de otro repo («gs:», «formmy:») o el cuerpo menciona otro repo del mismo dueño: «este pendiente parece de <repo>; usa `ghosty-dev claim <repo>#N` o ábrelo allí con `add --repo`».

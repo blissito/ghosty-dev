@@ -15,9 +15,14 @@ import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
 import { git } from '../src/gh.mjs';
+import { parseRef, hasRepo, sameRepo, fmtRef, repoOfDir, findCheckout, cloneCommand } from '../src/ref.mjs';
 const HELP = `ghosty-dev — el trabajo vive en la bitácora, no en la sesión
 
 Uso: ghosty-dev <comando> [opciones]
+
+  Referencias: todo <n> acepta n, #n u owner/repo#n (patrón de GitHub). Con otro repo el comando corre en su clon local
+  (cwd, ~/ y GHOSTY_DEV_REPOS); sin clon, claim/teleport dicen cómo clonarlo. add --repo owner/repo abre el pendiente allá
+  (enlace cruzado en ambos lados); --from y --by también entienden owner/repo#n.
 
   init [--dir D] [--dry-run] [--force] [--no-protect] [--files-only] [--no-checks] [--yes]
                                          --no-checks: no escribe .github/workflows/ghosty-checks.yml (CI extra que no es de la puerta;
@@ -218,6 +223,7 @@ const { values, positionals } = parseArgs({
     all: { type: 'boolean' },
     timezone: { type: 'string' },
     yes: { type: 'boolean', short: 'y' },
+    repo: { type: 'string' },
   },
 });
 if (values.version) {
@@ -227,13 +233,51 @@ if (values.version) {
 }
 
 
-const [command, arg, arg2] = positionals;
+let [command, arg, arg2] = positionals;
 let existing = null; // sesión que ya había al pedir login
-const num = (v, what = '<n>') => {
-  const n = Number(String(v ?? '').replace(/^#/, ''));
-  if (!Number.isInteger(n) || n <= 0) throw new cmd.UserError(`Falta el número del pendiente ${what}.`);
-  return n;
+const num = (v, what = '<n>') => parseRef(v, what).n;
+
+// ---- Referencias entre repos: `n`, `#n` u `owner/repo#n` (patrón de GitHub) ----
+// Sin repo explícito todo sigue siendo el repo del directorio. Con `owner/repo#n` de OTRO repo el comando se
+// ejecuta allá: se ubica su clon local (cwd, ~/ y GHOSTY_DEV_REPOS), se entra y GH_REPO apunta a ese repo, así
+// nunca se crea una rama ni un worktree en el repo equivocado. Sin clon, sólo claim/teleport se detienen.
+const ORIGIN_REPO = repoOfDir();
+let targetRepo = null; // repo ajeno sobre el que corre este comando (null = el del directorio)
+const refOf = (v, what) => {
+  const r = parseRef(v, what);
+  return r.repo && sameRepo(r.repo, targetRepo ?? ORIGIN_REPO) ? { repo: null, n: r.n } : r;
 };
+function useTargetRepo() {
+  const from = [['<n>', arg], ['--issue', values.issue], ['--pr', values.pr]].filter(([, v]) => v !== undefined && hasRepo(v));
+  const repos = [...new Set(from.map(([, v]) => parseRef(v).repo.toLowerCase()))];
+  if (repos.length > 1) throw new cmd.UserError(`Las referencias son de repos distintos (${repos.join(', ')}): un comando trabaja en un solo repo.`);
+  if (!repos.length) return;
+  const repo = parseRef(from[0][1]).repo;
+  // Las referencias se vuelven números simples dentro del repo destino.
+  if (arg !== undefined && hasRepo(arg)) arg = String(parseRef(arg).n);
+  for (const k of ['issue', 'pr']) if (values[k] !== undefined && hasRepo(values[k])) values[k] = String(parseRef(values[k]).n);
+  if (sameRepo(repo, ORIGIN_REPO)) return;
+  const needsCheckout = (command === 'claim' && !values.cloud) || command === 'teleport';
+  const dir = findCheckout(repo);
+  if (!dir && needsCheckout) {
+    throw new cmd.UserError(`${repo} no es el repo de este directorio${ORIGIN_REPO ? ` (${ORIGIN_REPO})` : ''} y no encuentro un clon local suyo (busqué aquí, en ~/ y en GHOSTY_DEV_REPOS).\n  Clónalo y repite: ${cloneCommand(repo)} && ghosty-dev ${command} ${fmtRef(repo, arg ?? values.issue ?? values.pr)}`);
+  }
+  targetRepo = repo;
+  process.env.GH_REPO = repo;
+  if (dir) {
+    // Las rutas relativas (--file…) se resuelven antes de cambiar de directorio.
+    for (const k of ['file', 'issue-file']) if (typeof values[k] === 'string' && values[k] !== '-') values[k] = resolve(values[k]);
+    process.chdir(dir);
+  } else if (command === 'claim' && values.cloud) values['no-handoff'] = true; // sin clon no hay trabajo local que traspasar
+  console.error(`Repo: ${repo}${dir ? ` · clon: ${dir}` : ' · sin clon local (sólo GitHub)'}`);
+}
+// Con ≥2 repos en juego, todo número suelto se imprime como owner/repo#n (el número solo es ambiguo).
+const qualify = (t) => (targetRepo && typeof t === 'string' ? t.replace(/(?<![\w/.#&-])#(\d+)\b/g, `${targetRepo}#$1`) : t);
+for (const k of ['log', 'error']) {
+  const orig = console[k].bind(console);
+  console[k] = (...a) => orig(...a.map((x) => (k === 'error' || !values.json ? qualify(x) : x)));
+}
+const blockerLabel = (b) => (typeof b === 'number' ? `#${b}` : b);
 
 // Se imprime al terminar la instalación; el agente lo copia tal cual en su último mensaje.
 // La mascota es la de GhostyCode (crates/tui/src/tui/underwater.rs): halo, cabeza, ojos y cola en bloques.
@@ -435,11 +479,12 @@ async function printPr(r, note) {
 }
 
 function print(data, human) {
-  if (values.json) console.log(JSON.stringify(data, null, 2));
+  if (values.json) console.log(JSON.stringify(targetRepo && data && typeof data === 'object' && !Array.isArray(data) ? { repo: targetRepo, ...data } : data, null, 2));
   else console.log(human(data));
 }
 
 try {
+  if (!values.help && command && command !== 'help') useTargetRepo();
   if (values.help || !command || command === 'help') {
     console.log(HELP);
   } else if (command === 'init') {
@@ -515,11 +560,14 @@ try {
       goal: values.goal,
       criteria: values.criteria ?? [],
       context: values.context,
-      blockedBy: values.by ? num(values.by, '--by <m>') : undefined,
-      discoveredIn: values.from ? num(values.from, '--from <n>') : undefined,
+      blockedBy: values.by ? refOf(values.by, '--by <m>') : undefined,
+      discoveredIn: values.from ? refOf(values.from, '--from <n>') : undefined,
       flow: values.flow,
+      repo: values.repo,
     });
-    print(r, (x) => `Pendiente #${x.number} ${x.reused ? 'ya existía (lo reutilicé)' : 'abierto'}: ${x.title}${x.blockedBy ? ` (bloqueado por #${x.blockedBy})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
+    // Con ≥2 repos en juego (--repo, o --by/--from de otro repo) el número solo es ambiguo: se imprime completo.
+    if ((values.repo || [values.by, values.from].some((v) => v && refOf(v).repo)) && !r.ref) r.ref = fmtRef(values.repo ?? ORIGIN_REPO ?? cmd.repoFullName(), r.number);
+    print(r, (x) => `Pendiente ${x.ref ?? '#' + x.number} ${x.reused ? 'ya existía (lo reutilicé)' : 'abierto'}: ${x.title}${x.blockedBy ? ` (bloqueado por ${blockerLabel(x.blockedBy)})` : ''}\n  ${x.url}${x.board ? `\n  Tablero abierto en el navegador: ${x.board}` : ''}`);
   } else if (command === 'ready') {
     const list = cmd.ready();
     if (values.claim) {
@@ -661,11 +709,11 @@ try {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}`);
   } else if (command === 'block') {
-    const r = cmd.block(num(arg), values.by === undefined ? undefined : num(values.by, '--by <m>'), { reason: values.reason, person: values.person === true });
+    const r = cmd.block(num(arg), values.by === undefined ? undefined : (() => { const b = refOf(values.by, '--by <m>'); return b.repo ? b : b.n; })(), { reason: values.reason, person: values.person === true });
     print(r, (x) =>
       x.via === 'motivo'
         ? `#${x.number} bloqueado: ${x.reason}${x.pr ? ` (también en el PR #${x.pr})` : ''}. El tablero lo enseña como «Bloqueado»${x.person ? ' y le avisa a la persona («Te necesita»)' : ''}. Al resolverlo: ghosty-dev unblock ${x.number}.`
-        : `#${x.number} bloqueado por #${x.blockedBy} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? ` Motivo: ${x.reason}` : ''}`,
+        : `#${x.number} bloqueado por ${blockerLabel(x.blockedBy)} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? ` Motivo: ${x.reason}` : ''}`,
     );
   } else if (command === 'unblock') {
     const r = cmd.unblock(num(arg));
@@ -865,7 +913,7 @@ try {
           `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
           `  escribe: ${x.writer.where}${x.writer.detail ? ` (${x.writer.detail})` : ''} — para cambiarlo: ${x.writer.move}`,
           `  escritor: ${x.assignees.join(', ') || '—'}`,
-          `  bloqueado por: ${x.blockedBy.map((b) => '#' + b).join(', ') || '—'}`,
+          `  bloqueado por: ${x.blockedBy.map(blockerLabel).join(', ') || '—'}`,
           `  evidencia: ${x.evidence ? (x.evidenceStale ? `VIEJA: es del commit ${x.evidenceCommit}, la punta del PR es ${x.services.sha.slice(0, 7)} — hay que publicarla otra vez (ghosty-dev evidence ${x.number} --file e.md)` : 'sí') : 'no'}`,
           ...(x.asked ? [`  el escritor pregunta: ${x.asked.question}`, ...(x.asked.options.length ? [`    opciones: ${x.asked.options.join(' · ')}`] : []), `    contesta: ghosty-dev tell ${x.number} "${x.asked.options[0] ?? '<tu respuesta>'}"`] : []),
           `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,

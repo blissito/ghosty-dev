@@ -10,6 +10,7 @@ import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, ex
 import { readinessOf, prepareBrief, isPreparationIssue, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
+import { UserError, refText, fmtRef, sameRepo, repoOfDir, suspectRepo } from './ref.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -27,6 +28,8 @@ const LABEL_STYLE = {
 };
 
 const REPO = 'repos/{owner}/{repo}';
+// El repo sobre el que trabajan los comandos: GH_REPO (lo fija la referencia owner/repo#n) o el del directorio.
+export const effectiveRepo = () => process.env.GH_REPO || repoOfDir();
 const API_ISSUE = (n) => `${REPO}/issues/${n}`;
 // La forma interna de un pendiente, a partir de la respuesta REST.
 const toIssue = (i) => ({
@@ -44,7 +47,7 @@ const openIssues = () => apiAll(`${REPO}/issues?state=open`).filter((i) => !i.pu
 export const openPrs = () =>
   apiAll(`${REPO}/pulls?state=open`).map((p) => ({ number: p.number, title: p.title ?? '', url: p.html_url, body: p.body ?? '', draft: Boolean(p.draft), headRefName: p.head.ref, headRefOid: p.head.sha }));
 
-export class UserError extends Error {}
+export { UserError };
 
 // Los shas de los commits de un PR (null = no se pudo leer).
 export const prCommits = (n) => apiAll(`${REPO}/pulls/${n}/commits`, { allowFail: true })?.map((c) => c.sha) ?? null;
@@ -57,13 +60,21 @@ export const stateOf = (issue) =>
 // «Bloqueado por: #n» en el cuerpo: respaldo cuando el repo no tiene la API de dependencias.
 export function parseBlockedBy(body = '') {
   const m = body.match(/^##\s+Bloqueado por\s*\n([\s\S]*?)(?=^##\s|(?![\s\S]))/m);
-  return m ? [...m[1].matchAll(/#(\d+)/g)].map((x) => Number(x[1])) : [];
+  return m ? [...m[1].matchAll(/(?<![\w./-])#(\d+)/g)].map((x) => Number(x[1])) : [];
 }
 
+// Los bloqueos de OTRO repo del cuerpo («- owner/repo#m»), como texto.
+export function parseForeignBlockedBy(body = '') {
+  const m = body.match(/^##\s+Bloqueado por\s*\n([\s\S]*?)(?=^##\s|(?![\s\S]))/m);
+  return m ? [...m[1].matchAll(/([A-Za-z0-9][\w-]*\/[\w.-]+#\d+)/g)].map((x) => x[1]) : [];
+}
+
+// `n` es un número del mismo repo o el texto «owner/repo#m» de otro.
 export function addBlockedBy(body = '', n) {
-  if (parseBlockedBy(body).includes(n)) return body;
-  if (/^##\s+Bloqueado por\s*$/m.test(body)) return body.replace(/^(##\s+Bloqueado por\s*\n)/m, `$1- #${n}\n`);
-  return `${body.trimEnd()}\n\n## Bloqueado por\n- #${n}\n`;
+  const text = typeof n === 'number' ? `#${n}` : n;
+  if (typeof n === 'number' ? parseBlockedBy(body).includes(n) : parseForeignBlockedBy(body).includes(n)) return body;
+  if (/^##\s+Bloqueado por\s*$/m.test(body)) return body.replace(/^(##\s+Bloqueado por\s*\n)/m, `$1- ${text}\n`);
+  return `${body.trimEnd()}\n\n## Bloqueado por\n- ${text}\n`;
 }
 
 function viewIssue(n, { comments = false } = {}) {
@@ -73,11 +84,29 @@ function viewIssue(n, { comments = false } = {}) {
 }
 
 // Bloqueos abiertos de un pendiente: dependencias nativas de GitHub + la lista del cuerpo.
+// Los de este repo van como número; los de otro repo (dependencia nativa o «owner/repo#m» en el cuerpo) como texto
+// «owner/repo#m», y sólo si siguen abiertos.
 function openBlockers(issue, openNumbers) {
   const native = api('GET', `${API_ISSUE(issue.number)}/dependencies/blocked_by`, undefined, { allowFail: true }) ?? [];
-  const all = new Set([...native.map((i) => i.number), ...parseBlockedBy(issue.body)]);
-  return [...all].filter((n) => openNumbers.has(n));
+  const home = effectiveRepo() ?? null;
+  const foreign = (i) => {
+    const repo = String(i.repository_url ?? '').match(/repos\/([^/]+\/[^/]+)$/)?.[1];
+    return repo && home && !sameRepo(repo, home) ? repo : null;
+  };
+  const all = new Set([...native.filter((i) => !foreign(i)).map((i) => i.number), ...parseBlockedBy(issue.body)]);
+  const out = [...all].filter((n) => openNumbers.has(n));
+  for (const i of native) {
+    const repo = foreign(i);
+    if (repo && String(i.state).toLowerCase() === 'open') out.push(fmtRef(repo, i.number));
+  }
+  for (const ref of parseForeignBlockedBy(issue.body)) {
+    const [repo, num] = ref.split('#');
+    const other = api('GET', `repos/${repo}/issues/${num}`, undefined, { allowFail: true });
+    if (other && String(other.state).toLowerCase() === 'open' && !out.includes(ref)) out.push(ref);
+  }
+  return out;
 }
+const blockerText = (b) => (typeof b === 'number' ? `#${b}` : b);
 
 // Checks que publica la plataforma (Ghosty Studio) y que NO son el CI del repo: la revisión, la puerta de evidencia,
 // la vista previa y las revisiones del push. Lista normativa (SPEC §5c), la misma que el CI_IGNORE de gs. El
@@ -257,12 +286,15 @@ export function claim(n, { worktree = true, base, onWarning = () => {}, onProgre
   if (from?.warning) onWarning(from.warning);
   const issue = viewIssue(n);
   if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
+  const home = effectiveRepo();
+  const suspect = suspectRepo(issue, home);
+  if (suspect) onWarning(`este pendiente parece de ${suspect}; usa \`ghosty-dev claim ${suspect}#N\` (el número que tenga allá) o ábrelo allí con \`ghosty-dev add --repo ${suspect}\`. Sigo en ${home ?? 'este repo'}#${n}.`);
   const login = me();
   const other = issue.assignees.find((a) => a.login !== login);
   if (other) throw new UserError(`Un solo escritor por pendiente: #${n} ya lo tiene @${other.login}.`);
   const open = openIssues();
   const blockers = openBlockers(issue, new Set(open.map((i) => i.number)));
-  if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map((b) => '#' + b).join(', ')}.`);
+  if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map(blockerText).join(', ')}.`);
 
   onProgress(`tomando #${n} en GitHub…`);
   setState(issue, 'tomado', { assign: login });
@@ -312,7 +344,7 @@ export function adopt(n, m) {
   const other = issue.assignees.find((a) => a.login !== login);
   if (other) throw new UserError(`Un solo escritor por pendiente: #${n} ya lo tiene @${other.login}.`);
   const blockers = openBlockers(issue, new Set(openIssues().map((i) => i.number)));
-  if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map((b) => '#' + b).join(', ')}.`);
+  if (blockers.length) throw new UserError(`#${n} está bloqueado por ${blockers.map(blockerText).join(', ')}.`);
   const pr = prOf(n, m);
   const others = closingRefs(pr.body).filter((x) => x !== n);
   let linked = false;
@@ -665,26 +697,62 @@ export function pendienteBody({ goal, criteria = [], context, discoveredIn, flow
   const parts = ['## Objetivo', goal.trim(), '', '## Criterios de aceptación', ...criteria.map((x) => `- [ ] ${x.trim()}`)];
   // Obligatorio en la evidencia (Formmy, filas 44 y 46): el pendiente dice desde el inicio qué se va a ejercer.
   parts.push('', '## Flujo principal probado con sesión', flow?.trim() || '<!-- Qué función principal se usa con sesión en la vista previa y cómo (abrir la página no cuenta); la evidencia lo trae con captura o salida. Sin interfaz ni login: «no aplica: <motivo>». -->');
-  const ctx = [discoveredIn ? `Descubierto en #${discoveredIn}.` : '', context?.trim() ?? ''].filter(Boolean).join(' ');
+  const ctx = [discoveredIn ? `Descubierto en ${typeof discoveredIn === 'number' ? '#' + discoveredIn : discoveredIn}.` : '', context?.trim() ?? ''].filter(Boolean).join(' ');
   if (ctx) parts.push('', '## Contexto', ctx);
   return parts.join('\n') + '\n';
 }
 
-export function add(title, { goal, criteria, context, blockedBy, discoveredIn, flow } = {}) {
-  if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--flow "…"] [--by <m>].');
-  // «Preparar el repo para ghosty-dev» no se duplica: si ya hay uno vivo, se reutiliza.
-  if (title.trim() === PREPARE_TITLE) {
-    const live = findPreparationIssue(openIssues());
-    if (live) return { number: live.number, title: live.title, url: live.url, blockedBy: null, board: null, reused: true };
+// `repo` abre el pendiente en OTRO repo («owner/repo»): las etiquetas del tablero se aseguran allí y queda el enlace cruzado
+// (en el cuerpo «Descubierto en origen#n» y un comentario en el pendiente de origen). `discoveredIn` y `blockedBy` son
+// referencias {repo, n}: sin repo, `--from` es del repo de origen (donde corres el comando) y `--by` del repo donde se abre.
+export function add(title, { goal, criteria, context, blockedBy, discoveredIn, flow, repo } = {}) {
+  if (!title?.trim()) throw new UserError('Uso: ghosty-dev add "título" --goal "…" --criteria "…" [--criteria "…"] [--flow "…"] [--by <m>] [--repo owner/repo].');
+  const asRef = (x) => (x == null ? null : typeof x === 'object' ? x : { repo: null, n: x });
+  const from = asRef(discoveredIn);
+  const by = asRef(blockedBy);
+  const origin = repo ? effectiveRepo() ?? repoFullName() : null;
+  if (repo && !/^[A-Za-z0-9][\w-]*\/[\w.-]+$/.test(repo)) throw new UserError('--repo va como owner/repo.');
+  const away = repo && !sameRepo(repo, origin);
+  const prev = process.env.GH_REPO;
+  if (away) process.env.GH_REPO = repo;
+  try {
+    // «Preparar el repo para ghosty-dev» no se duplica: si ya hay uno vivo, se reutiliza.
+    if (title.trim() === PREPARE_TITLE) {
+      const live = findPreparationIssue(openIssues());
+      if (live) return { number: live.number, title: live.title, url: live.url, blockedBy: null, board: null, reused: true, repo: repo ?? null };
+    }
+    if (away) ensureBoardLabels();
+    const fromText = from ? (from.repo ? refText(from) : away ? fmtRef(origin, from.n) : `#${from.n}`) : away ? `${origin}` : null;
+    const body = pendienteBody({ goal, criteria, context, discoveredIn: fromText, flow });
+    const created = api('POST', `${REPO}/issues`, { title: title.trim(), body, labels: [label('listo')] });
+    const { number, html_url: url } = created;
+    if (!number) throw new Error('GitHub no devolvió el número del pendiente.');
+    const blocked = by ? block(number, by.repo && !sameRepo(by.repo, repo ?? origin) ? by : by.n) : null;
+    // Enlace cruzado: el pendiente de origen se entera de dónde quedó el trabajo.
+    if (away && from && !from.repo) {
+      process.env.GH_REPO = origin;
+      api('POST', `${API_ISSUE(from.n)}/comments`, { body: `Se abrió ${fmtRef(repo, number)} (${title.trim()}) para el trabajo que vive en ese repo.\n${url}` }, { allowFail: true });
+      process.env.GH_REPO = repo;
+    }
+    // La persona ve sus pendientes en GitHub: se abre el tablero una vez por tanda (no en cada add).
+    const board = openBoardOncePerBatch(url);
+    return { number, repo: repo ?? null, ref: repo ? fmtRef(repo, number) : null, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null, board };
+  } finally {
+    if (away) {
+      if (prev === undefined) delete process.env.GH_REPO;
+      else process.env.GH_REPO = prev;
+    }
   }
-  const body = pendienteBody({ goal, criteria, context, discoveredIn, flow });
-  const created = api('POST', `${REPO}/issues`, { title: title.trim(), body, labels: [label('listo')] });
-  const { number, html_url: url } = created;
-  if (!number) throw new Error('GitHub no devolvió el número del pendiente.');
-  const blocked = blockedBy ? block(number, blockedBy) : null;
-  // La persona ve sus pendientes en GitHub: se abre el tablero una vez por tanda (no en cada add).
-  const board = openBoardOncePerBatch(url);
-  return { number, title: title.trim(), url, blockedBy: blocked?.blockedBy ?? null, board };
+}
+
+// Las cuatro etiquetas del tablero en el repo actual (o GH_REPO): las crea si faltan, sin pisar las que ya hay.
+function ensureBoardLabels() {
+  const have = new Set((apiAll(`${REPO}/labels`, { allowFail: true }) ?? []).map((l) => l.name));
+  for (const state of STATES) {
+    if (have.has(label(state))) continue;
+    const [color, description] = LABEL_STYLE[state];
+    api('POST', `${REPO}/labels`, { name: label(state), color, description }, { allowFail: true });
+  }
 }
 
 // ---------- criteria (enmendar un criterio incumplible, con rastro) ----------
@@ -780,7 +848,11 @@ export const blockHint = (n) => `Si la función principal no funciona y no lo pu
 
 export const UNBLOCK_MARK = '<!-- ghosty-dev:desbloqueo -->';
 
-export function block(n, by, { reason, person = false } = {}) {
+export function block(n, byIn, { reason, person = false } = {}) {
+  // `by` puede ser un número (mismo repo) o {repo, n} de otro repo.
+  const byRef = byIn && typeof byIn === 'object' ? byIn : byIn ? { repo: null, n: byIn } : null;
+  const by = byRef?.n;
+  const foreignBy = byRef?.repo && !sameRepo(byRef.repo, effectiveRepo()) ? byRef.repo : null;
   const why = typeof reason === 'string' ? reason.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').trim() : '';
   if (reason !== undefined && !why) throw new UserError('--reason va con el motivo: qué falla y qué falta.');
   if (why.length > 1000) throw new UserError('--reason: máximo 1000 caracteres.');
@@ -796,13 +868,13 @@ export function block(n, by, { reason, person = false } = {}) {
     return { number: n, blockedBy: null, reason: why, pr: pr?.number ?? null, via: 'motivo', person: !!person };
   }
   if (person) throw new UserError('--person va con --reason "…" (qué necesitas de la persona).');
-  if (!by || by === n) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n) o ghosty-dev block <n> --reason "…".');
-  if (why) api('POST', `${API_ISSUE(n)}/comments`, { body: `${BLOCK_MARK}\n**Bloqueado por #${by}:** ${why}` });
+  if (!by || (by === n && !foreignBy)) throw new UserError('Uso: ghosty-dev block <n> --by <m> (m distinto de n) o ghosty-dev block <n> --reason "…".');
+  if (why) api('POST', `${API_ISSUE(n)}/comments`, { body: `${BLOCK_MARK}\n**Bloqueado por ${foreignBy ? fmtRef(foreignBy, by) : '#' + by}:** ${why}` });
   const issue = viewIssue(n);
-  const blocker = api('GET', API_ISSUE(by));
+  const blocker = api('GET', foreignBy ? `repos/${foreignBy}/issues/${by}` : API_ISSUE(by));
   const native = api('POST', `${API_ISSUE(n)}/dependencies/blocked_by`, { issue_id: blocker.id }, { allowFail: true });
   if (native === null) {
-    api('PATCH', API_ISSUE(n), { body: addBlockedBy(issue.body, by) });
+    api('PATCH', API_ISSUE(n), { body: addBlockedBy(issue.body, foreignBy ? fmtRef(foreignBy, by) : by) });
     setState(issue, 'bloqueado');
   } else if (stateOf(issue) !== 'bloqueado') {
     // GitHub ya lo marca «Blocked»; la etiqueta también dice bloqueado para que GitHub y el tablero digan lo mismo
@@ -810,7 +882,7 @@ export function block(n, by, { reason, person = false } = {}) {
     // otra vez y el tablero lo suelta (la dependencia nativa manda).
     setState(issue, 'bloqueado');
   }
-  return { number: n, blockedBy: by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
+  return { number: n, blockedBy: foreignBy ? fmtRef(foreignBy, by) : by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
 }
 
 // Quita el bloqueo con motivo: etiqueta fuera (vuelve a «tomado» si tiene PR o asignado; si no, a «listo») y una marca
