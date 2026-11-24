@@ -488,3 +488,9 @@ forma de token y recortados. Seguridad y cómo reportar: [SECURITY.md](SECURITY.
 ## Traspaso local↔nube (0.9.33)
 
 Un solo escritor, y hereda el trabajo (patrón de Copilot `/delegate` y Devin Handoff: viaja la rama, no un resumen). `claim <n> --cloud`: si el worktree de #n tiene cambios sin commitear o commits sin subir, commitea «WIP: traspaso a la nube» y sube todo a `ghosty-dev/<n>-traspaso` (nunca a la rama del PR); gs recibe `fromBranch` y la caja parte de ahí (`--no-handoff` lo salta). `claim <n>` con #n vivo en la nube lo detiene y trae su rama (`takeBack`, como `teleport`). `cloud` muestra un renglón por pendiente.
+
+## Revisor por defecto (0.9.34)
+
+Sin `reviewCheck` en `config.json` de la RAMA BASE, la puerta acepta el check «Ghosty Review» de la app `ghosty-studio` como revisor externo (identidad name + app obligatoria, atado al commit exacto). Así el PR que instala el config no se bloquea a sí mismo (Formmy #116). Un `config.json` explícito sigue mandando y nunca se afloja desde el PR. En `readinessOf`, `review-check` pasó de bloqueo a aviso («conviene fijarlo»; `ghosty-dev init`).
+
+**Patrón (bliss, 23-nov-2026): sin envs para sistemas.** Lo que la plataforma ya sabe (slug de la app, URL de gs, identidad de la preview) lo inyecta gs; el cliente no sube variables para que el sistema funcione, y todo se diseña para escalar a miles de clientes de forma automática.
