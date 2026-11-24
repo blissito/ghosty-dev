@@ -131,8 +131,6 @@ Un solo escritor por pendiente. Lo que la persona pida y lo que descubras va a u
 (`ghosty-dev add "título" --goal … --criteria …`), y si te bloquea: `ghosty-dev block <n> --by <m>`. La persona (el Clerk) lee la evidencia y
 decide el merge. Los identificadores van siempre en inglés (variables, funciones, llaves, archivos); en
 español sólo comentarios, mensajes y nombres de pruebas. Especificación: `SPEC.md` del paquete ghosty-dev.
-<!-- /ghosty-dev:agents -->
-
 ## Referencias entre repos (0.9.42)
 
 Un número solo es ambiguo cuando hay ≥2 repos en juego (el #94 de Formmy no es el #94 de gs). Toda referencia acepta el patrón de GitHub: `94`, `#94` u `owner/repo#94` (también la URL del issue o PR). Sin repo explícito es el del directorio (igual que siempre). Con `owner/repo#n` de OTRO repo el comando corre allá: ubica su clon local (directorio actual, `~/` a dos niveles y `GHOSTY_DEV_REPOS`, buscando por remoto) y trabaja ahí; **nunca crea ramas ni worktrees en el repo del directorio**. Sin clon, `claim` y `teleport` se detienen y dicen el comando exacto (`gh repo clone owner/repo ~/repo`); el resto sólo necesita GitHub. Con ≥2 repos en juego imprime `owner/repo#n`.
@@ -141,3 +139,5 @@ Un número solo es ambiguo cuando hay ≥2 repos en juego (el #94 de Formmy no e
 - `ghosty-dev add "título" --repo owner/repo [--from <n>] …` abre el pendiente en OTRO repo, asegura allí las etiquetas del tablero y deja el enlace cruzado (`Descubierto en origen#n` en el cuerpo y un comentario en el pendiente de origen). `--from` sin repo es del repo donde corres el comando; `--by` sin repo, del repo donde se abre.
 - `--from owner/repo#n` y `--by owner/repo#m` entienden pendientes de otro repo (el bloqueo usa la dependencia nativa de GitHub, o `- owner/repo#m` en «Bloqueado por»).
 - `claim <n>` avisa (sin bloquear) si el título empieza con un prefijo de otro repo («gs:», «formmy:») o el cuerpo menciona otro repo del mismo dueño: «este pendiente parece de <repo>; usa `ghosty-dev claim <repo>#N` o ábrelo allí con `add --repo`».
+
+<!-- /ghosty-dev:agents -->
