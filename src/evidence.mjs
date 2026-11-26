@@ -237,17 +237,22 @@ export function formatConfirmation(number, { sha, criterion, index, by, at, note
 // Puro. De los comentarios del issue: la evidencia vigente, sus `[~]`, cuáles ya confirmó una persona de confianza y
 // cuáles faltan. Una confirmación vale para el commit en que se dio y sobrevive a commits nuevos; lo que la invalida
 // es que la evidencia nueva ya no declare el `[~]` (entonces el criterio se juzga como cualquier otro).
-export function pendingVerification(comments = [], issueBody = '') {
+// `trusted` = { criterioKey: quién } de las confirmaciones que gs registró (`verification_confirmed`): esas las publica la
+// app de GitHub (author_association NONE) en nombre de la persona dueña, y sin esto nunca contaban (Formmy #90, 26-nov).
+export function pendingVerification(comments = [], issueBody = '', { trusted = {} } = {}) {
   const ev = findValidEvidence(comments, issueBody);
   if (!ev) return { evidence: null, manual: [], confirmed: [], missing: [] };
   const manual = validateEvidence(ev.body || '', issueBody).manual ?? [];
-  const confirms = comments.filter((c) => CONFIRM_RE.test(c.body || '') && (!c.author_association || TRUSTED.has(c.author_association)));
+  const confirms = comments.filter((c) => {
+    const m = CONFIRM_RE.exec(c.body || '');
+    return !!m && (!c.author_association || TRUSTED.has(c.author_association) || Object.prototype.hasOwnProperty.call(trusted, m[2]));
+  });
   const confirmed = [];
   const missing = [];
   for (const m of manual) {
     const key = criterionKey(m.criterion);
     const hit = [...confirms].reverse().find((c) => CONFIRM_RE.exec(c.body)[2] === key);
-    if (hit) confirmed.push({ ...m, by: hit.user?.login ?? null, sha: CONFIRM_RE.exec(hit.body)[1] });
+    if (hit) confirmed.push({ ...m, by: trusted[key] ?? hit.user?.login ?? null, sha: CONFIRM_RE.exec(hit.body)[1] });
     else missing.push(m);
   }
   return { evidence: ev, manual, confirmed, missing };
