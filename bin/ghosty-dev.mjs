@@ -82,7 +82,7 @@ Uso: ghosty-dev <comando> [opciones]
                                          etiqueta ghosty-dev:en-nube, la quita (vuelve a por-hacer o en-curso)
   tell <n> "mensaje" | --file m.md | -   le manda un mensaje al escritor de #n en la nube (si preguntó, es la
                                          respuesta; si trabaja, un aviso; si está detenido, lo reanuda); - lee stdin
-  tell <n> --again                       «otra vuelta»: el escritor reintenta sin mensaje nuevo
+  tell <n> --again ["mensaje"]           «otra vuelta»: el escritor reintenta; si das mensaje, va como nota
   reopen <n>                             retoma #n si lo detuvieron y su PR sigue abierto (misma rama, caja nueva)
   release <n>                            REANUDA un run de la nube que quedó «Esperando otro PR» (no cierra nada;
                                          NO suelta un claim: para eso, unclaim)
@@ -650,13 +650,12 @@ try {
     print(cloud.groupByIssue(await cloud.list()), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}${r.attempts ? `\t(+${r.attempts} intento${r.attempts > 1 ? 's' : ''} anterior${r.attempts > 1 ? 'es' : ''})` : ''}${r.actions?.length ? `\n${cloud.actionLines(r.actions, { n: r.number, pr: r.pr ? Number(String(r.pr).split('/').pop()) : null }, '    ').join('\n')}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
   } else if (command === 'tell') {
     const n = num(arg);
+    // Con --again el mensaje es opcional: si viene, viaja como nota de la otra vuelta (antes se tiraba).
+    const { readFileSync } = await import('node:fs');
     let note = null;
-    if (!values.again) {
-      const { readFileSync } = await import('node:fs');
-      if (values.file !== undefined) note = readFileSync(values.file, 'utf8');
-      else if (arg2 === '-') note = readFileSync(0, 'utf8');
-      else note = positionals.slice(2).join(' ');
-    }
+    if (values.file !== undefined) note = readFileSync(values.file, 'utf8');
+    else if (arg2 === '-') note = readFileSync(0, 'utf8');
+    else note = positionals.slice(2).join(' ');
     const r = await cloud.tell(n, { note, again: values.again });
     await writer.claimBeat(n);
     const PHASES = { needs_person: 'Te necesita', working: 'Trabajando', queued: 'En fila', waiting_ci: 'Esperando el CI', reviewing: 'En revisión', blocked: 'Esperando otro PR', merging: 'Mergeando', stopped: 'Detenido' };

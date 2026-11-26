@@ -327,6 +327,9 @@ test('tell --again manda resume sin nota y reanuda un pendiente detenido', () =>
     assert.deepEqual(gs.devCalls.at(-1).body, { op: 'resume' });
     assert.equal(JSON.parse(r.out).phase, 'working');
     assert.match((await cli(['tell', '5', '--again'])).out, /Otra vuelta pedida/);
+    // Con mensaje, viaja como nota del resume (antes se tiraba).
+    assert.equal((await cli(['tell', '5', '--again', 'revisa', 'el', 'login'])).code, 0);
+    assert.deepEqual(gs.devCalls.at(-1).body, { op: 'resume', note: 'revisa el login' });
   }));
 
 test('tell sin pendiente en la nube sale 1 y dice cómo mandarlo; sin sesión pide login', () =>

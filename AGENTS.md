@@ -42,7 +42,7 @@ Si un criterio de aceptación NO se puede cumplir (p. ej. «0 fallos» y main ya
 
 Si un criterio sólo lo puede comprobar la persona (p. ej. una sesión de administrador que no tienes), NO lo marques `[x]`, NO pidas publicar sin él y NO preguntes qué hacer: márcalo `- [~] <criterio> — verificación de la persona: <qué comprobar y cómo>`, enumera los pasos exactos y sigue. La puerta queda pendiente («Falta tu verificación») hasta que la persona corre `ghosty-dev confirm <n> --criterion <i>`; entonces pasa sola.
 
-Hablarle al escritor de un pendiente que va en la nube: `ghosty-dev tell <n> "mensaje"` (o `--file m.md`, o `-` por stdin); si `show <n>` muestra «el escritor pregunta», contesta con la línea `contesta: ghosty-dev tell <n> "<opción>"`; `tell <n> --again` = otra vuelta.
+Hablarle al escritor de un pendiente que va en la nube: `ghosty-dev tell <n> "mensaje"` (o `--file m.md`, o `-` por stdin); si `show <n>` muestra «el escritor pregunta», contesta con la línea `contesta: ghosty-dev tell <n> "<opción>"`; `tell <n> --again ["mensaje"]` = otra vuelta (el mensaje va como nota).
 
 **OAuth en previews** (entrar con Google/GitHub en la vista previa):
 - Si existe `GS_PREVIEW_OAUTH_REDIRECT_URI`, úsalo como `redirect_uri` al pedir el código **y al canjearlo** (si no, `redirect_uri_mismatch`).

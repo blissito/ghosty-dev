@@ -326,15 +326,15 @@ export async function asked(n) {
   }
 }
 
-// Le habla al escritor de #n en la nube (POST /dev-runs/<id> {op:'tell', note}); `again` = «otra vuelta» ({op:'resume'}
-// sin nota). El servidor decide por fase: si preguntó, es la respuesta; si trabaja, un aviso; si está detenido, lo reanuda.
+// Le habla al escritor de #n en la nube (POST /dev-runs/<id> {op:'tell', note}); `again` = «otra vuelta» ({op:'resume'},
+// con la nota si la hay: gs la pasa al escritor igual que en tell). El servidor decide por fase: si preguntó, es la respuesta; si trabaja, un aviso; si está detenido, lo reanuda.
 export async function tell(n, { note, again = false } = {}) {
   if (!again && !String(note ?? '').trim()) throw new CloudError('Falta el mensaje: ghosty-dev tell <n> "mensaje" (o --file m.md, o - para leer de stdin).');
   const rows = (await list()).filter((r) => r.number === n);
   const run = rows.find((r) => LIVE.has(r.phase)) ?? rows[0];
   if (!run) throw new CloudError(`#${n} no va en la nube. Mándalo primero: ghosty-dev claim ${n} --cloud`);
   const before = run.phase;
-  const r = view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, again ? { op: 'resume' } : { op: 'tell', note: String(note) }));
+  const r = view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, again ? { op: 'resume', ...(String(note ?? '').trim() ? { note: String(note) } : {}) } : { op: 'tell', note: String(note) }));
   return { ...r, op: again ? 'resume' : 'tell', before, answered: !again && before === 'needs_person' };
 }
 
