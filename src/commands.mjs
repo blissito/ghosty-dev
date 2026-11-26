@@ -933,19 +933,60 @@ export function block(n, byIn, { reason, person = false } = {}) {
   return { number: n, blockedBy: foreignBy ? fmtRef(foreignBy, by) : by, reason: why || null, via: native === null ? 'cuerpo' : 'github' };
 }
 
-// Quita el bloqueo con motivo: etiqueta fuera (vuelve a «tomado» si tiene PR o asignado; si no, a «listo») y una marca
-// de desbloqueo en el issue y su PR, para que el tablero deje de decir «Bloqueado». Un --by nativo se quita solo al
-// cerrarse el que bloquea.
-export function unblock(n) {
+// Quita el bloqueo: las dependencias nativas «blocked_by» de GitHub (el tablero de Ghosty las lee, así que si se
+// quedan, sigue diciendo «Bloqueado»), la lista «Bloqueado por» del cuerpo, la etiqueta (vuelve a «tomado» si tiene PR
+// o asignado; si no, a «listo») y una marca de desbloqueo en el issue y su PR. Con `by` sólo quita ese bloqueador.
+// Si GitHub rechaza quitar una dependencia, lo dice (nunca en silencio) y no toca etiqueta ni marca.
+export function unblock(n, { by } = {}) {
   const issue = viewIssue(n);
   if (issue.state !== 'OPEN') throw new UserError(`#${n} está cerrado.`);
+  if (by !== undefined && (!Number.isInteger(by) || by <= 0)) throw new UserError('--by va con el número del pendiente que bloquea.');
+  const listed = api('GET', `${API_ISSUE(n)}/dependencies/blocked_by`, undefined, { allowFail: true });
+  const native = (listed ?? []).filter((i) => by === undefined || i.number === by);
+  const removed = [];
+  const failed = [];
+  for (const dep of native) {
+    const ok = api('DELETE', `${API_ISSUE(n)}/dependencies/blocked_by/${dep.id}`, undefined, { allowFail: true });
+    (ok === null ? failed : removed).push(dep.number);
+  }
+  if (failed.length) {
+    throw new UserError(`GitHub no dejó quitar la dependencia de #${n} con ${failed.map((x) => '#' + x).join(', ')}${removed.length ? ` (sí se quitó la de ${removed.map((x) => '#' + x).join(', ')})` : ''}: revisa tus permisos (gh auth status) o quítala en GitHub, sección «Relationships» del issue.`);
+  }
+  const inBody = parseBlockedBy(issue.body).filter((x) => by === undefined || x === by);
+  if (inBody.length) api('PATCH', API_ISSUE(n), { body: removeBlockedBy(issue.body, by) });
+  if (by !== undefined && !removed.length && !inBody.length) throw new UserError(`#${n} no está bloqueado por #${by}.`);
+  // Con --by y otros bloqueos vivos, la etiqueta se queda: sigue bloqueado.
+  const rest = by === undefined ? [] : [...(listed ?? []).filter((i) => i.number !== by && String(i.state).toLowerCase() === 'open').map((i) => i.number), ...parseBlockedBy(issue.body).filter((x) => x !== by)];
   const labeled = (issue.labels || []).some((l) => l.name === label('bloqueado'));
   const pr = prOf(n);
-  if (labeled) setState(issue, pr || (issue.assignees || []).length ? 'tomado' : 'listo');
-  const body = `${UNBLOCK_MARK}\n**Desbloqueado.**`;
-  api('POST', `${API_ISSUE(n)}/comments`, { body });
-  if (pr) api('POST', `${API_ISSUE(pr.number)}/comments`, { body: `${body} (#${n})` }, { allowFail: true });
-  return { number: n, wasLabeled: labeled, pr: pr?.number ?? null };
+  if (labeled && !rest.length) setState(issue, pr || (issue.assignees || []).length ? 'tomado' : 'listo');
+  if (!rest.length) {
+    const body = `${UNBLOCK_MARK}\n**Desbloqueado.**`;
+    api('POST', `${API_ISSUE(n)}/comments`, { body });
+    if (pr) api('POST', `${API_ISSUE(pr.number)}/comments`, { body: `${body} (#${n})` }, { allowFail: true });
+  }
+  return { number: n, wasLabeled: labeled, removed: [...new Set([...removed, ...inBody])], stillBlockedBy: rest, depsApi: listed !== null, pr: pr?.number ?? null };
+}
+
+// Quita de la lista «Bloqueado por» del cuerpo el #by (o todos los del repo si no hay `by`); el encabezado vacío se va. Puro.
+export function removeBlockedBy(body = '', by) {
+  const m = body.match(/^##\s+Bloqueado por\s*\n([\s\S]*?)(?=^##\s|(?![\s\S]))/m);
+  if (!m) return body;
+  const hits = (line) => [...line.matchAll(/(?<![\w./-])#(\d+)/g)].some((x) => by === undefined || Number(x[1]) === by);
+  const kept = m[1].split('\n').filter((line) => !hits(line));
+  const left = kept.join('\n').trim();
+  return body.replace(m[0], left ? `${m[0].split('\n')[0]}\n${left}\n${m[0].endsWith('\n\n') ? '\n' : ''}` : '').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+}
+
+// La etiqueta que pone Ghosty Studio cuando #n va en la nube. Si el run ya no vive (se detuvo o se perdió) y la
+// etiqueta se quedó, `stop` la quita para que GitHub no siga diciendo «en la nube».
+export const CLOUD_LABEL = 'ghosty-dev:en-nube';
+export function clearCloudLabel(n) {
+  const issue = viewIssue(n);
+  if (!(issue.labels || []).some((l) => l.name === CLOUD_LABEL)) return { number: n, cleared: false, state: stateOf(issue) };
+  const next = stateOf(issue) === 'bloqueado' ? 'bloqueado' : prOf(n) || (issue.assignees || []).length ? 'tomado' : 'listo';
+  setState(issue, next);
+  return { number: n, cleared: true, state: next };
 }
 
 // ---------- show (Beads: bd show) ----------
@@ -1054,9 +1095,11 @@ export function evidenceCommitOf(comment) {
  * Quién escribe #n AHORA y qué sigue para cambiar de lugar. Un solo escritor: la nube (un run vivo) o tu terminal
  * (rama/worktree local), nunca los dos. Puro: recibe lo ya leído.
  */
-export function writerOf({ number, cloudRun = null, localBranch = null }) {
+export function writerOf({ number, cloudRun = null, localBranch = null, blocked = false }) {
   const live = cloudRun && ['queued', 'working', 'waiting_ci', 'reviewing', 'needs_person', 'blocked', 'merging'].includes(cloudRun.phase);
   if (live) return { where: 'nube', detail: cloudRun.state, move: `ghosty-dev teleport ${number}   (la trae a tu compu y detiene la nube)` };
+  // Bloqueado: ni nube ni claim hasta quitar el bloqueo.
+  if (blocked) return { where: localBranch ? 'tu compu' : 'nadie', detail: localBranch ?? null, move: `ghosty-dev unblock ${number}   (está bloqueado: primero se desbloquea; --by <m> quita sólo ése)` };
   if (localBranch) return { where: 'tu compu', detail: localBranch, move: `ghosty-dev claim ${number} --cloud   (la manda a la nube; un solo escritor)` };
   return { where: 'nadie', detail: cloudRun ? `último intento en la nube: ${cloudRun.state}` : null, move: `ghosty-dev claim ${number}  (local) · ghosty-dev claim ${number} --cloud  (nube)` };
 }
@@ -1273,7 +1316,18 @@ export function next() {
 
 // ---------- close (Beads: bd close, pero sólo con evidencia — Ley 2) ----------
 
-export function close(n) {
+export function close(n, { duplicateOf } = {}) {
+  if (duplicateOf !== undefined) {
+    // Un duplicado no lleva evidencia: se cierra como «no planeado» y dice de cuál es copia.
+    if (!Number.isInteger(duplicateOf) || duplicateOf <= 0 || duplicateOf === n) throw new UserError('--duplicate-of va con el número del pendiente original (distinto de n).');
+    const issue = viewIssue(n);
+    if (issue.state !== 'OPEN') throw new UserError(`#${n} ya está cerrado.`);
+    const original = api('GET', API_ISSUE(duplicateOf), undefined, { allowFail: true });
+    if (!original) throw new UserError(`No encuentro #${duplicateOf} en este repo.`);
+    api('POST', `${API_ISSUE(n)}/comments`, { body: `Duplicado de #${duplicateOf}.` });
+    api('PATCH', API_ISSUE(n), { state: 'closed', state_reason: 'not_planned' });
+    return { number: n, state: 'cerrado', duplicateOf };
+  }
   const issue = viewIssue(n, { comments: true });
   if (!findValidEvidence(issue.comments, issue.body)) {
     throw new UserError(`#${n} no tiene comentario de evidencia válido: no se cierra. Usa ghosty-dev evidence ${n} --file evidencia.md.`);

@@ -111,6 +111,15 @@ if (group === 'label' && verb === 'create') {
     }
     if (method !== 'GET' || name) out({});
   }
+  else if ((m = path.match(/issues\/(\d+)\/dependencies\/blocked_by\/(\d+)$/))) {
+    // Quitar una dependencia nativa: el último segmento es el id del bloqueador, no su número.
+    if (!db.depsApi || db.depsDeleteFails) fail('HTTP 403: Resource not accessible');
+    const i = issue(m[1]);
+    const blocker = Object.values(db.issues).find((x) => x.id === Number(m[2]));
+    if (!blocker || !i.blockedBy.includes(blocker.number)) fail('HTTP 404: Not Found');
+    i.blockedBy = i.blockedBy.filter((n) => n !== blocker.number);
+    out(rest(i));
+  }
   else if ((m = path.match(/issues\/(\d+)\/dependencies\/blocked_by$/))) {
     if (!db.depsApi) fail('HTTP 404: Not Found');
     const i = issue(m[1]);
@@ -119,7 +128,7 @@ if (group === 'label' && verb === 'create') {
       i.blockedBy.push(blocker.number);
       out({});
     } else {
-      out(i.blockedBy.map((n) => ({ number: n, state: db.issues[n].state })));
+      out(i.blockedBy.map((n) => ({ id: db.issues[n].id, number: n, state: db.issues[n].state })));
     }
   }
   else if ((m = path.match(/issues\/(\d+)\/labels(?:\/(.+))?$/))) {
@@ -159,7 +168,7 @@ if (group === 'label' && verb === 'create') {
   }
   else if ((m = path.match(/issues\/(\d+)$/))) {
     const i = issue(m[1]);
-    if (method === 'PATCH') Object.assign(i, body.body !== undefined ? { body: body.body } : {}, body.state ? { state: body.state } : {});
+    if (method === 'PATCH') Object.assign(i, body.body !== undefined ? { body: body.body } : {}, body.state ? { state: body.state } : {}, body.state_reason ? { stateReason: body.state_reason } : {});
     out(rest(i));
   }
   else if (path.endsWith('/issues')) {

@@ -40,7 +40,8 @@ Uso: ghosty-dev <comando> [opciones]
                                          declaró «- [~] … — verificación de la persona: …». Sólo con permiso de escritura;
                                          deja un comentario de rastro (quién, cuándo, nota) y vuelve a correr la puerta
   add "título" --goal G --criteria C…    abre un pendiente (--criteria se repite; --by <m> si lo bloquea #m;
-                                         --context, --from <n> si lo descubriste trabajando #n)
+                                         --context, --from <n> si lo descubriste trabajando #n). Abre el tablero en el
+                                         navegador (una vez cada 2 min); --no-open o GHOSTY_DEV_NO_OPEN=1 no lo abre
   criteria <n> [--set <i> "texto" --reason "…"]
                                          sin --set lista los criterios de #n; con --set cambia SÓLO el criterio i (1 = el
                                          primero, conserva su casilla) y deja un comentario con quién, cuándo, el texto
@@ -77,7 +78,8 @@ Uso: ghosty-dev <comando> [opciones]
   claim --cloud --pr <m> [--yes]         sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
                                          y tu terminal lo sigue escribiendo
   cloud                                  los pendientes de este repo que van en la nube
-  stop <n>                               detiene #n en la nube y libera su caja
+  stop <n>                               detiene #n en la nube y libera su caja; si no iba en la nube pero quedó la
+                                         etiqueta ghosty-dev:en-nube, la quita (vuelve a por-hacer o en-curso)
   tell <n> "mensaje" | --file m.md | -   le manda un mensaje al escritor de #n en la nube (si preguntó, es la
                                          respuesta; si trabaja, un aviso; si está detenido, lo reanuda); - lee stdin
   tell <n> --again                       «otra vuelta»: el escritor reintenta sin mensaje nuevo
@@ -106,7 +108,9 @@ Uso: ghosty-dev <comando> [opciones]
   block <n> --reason "…"                 #n queda bloqueado con su motivo (comentario en el issue y su PR; el tablero
                                          lo enseña). Úsalo si la verificación real falla y no lo puedes arreglar ahora.
                                          --person: le toca a la persona (credencial, acceso, decisión) → «Te necesita»
-  unblock <n>                            quita el bloqueo con motivo (el tablero vuelve a su estado)
+  unblock <n> [--by <m>]                 quita el bloqueo: la dependencia nativa «blocked by» de GitHub (con --by sólo
+                                         la de #m), la lista del cuerpo, la etiqueta y deja la marca (el tablero vuelve
+                                         a su estado). Si GitHub no deja quitar la dependencia, lo dice y sale 1
   add … --flow "qué y cómo"              el flujo principal que se probará con sesión (va en la evidencia)
   show <n> [--json]                      estado, bloqueos, evidencia, la ficha y los servicios del PR
                                          (vista previa, revisión, smoke y CI del commit actual)
@@ -147,6 +151,8 @@ Uso: ghosty-dev <comando> [opciones]
                                          del último commit terminen (any: el primer cambio). Un renglón (JSON con
                                          --json) por cambio; sale 0 cumplido, 1 falló/rojo, 75 se acabó el tiempo
   close <n>                              cierra el pendiente, sólo si tiene evidencia válida
+  close <n> --duplicate-of <m>           cierra un duplicado sin evidencia («no planeado» + comentario «Duplicado de
+                                         #m»); si iba en la nube, primero lo detiene
   merge [<pr>] [--wait] [--minutes 10] [--method squash|merge|rebase] [--no-deploy]
                                          merge SÓLO con todos los checks del último commit resueltos en verde (o
                                          neutral), la puerta de evidencia en verde, sin borrador ni conflicto; si no,
@@ -172,7 +178,8 @@ Sesión propia en Ghosty Studio (nube, vista previa y variables; GitHub sigue si
 
 Opciones globales: --json (salida en JSON), -h/--help
 Requiere gh autenticado (GHOSTY_DEV_GH cambia el binario). La nube y las variables usan la sesión de ghosty-dev login.
-Variables: GHOSTY_DEV_TOKEN (CI) manda sobre la sesión guardada; GHOSTY_DEV_BASE_URL cambia el servidor (sólo https).`;
+Variables: GHOSTY_DEV_TOKEN (CI) manda sobre la sesión guardada; GHOSTY_DEV_BASE_URL cambia el servidor (sólo https);
+GHOSTY_DEV_NO_OPEN=1 nunca abre el navegador (add, board, login): para agentes y CI.`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -188,6 +195,8 @@ const { values, positionals } = parseArgs({
     again: { type: 'boolean' },
     start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
+    'no-open': { type: 'boolean' },
+    'duplicate-of': { type: 'string' },
     'dry-run': { type: 'boolean' },
     force: { type: 'boolean' },
     'no-protect': { type: 'boolean' },
@@ -572,6 +581,7 @@ try {
     const r = cmd.board();
     print(r, (x) => `Pendientes abiertos en el navegador: ${x.url}`);
   } else if (command === 'add') {
+    if (values['no-open']) process.env.GHOSTY_DEV_NO_OPEN = '1';
     const r = cmd.add(arg, {
       goal: values.goal,
       criteria: values.criteria ?? [],
@@ -676,7 +686,18 @@ try {
           : 'No hay PRs cerrados sin merge con su rama viva.',
     );
   } else if (command === 'stop') {
-    print(await cloud.stop(num(arg)), (r) => `#${r.number} detenido en la nube. El issue y la rama se quedan.`);
+    const n = num(arg);
+    let r;
+    try {
+      r = await cloud.stop(n);
+    } catch (e) {
+      // Sin run vivo, pero con la etiqueta «en-nube» colgada: se quita y el issue vuelve a su estado.
+      if (!(e instanceof cloud.CloudError) || !/no va en la nube/.test(e.message)) throw e;
+      const c = cmd.clearCloudLabel(n);
+      if (!c.cleared) throw e;
+      r = { number: n, labelCleared: true, state: c.state };
+    }
+    print(r, (x) => (x.labelCleared ? `#${x.number} no iba en la nube, pero tenía la etiqueta ghosty-dev:en-nube: la quité (vuelve a ${cmd.label(x.state)}).` : `#${x.number} detenido en la nube. El issue y la rama se quedan.`));
   } else if (command === 'teleport') {
     print(await cloud.teleport(num(arg)), (r) => `#${r.number} ya no va en la nube.${r.branch ? `\n  rama: ${r.branch}\n  Sigue aquí: ghosty-dev claim ${r.number}` : ''}`);
   } else if (command === 'claim') {
@@ -743,8 +764,12 @@ try {
         : `#${x.number} bloqueado por ${blockerLabel(x.blockedBy)} (${x.via === 'github' ? 'dependencia nativa de GitHub' : 'lista en el cuerpo'}).${x.reason ? ` Motivo: ${x.reason}` : ''}`,
     );
   } else if (command === 'unblock') {
-    const r = cmd.unblock(num(arg));
-    print(r, (x) => `#${x.number} desbloqueado${x.pr ? ` (también en el PR #${x.pr})` : ''}.${x.wasLabeled ? '' : ' No tenía la etiqueta: sólo se dejó la marca.'}`);
+    const r = cmd.unblock(num(arg), { by: values.by === undefined ? undefined : num(values.by, '--by <m>') });
+    print(r, (x) =>
+      x.stillBlockedBy.length
+        ? `#${x.number}: quité el bloqueo de ${x.removed.map((b) => '#' + b).join(', ')}; sigue bloqueado por ${x.stillBlockedBy.map((b) => '#' + b).join(', ')}.`
+        : `#${x.number} desbloqueado${x.removed.length ? ` (quité la dependencia con ${x.removed.map((b) => '#' + b).join(', ')})` : ''}${x.pr ? ` (también en el PR #${x.pr})` : ''}.${x.wasLabeled || x.removed.length ? '' : ' No tenía etiqueta ni dependencias: sólo se dejó la marca.'}`,
+    );
   } else if (command === 'show' && values.pr !== undefined) {
     await printPr(cmd.showPr(num(values.pr, '--pr <m>')));
   } else if (command === 'preview' && shares.SHARE_OPS.includes(arg)) {
@@ -930,9 +955,11 @@ try {
       // Dónde vive el trabajo (nube o tu compu) y cómo cambiarlo: un solo escritor a la vez.
       const cloudRun = (await cloud.list().catch(() => [])).find((c) => c.number === r.number) ?? null;
       const localBranch = (git(['branch', '--list', `ghosty-dev/${r.number}-*`], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
-      r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch });
+      const blocked = r.blockedBy.length > 0 || r.state === 'bloqueado';
+      r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch, blocked });
       // gs calcula las acciones (un solo sitio); sin `actions` (servidor viejo) queda el `move` de writerOf.
       r.actions = process.env.GHOSTY_DEV_NO_NET ? null : await cloud.actionsFor(r.number);
+      if (blocked && r.actions) r.actions = cloud.actionsWhenBlocked(r.actions);
       // Si el escritor de la nube preguntó algo, se muestra con la línea exacta para contestar.
       r.asked = cloudRun ? await cloud.asked(r.number) : null;
       const head = r.services?.sha ?? null;
@@ -964,8 +991,13 @@ try {
     print(r, mergeText);
     process.exitCode = r.exitCode;
   } else if (command === 'close') {
-    const r = cmd.close(num(arg));
-    print(r, (x) => `#${x.number} cerrado con evidencia.`);
+    const n = num(arg);
+    const duplicateOf = values['duplicate-of'] === undefined ? undefined : num(values['duplicate-of'], '--duplicate-of <m>');
+    // Un duplicado que iba en la nube se detiene antes de cerrarlo (un escritor huérfano seguiría gastando).
+    const stopped = duplicateOf !== undefined && !process.env.GHOSTY_DEV_NO_NET ? await cloud.stopIfLive(n) : null;
+    if (duplicateOf !== undefined) cmd.clearCloudLabel(n);
+    const r = { ...cmd.close(n, { duplicateOf }), stoppedInCloud: Boolean(stopped) };
+    print(r, (x) => (x.duplicateOf ? `#${x.number} cerrado como duplicado de #${x.duplicateOf}${x.stoppedInCloud ? ' (antes lo detuve en la nube)' : ''}.` : `#${x.number} cerrado con evidencia.`));
   } else if (command === 'login' && !values.wait && !values.force && (existing = await auth.existingSession())) {
     // Ya hay credenciales (GHOSTY_DEV_TOKEN o sesión vigente/renovable): no se inicia otro login.
     print(existing, (x) => `Ya hay sesión de Ghosty Studio${x.source === 'env' ? ' (GHOSTY_DEV_TOKEN)' : x.email ? ` como ${x.email}` : ''}; no hace falta login. Para cambiar de cuenta: ghosty-dev logout.`);

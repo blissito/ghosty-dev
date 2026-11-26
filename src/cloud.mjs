@@ -65,8 +65,22 @@ export function actionCommand(a, { n, pr = null } = {}) {
     case 'confirm': return `ghosty-dev confirm ${n} --criterion <i>`;
     case 'start': return `ghosty-dev claim ${n} --cloud`;
     case 'release_claim': return `ghosty-dev unclaim ${n}`;
+    case 'unblock': return `ghosty-dev unblock ${n}`;
+    case 'edit_criterion': return `ghosty-dev criteria ${n} --set <i> "texto nuevo" --reason "por qué"`;
+    case 'handoff_to_terminal': return `ghosty-dev teleport ${n}`;
+    case 'box_logs': return pr ? `ghosty-dev box logs ${pr}` : 'ghosty-dev box logs';
     default: return a.href ?? null;
   }
+}
+
+/**
+ * Un pendiente bloqueado no se manda a la nube: se quita «Mandar a la nube» (start) y, si no está ya, se ofrece
+ * «Desbloquear» primero. Puro.
+ */
+export function actionsWhenBlocked(actions) {
+  if (!Array.isArray(actions)) return actions;
+  const kept = actions.filter((a) => a.id !== 'start');
+  return kept.some((a) => a.id === 'unblock') ? kept : [{ id: 'unblock', label: 'Desbloquear', kind: 'op', href: null, primary: true, destructive: false, disabled: null }, ...kept.map((a) => ({ ...a, primary: false }))];
 }
 
 /** Renglones «→ etiqueta: comando» de las acciones de gs (deshabilitadas con su porqué). Puro. */
@@ -223,6 +237,17 @@ const stopRun = async (id) => view(await call('POST', `${RUNS}/${encodeURICompon
 // Detiene el pendiente #n en la nube y libera su caja. El issue y la rama se quedan.
 export async function stop(n) {
   return stopRun((await liveRun(n)).id);
+}
+
+// Detiene #n sólo si va en la nube; null si no iba o no hay sesión/red con Ghosty Studio (no estorba).
+export async function stopIfLive(n) {
+  let live;
+  try {
+    live = (await list()).find((r) => r.number === n && LIVE.has(r.phase));
+  } catch {
+    return null;
+  }
+  return live ? stopRun(live.id) : null;
 }
 
 // Trae a tu compu lo que la nube lleva de #n: la detiene (un solo escritor) y deja su rama lista para seguir aquí.

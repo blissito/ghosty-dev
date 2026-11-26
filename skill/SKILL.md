@@ -144,6 +144,9 @@ el merge sin abrir el código.
 
 El PR lo mergea el **Clerk** (la persona) después de leer la evidencia; `Closes #<n>` cierra el pendiente.
 Si no hubo PR (tarea sin código), `ghosty-dev close <n>`, que también exige evidencia.
+Si es un duplicado de otro pendiente: `ghosty-dev close <n> --duplicate-of <m>` (sin evidencia, «no planeado»; si
+iba en la nube, primero lo detiene). Si `stop <n>` dice que no iba en la nube pero quedó la etiqueta
+`ghosty-dev:en-nube`, la quita.
 
 ## La revisión: tú no te calificas
 
@@ -197,7 +200,8 @@ arreglar ahora, no publiques: deja el pendiente bloqueado con el motivo y avísa
 Cuando la persona te diga qué hay que hacer («hay que paginar /pedidos»), tú abres el pendiente. Escribe un
 objetivo (qué debe quedar cierto) y criterios que se puedan comprobar. Si son varios, uno por pendiente, y marca
 los bloqueos. Enséñale a la persona la lista antes de crearlos. Al crearlos, `add` le abre a la persona sus
-pendientes en el navegador (una vez por tanda); si quiere verlos otra vez, `ghosty-dev board`.
+pendientes en el navegador (una vez por tanda); si quiere verlos otra vez, `ghosty-dev board`. Sin navegador
+(agente, CI): `add --no-open` o `GHOSTY_DEV_NO_OPEN=1`.
 
 ```sh
 ghosty-dev add "Paginar /pedidos" --goal "GET /pedidos responde por páginas de 20" \
@@ -226,6 +230,8 @@ Si un criterio sólo lo puede comprobar la persona (p. ej. una sesión de admini
 ```sh
 # si tu pendiente no puede seguir sin él:
 ghosty-dev block <n> --by <nuevo>
+# cuando ya no lo bloquea (quita también la dependencia nativa de GitHub; --by sólo esa):
+ghosty-dev unblock <n> [--by <m>]
 ```
 
 ## Prohibido
