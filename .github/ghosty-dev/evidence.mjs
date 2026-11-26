@@ -2,7 +2,7 @@
 // Archivo autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/ para que lo use la Action.
 
 // Versión de ghosty-dev que instaló esta puerta (la lee readiness para distinguir «distinta» de «rota»). Se sube con cada release.
-export const GATE_VERSION = '0.9.47';
+export const GATE_VERSION = '0.9.48';
 export const EVIDENCE_MARKER = '<!-- ghosty-dev:evidencia v0.1 -->';
 
 // Normaliza un encabezado: minúsculas, sin acentos ni signos.
@@ -229,6 +229,9 @@ export const CONFIRM_MARKER = '<!-- ghosty-dev:confirmacion v0.1';
 const CONFIRM_RE = /<!-- ghosty-dev:confirmacion v0\.1 sha=([0-9a-f]{7,40}) criterio=([a-z0-9-]*) -->/;
 // Quién puede confirmar: quien tiene permiso de escritura (author_association de GitHub; sin el dato, se acepta).
 const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+// La app de GitHub de Ghosty Studio publica la confirmación en nombre de la persona que la dio con su sesión
+// (GitHub la marca author_association NONE). Sólo esa app puede escribir con ese login, así que cuenta como de confianza.
+const TRUSTED_APPS = new Set(['ghosty-studio[bot]']);
 
 export function formatConfirmation(number, { sha, criterion, index, by, at, note, check }) {
   return `${CONFIRM_MARKER} sha=${sha} criterio=${criterionKey(criterion)} -->\n✅ **Verificación de la persona, pendiente #${number}, criterio ${index}** (commit ${String(sha).slice(0, 7)})\n\n- Quién: ${by}\n- Cuándo: ${at}\n- Criterio: ${criterion}\n${check ? `- Qué debía comprobar: ${check}\n` : ''}- Nota: ${note?.trim() || '—'}\n\n<sub>Confirmado con ghosty-dev confirm</sub>\n`;
@@ -245,7 +248,7 @@ export function pendingVerification(comments = [], issueBody = '', { trusted = {
   const manual = validateEvidence(ev.body || '', issueBody).manual ?? [];
   const confirms = comments.filter((c) => {
     const m = CONFIRM_RE.exec(c.body || '');
-    return !!m && (!c.author_association || TRUSTED.has(c.author_association) || Object.prototype.hasOwnProperty.call(trusted, m[2]));
+    return !!m && (!c.author_association || TRUSTED.has(c.author_association) || TRUSTED_APPS.has(c.user?.login) || Object.prototype.hasOwnProperty.call(trusted, m[2]));
   });
   const confirmed = [];
   const missing = [];

@@ -40,6 +40,8 @@ test('pendingVerification: falta hasta que una persona de confianza confirma; va
   assert.deepEqual([done.missing.length, done.confirmed[0].by], [0, 'bliss']);
   // Quien no tiene permiso de escritura (author_association) no cuenta.
   assert.equal(pendingVerification([ev, confirmation({ author_association: 'NONE' })], ISSUE).missing.length, 1);
+  // La app de Ghosty Studio confirma en nombre de la persona (NONE para GitHub): sí cuenta (Formmy #90, 26-nov).
+  assert.equal(pendingVerification([ev, confirmation({ author_association: 'NONE', user: { login: 'ghosty-studio[bot]', type: 'Bot' } })], ISSUE).missing.length, 0);
   // Evidencia nueva SIN [~] (la cumplió de verdad): ya no hay nada pendiente.
   const clean = { body: formatEvidence(3, VALID_EVIDENCE.replace('- [x] /health responde 200\n', `- [x] /health responde 200\n- [x] ${CRIT}\n`)) };
   assert.equal(pendingVerification([ev, confirmation(), clean], ISSUE).manual.length, 0);
