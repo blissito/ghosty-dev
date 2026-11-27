@@ -1068,7 +1068,7 @@ try {
         [
           `#${x.number} ${x.title}`,
           ...(x.writer.where === 'nube' || x.next
-            ? [`  estado: ${x.sleeping ? 'Dormido · ' : ''}${x.writer.detail ?? x.state ?? '—'}${x.state && x.writer.where === 'nube' ? ` (etiqueta de GitHub: ${x.state})` : ''}`]
+            ? [`  estado: ${x.sleeping ? 'Dormido · ' : ''}${(x.writer.where === 'nube' ? x.writer.detail : null) ?? x.state ?? '—'}${x.state && x.writer.where === 'nube' ? ` (etiqueta de GitHub: ${x.state})` : ''}`]
             : [`  estado: ${x.state ?? 'sin etiqueta de bitácora'}`]),
           ...(x.next ? [`  sigue: ${x.next.line}`] : []),
           ...(x.sleeping ? [`  dormido: nada avanza hasta despertarlo (ghosty-dev wake ${x.number})`] : []),
