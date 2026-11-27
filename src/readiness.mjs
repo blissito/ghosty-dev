@@ -53,12 +53,13 @@ export const READINESS_READS = [...Object.values(READINESS_PATHS), ...PR_TEMPLAT
 const MAIN_FLOW = 'Flujo principal probado con sesión';
 
 /**
- * @param {{ files: Record<string, string|null>, requiredChecks: string[]|null, branch?: string, expected?: { gate?: string, evidence?: string } }} i
+ * @param {{ files: Record<string, string|null>, requiredChecks: string[]|null, branch?: string, expected?: { gate?: string, evidence?: string }, isPrivate?: boolean }} i
+ *   `isPrivate`: repo privado. Ahí no hay GitHub Actions: la puerta la evalúa Ghosty Studio y el workflow no hace falta.
  *   `files`: texto de cada ruta en la rama base (null = no existe). `requiredChecks`: contextos obligatorios de la rama
  *   (null = no se pudieron leer). `expected`: el texto vigente de gate.mjs / evidence.mjs para saber si están al día.
  * @returns {{ ready: boolean, checks: { id: string, ok: boolean, severity: 'block'|'warn', why: string, fix: string }[], blocking: object[] }}
  */
-export function readinessOf({ files = {}, requiredChecks = null, branch = 'la rama principal', expected = {} } = {}) {
+export function readinessOf({ files = {}, requiredChecks = null, branch = 'la rama principal', expected = {}, isPrivate = false } = {}) {
   const has = (p) => typeof files[p] === 'string';
   const checks = [];
   const add = (id, ok, severity, why, fix) => checks.push({ id, ok, severity, why, fix });
@@ -76,7 +77,8 @@ export function readinessOf({ files = {}, requiredChecks = null, branch = 'la ra
       stale.length ? `${stale.join(' y ')} difiere de ghosty-dev (instalada ${installed}, mínima ${MIN_GATE_VERSION}); funciona, conviene actualizarla` : 'la puerta está al día con ghosty-dev',
       'ghosty-dev init --force --no-checks --files-only (PR de la persona)');
   }
-  add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
+  if (isPrivate) add('workflow', true, 'warn', 'repo privado: la puerta la evalúa Ghosty Studio, no hace falta el workflow de Actions', 'ninguno');
+  else add('workflow', has(READINESS_PATHS.workflow), 'block', has(READINESS_PATHS.workflow) ? 'el workflow de la puerta existe' : `falta ${READINESS_PATHS.workflow}`, 'ghosty-dev init');
   const rc = has(READINESS_PATHS.config) ? reviewCheckConfig(files[READINESS_PATHS.config]) : null;
   // Sin config la puerta usa el revisor por defecto «Ghosty Review» (gate.mjs): ya no bloquea, sólo se recomienda fijarlo.
   add('review-check', Boolean(rc), 'warn',

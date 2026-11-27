@@ -1101,7 +1101,8 @@ export function repoReadiness({ dir } = {}) {
     ...(Array.isArray(rules) ? rules : []).filter((r) => r.type === 'required_status_checks').flatMap((r) => (r.parameters?.required_status_checks ?? []).map((c) => c.context ?? '')),
   ];
   const expected = { gate: readFileSync(join(ROOT, 'src/gate.mjs'), 'utf8'), evidence: readFileSync(join(ROOT, 'src/evidence.mjs'), 'utf8') };
-  return { repo, branch, ...readinessOf({ files, requiredChecks, branch, expected }) };
+  const isPrivate = info.private === true || info.visibility === 'private' || info.visibility === 'internal';
+  return { repo, branch, ...readinessOf({ files, requiredChecks, branch, expected, isPrivate }) };
 }
 
 /** El pendiente de preparación vivo: primero por título exacto, luego por contenido. Puro. */

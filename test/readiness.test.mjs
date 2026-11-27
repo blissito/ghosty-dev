@@ -165,3 +165,13 @@ test('GATE_VERSION de evidence.mjs coincide con la versión del paquete', () => 
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(installedGateVersion(evidence), pkg.version);
 });
+
+test('repo privado: sin el workflow de la puerta sigue preparado (la evalúa gs); público sin él, no', () => {
+  const files = { ...good(), [P.workflow]: null };
+  const pub = readinessOf({ files, requiredChecks: ['ghosty-dev/evidencia'], expected: { gate, evidence } });
+  assert.equal(pub.ready, false);
+  assert.deepEqual(pub.blocking.map((c) => c.id), ['workflow']);
+  const priv = readinessOf({ files, requiredChecks: ['ghosty-dev/evidencia'], expected: { gate, evidence }, isPrivate: true });
+  assert.equal(priv.ready, true);
+  assert.match(priv.checks.find((c) => c.id === 'workflow').why, /repo privado/);
+});
