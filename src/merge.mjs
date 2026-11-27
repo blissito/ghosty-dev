@@ -7,6 +7,8 @@ import { api, apiAll } from './gh.mjs';
 import { UserError, GATE_CHECK, closedInfo, closedLine, closingIssueLabels, mergeState, repoTop } from './commands.mjs';
 import { closingRefs } from './gate.mjs';
 import { pushWorkflows } from './workflows.mjs';
+import { isPrivateRepo } from './private.mjs';
+import { deployConfig, DEPLOY_HOWTO } from './deploy-config.mjs';
 
 const REPO = 'repos/{owner}/{repo}';
 export const OK_CONCLUSIONS = ['success', 'neutral', 'skipped'];
@@ -117,6 +119,24 @@ export async function merge(m, { wait = false, minutes = 10, deployMinutes = 20,
   // GitHub cierra los issues de «Closes #n», pero las etiquetas de la bitácora se quedaban (#78 de Formmy).
   closingIssueLabels(closingRefs(s.p.body ?? ''));
   const out = { pr: m, merged: true, method: how, sha: res.sha ?? null, base: s.p.base?.ref ?? base0, exitCode: 0 };
+  // Repo privado: no hay Actions que esperar. El deploy sale de aquí, con el comando que declara el repo.
+  if (isPrivateRepo()) {
+    out.private = true;
+    const cfg = deployConfig(repoTop());
+    if (!deploy) out.localDeploy = { skipped: true, command: `ghosty-dev deploy ${m}` };
+    else if (!cfg.deploy) out.localDeploy = { undeclared: true, howto: DEPLOY_HOWTO };
+    else {
+      const { deploy: runDeploy } = await import('./deploy.mjs');
+      try {
+        out.localDeploy = await runDeploy(m, { onNote, stream: 'stderr' });
+        if (!out.localDeploy.ok) out.exitCode = 1;
+      } catch (e) {
+        if (!(e instanceof UserError)) throw e;
+        out.localDeploy = { error: e.message, command: `ghosty-dev deploy ${m}` };
+      }
+    }
+    return out;
+  }
   const workflows = deploy ? deployWorkflows(repoTop(), out.base) : [];
   out.deployWorkflows = workflows.map((w) => w.file);
   if (!workflows.length || !out.sha) return out;
@@ -132,6 +152,18 @@ export function mergeText(x) {
   if (!x.merged)
     return [`No hago el merge del PR #${x.pr}${x.sha ? ` (commit ${x.sha.slice(0, 7)})` : ''}${x.note ? `: ${x.note}` : ''}. Falta:`, readinessText(x.pr, x), ...(x.next ? [`Espera y mezcla solo cuando todo resuelva: ${x.next}`] : [])].join('\n');
   const lines = [`Merge del PR #${x.pr} hecho (${x.method}${x.sha ? `, ${x.sha.slice(0, 7)}` : ''}) en ${x.base}.`];
+  if (x.private) {
+    const d = x.localDeploy ?? {};
+    if (d.skipped) lines.push(`  Sin deploy (--no-deploy). Cuando quieras: ${d.command}`);
+    else if (d.undeclared) lines.push(`  Repo privado sin deploy declarado: ${d.howto}. Luego: ghosty-dev deploy ${x.pr}`);
+    else if (d.error) lines.push(`  El deploy no arrancó: ${d.error}`, `  Repítelo: ${d.command}`);
+    else {
+      lines.push(`  deploy (${d.command}): ${d.ok ? 'en producción' : `FALLÓ (salió ${d.code})`}${d.check ? ` · ${d.check.url} → ${d.check.ok ? '200' : d.check.status ?? 'sin respuesta'}` : ''}`);
+      if (d.noted) lines.push(`  Anotado en #${d.issue}: ${d.noted}`);
+      if (!d.ok) lines.push(`  El merge entró pero el deploy falló: arréglalo y repite ghosty-dev deploy ${x.pr}`);
+    }
+    return lines.join('\n');
+  }
   if (!x.deployWorkflows?.length) lines.push(`  ${x.base} no tiene workflow de deploy en push: no hay deploy que esperar.`);
   else if (x.deploy) {
     for (const r of x.deploy.runs) lines.push(`  deploy ${r.name ?? r.file}: ${r.status !== 'completed' ? 'sigue corriendo' : OK_CONCLUSIONS.includes(r.conclusion) ? 'verde' : `ROJO (${r.conclusion})`}${r.url ? ` · ${r.url}` : ''}`);

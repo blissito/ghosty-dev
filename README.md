@@ -3,6 +3,28 @@
 **No necesitas una fábrica: necesitas una bitácora que no se pierda y evidencia que no mienta.**
 
 
+## Repos privados sin GitHub Actions (0.12.0)
+
+En un repo **privado** ghosty-dev no usa GitHub Actions (si GitHub deja de arrancar jobs, nada se apaga):
+
+- `init` no escribe `evidence-gate.yml` ni `ghosty-checks.yml` (sí `.ghosty/`, skill, AGENTS.md y config) y dice por qué; `doctor` avisa si un privado todavía los tiene.
+- La puerta `ghosty-dev/evidencia` la evalúa y publica Ghosty Studio (mismo nombre: `protect` sigue exigiéndola). `evidence`, `review` y `confirm` se la piden a gs; `ghosty-dev gate [<pr>]` la evalúa a pedido.
+- La CI corre en la caja de la vista previa con los comandos de `ci:` en `.ghosty/dev.md`.
+- El deploy sale de `ghosty-dev deploy [<pr>]`: en la rama base limpia hace `git pull --ff-only`, corre `deploy:`, espera a que `deploy_check:` dé 200 (~3 min) y lo anota en el pendiente (`<!-- ghosty-dev:deploy ok|fail sha=… -->`, que gs lee). `merge` lo corre solo tras el merge (`--no-deploy` lo salta); `next` y `show --pr` lo sugieren si un merge no tiene deploy.
+
+```yaml
+# .ghosty/dev.md
+---
+deploy: ./scripts/deploy-fly.sh
+deploy_check: https://formmy.app/
+ci:
+  - npm test
+  - npm run typecheck
+---
+```
+
+Los repos públicos siguen igual.
+
 ## Todo pasa por el CLI, aunque empieces fuera (0.11.0)
 
 - `ghosty-dev pr [<n>]`: sube la rama actual y abre su PR con «Closes #n», o liga el que ya tenía, y te asigna el pendiente. Sirve también con una rama hecha a mano.
@@ -117,7 +139,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 `next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `pr [<n>] [--draft]` · `note <n> "texto"` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `confirm <n> --criterion <i> [--note "…"] [--image a.png]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 > La puerta del repo sólo bloquea `claim` si falta o es anterior a 0.9.38; si únicamente difiere de tu versión, `doctor` avisa (`init --force --no-checks --files-only`).
 
-`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n> [--duplicate-of <m>]` · `unblock <n> [--by <m>]` · `login` · `whoami` · `logout` · `env ls [--pr <m>]` · `env push <archivo>` · `labels [--fix]`.
+`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n> [--duplicate-of <m>]` · `merge [<pr>] [--wait] [--no-deploy]` · `deploy [<pr>]` · `gate [<pr>]` · `unblock <n> [--by <m>]` · `login` · `whoami` · `logout` · `env ls [--pr <m>]` · `env push <archivo>` · `labels [--fix]`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista

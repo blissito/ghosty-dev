@@ -99,6 +99,11 @@ ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a
 - **Merge** (sólo si la persona te lo pide): `ghosty-dev merge <m>` mezcla únicamente con todos los checks del último
   commit resueltos en verde (también «Ghosty · Smoke»), la puerta de evidencia en verde y sin borrador; si no, dice qué
   falta (`--wait` espera). Después espera el deploy de producción y dice cómo salió. Nunca `gh pr merge`.
+- **Repo privado (sin GitHub Actions)**: la puerta `ghosty-dev/evidencia` la evalúa Ghosty Studio (`evidence`/`review`/
+  `confirm` se la piden; `ghosty-dev gate <pr>` a pedido), la CI corre en la caja con `ci:` de `.ghosty/dev.md`, y el
+  deploy lo corre `ghosty-dev merge` con `deploy:` de `.ghosty/dev.md` (o `ghosty-dev deploy <pr>` desde la rama base
+  limpia; espera a que `deploy_check:` dé 200 y lo anota en el pendiente). Si `next` dice «deploy», córrelo. No
+  agregues workflows de Actions a un repo privado.
   **La liga lleva la llave de la vista previa:** úsala para probar (navegador, curl, Playwright), pero nunca la
   pegues en la evidencia, el issue, el PR ni el chat; en «Preview» escribe qué probaste y el commit.
 

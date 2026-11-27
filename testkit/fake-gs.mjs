@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 // Opciones de la nube: `devScope: false` responde 403 insufficient_scope; `runFail` es el mensaje de un 400;
 // `redirectRunsTo` manda un 302 a otro origen; `echoToken` mete el Bearer recibido en el mensaje de error.
 // `previews`: lo que responde la vista previa de un PR, una respuesta por lectura (la última se repite).
-export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [], factory = null, localRows = [], claimBeatFail = false } = {}) {
+export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_KEY'], canWrite = true, devScope = true, runFail = null, redirectRunsTo = null, echoToken = false, runs = [], previews = [], box = undefined, capacity = null, boardPrs = [], factory = null, localRows = [], claimBeatFail = false, gate = null } = {}) {
   const s = {
     calls: [],
     polls: [],
@@ -28,6 +28,9 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     factoryCalls: [],
     previews: [...previews],
     previewCalls: [],
+    // La puerta evaluada por gs (repos privados, sin Actions): lo que contesta y quién la pidió.
+    gate: gate ?? { conclusion: 'failure', summary: '1 pendiente sin evidencia', details: ['#5: sin comentario de evidencia válido'] },
+    gateCalls: [],
     loginCalls: [],
     // Vista previa combinada (fila 63): fases que va contestando y, si se pone, el conflicto.
     combined: { phases: ['building', 'ready'], conflict: null },
@@ -189,6 +192,11 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       if (body?.op === 'restart') return send(res, 200, { phase: 'ready', sha, text: 'reiniciada\n', exitCode: 0 });
       if (body?.op === 'rebuild') return send(res, 200, { phase: 'building', sha });
       return send(res, 400, { error: 'bad_request', message: 'op: exec | restart | rebuild' });
+    }
+    if ((pm = url.pathname.match(/^\/api\/v2\/me\/repos\/([^/]+)\/([^/]+)\/prs\/(\d+)\/gate$/))) {
+      s.gateCalls.push({ method: req.method, repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]) });
+      if (!devScope) return send(res, 403, { error: 'insufficient_scope', message: 'Falta el permiso dev' });
+      return send(res, 200, { repo: `${pm[1]}/${pm[2]}`, pr: Number(pm[3]), ...s.gate });
     }
     if (url.pathname === '/api/v2/me/files' && req.method === 'POST') {
       s.uploads = [...(s.uploads ?? []), { name: url.searchParams.get('nombre'), mime: req.headers['content-type'], size: Buffer.byteLength(raw) }];

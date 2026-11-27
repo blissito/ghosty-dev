@@ -1,6 +1,7 @@
 // Puerta de evidencia del PR (Ley 2 + «proof of work» antes del merge, OpenAI Symphony).
-// La corre la Action `ghosty-dev/evidencia`: falla si algún pendiente que el PR cierra no tiene
-// un comentario de evidencia válido. Autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/.
+// La corre la Action `ghosty-dev/evidencia` (repo público) o Ghosty Studio (repo privado, sin Actions: copia este
+// archivo y llama a `evaluatePullRequest`): falla si algún pendiente que el PR cierra no tiene un comentario de
+// evidencia válido. Autocontenido: `ghosty-dev init` lo copia a .github/ghosty-dev/. Importarlo no hace nada.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, appendFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -245,6 +246,14 @@ export function main() {
   process.exit(exit);
 }
 
-// Corre sólo como script (no al importarlo en los tests); realpath por los symlinks de /tmp en macOS.
-const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : '';
-if (import.meta.url === pathToFileURL(invokedPath).href) main();
+// Corre sólo como entrada de la Action (`node .github/ghosty-dev/gate.mjs`), nunca al importarlo: los tests y gs
+// (que copia este archivo para evaluar la puerta de repos privados sin Actions) sólo usan las funciones puras.
+// realpath por los symlinks de /tmp en macOS; si argv[1] no es un archivo, no es la Action.
+function invokedDirectly() {
+  try {
+    return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+}
+if (invokedDirectly()) main();

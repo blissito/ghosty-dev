@@ -10,6 +10,8 @@ import { GATE_CHECKS, validateEvidence, formatEvidence, findValidEvidence, findR
 import { closingRefs, evaluatePullRequest, unlinkedPolicy, reviewCheckConfig, externalReview, DEFAULT_REVIEW_CHECK } from './gate.mjs';
 import { readinessOf, prepareBrief, isPreparationIssue, READINESS_READS, PREPARE_TITLE } from './readiness.mjs';
 import { pushWorkflows } from './workflows.mjs';
+import { isPrivateRepo, PRIVATE_WHY, ACTIONS_WORKFLOWS } from './private.mjs';
+import { deployConfig, deployMarkers, DEPLOY_HOWTO } from './deploy-config.mjs';
 import { HOOK_MARK, PRE_PUSH, checkLock } from './lock.mjs';
 import { UserError, refText, fmtRef, sameRepo, repoOfDir, suspectRepo } from './ref.mjs';
 
@@ -702,9 +704,15 @@ export const linkHint = (m) => `ghosty-dev claim --pr ${m} --issue <n>  (sin pen
 // Vuelve a correr la puerta del PR del pendiente: publicar evidencia o revisión es el evento que la despierta.
 // Se busca el run de la puerta del commit HEAD del PR (head_sha), no de la rama: así sirve para un PR de cualquier rama.
 // Si el run sigue corriendo, no hace falta: lee los comentarios en vivo.
-function rerunGate(n, pr = prOf(n)) {
-  if (!pr?.headRefOid) return null;
-  const runs = api('GET', `${REPO}/actions/workflows/evidence-gate.yml/runs?head_sha=${pr.headRefOid}&per_page=1`, undefined, { allowFail: true })?.workflow_runs;
+// Repo privado: no hay Actions; devuelve { gsGate: <pr> } y quien llama (bin, async) le pide a Ghosty Studio que la
+// evalúe (gateViaGs). gs también la evalúa sola con el webhook del comentario: esto sólo la adelanta.
+export function rerunGate(n, pr = prOf(n)) {
+  if (!pr?.headRefOid) return { rerun: null };
+  if (isPrivateRepo()) return { rerun: null, gsGate: pr.number };
+  return { rerun: rerunGateRun(pr.headRefOid) };
+}
+export function rerunGateRun(sha) {
+  const runs = api('GET', `${REPO}/actions/workflows/evidence-gate.yml/runs?head_sha=${sha}&per_page=1`, undefined, { allowFail: true })?.workflow_runs;
   if (runs?.[0] && api('POST', `${REPO}/actions/runs/${runs[0].id}/rerun`, undefined, { allowFail: true }) !== null) return runs[0].id;
   return null;
 }
@@ -746,9 +754,9 @@ export function evidence(n, file, { pr: m } = {}) {
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatEvidence(n, md, pr) }).html_url;
   // Ley 3: publicar la evidencia es el evento que vuelve a correr la puerta del PR (y el workflow también lo hace
   // solo con issue_comment, para la evidencia que se publique por otro lado).
-  const rerun = rerunGate(n, pr);
+  const gate = rerunGate(n, pr);
   const manual = manualCriteria(md);
-  return { number: n, posted: true, url: url || null, rerun, ...(manual.length ? { awaitingPerson: manual.map((m) => m.criterion) } : {}) };
+  return { number: n, posted: true, url: url || null, ...gate, ...(manual.length ? { awaitingPerson: manual.map((m) => m.criterion) } : {}) };
 }
 
 // ---------- confirm (verificación de la persona: el sign-off de QA de los criterios `- [~]`) ----------
@@ -774,7 +782,7 @@ export function confirm(n, { criterion, note, pr: m } = {}) {
   if (!sha) throw new UserError('No pude saber el commit que se confirma (¿hay PR o un repo git aquí?).');
   const at = new Date().toISOString();
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatConfirmation(n, { sha, criterion: hit.criterion, index: i, by: who, at, note, check: hit.check }) }).html_url;
-  return { number: n, index: i, criterion: hit.criterion, by: who, at, sha, url: url || null, rerun: rerunGate(n, pr) };
+  return { number: n, index: i, criterion: hit.criterion, by: who, at, sha, url: url || null, ...rerunGate(n, pr) };
 }
 
 // ---------- add (Beads: bd create): el agente abre el pendiente desde la plática ----------
@@ -900,7 +908,7 @@ export function review(n, { file, pr: m } = {}) {
   const pr = prOf(n, m);
   if (!pr?.headRefOid) throw new UserError(`#${n} no tiene PR abierto que lo cierre. Si el PR ya existe: ghosty-dev review ${n} --pr <m> (o ghosty-dev claim --pr <m> --issue ${n}).`);
   const url = api('POST', `${API_ISSUE(n)}/comments`, { body: formatRevision(n, pr.headRefOid, md, pr) }).html_url;
-  return { number: n, sha: pr.headRefOid, pr: pr.number, open, url: url || null, rerun: rerunGate(n, pr) };
+  return { number: n, sha: pr.headRefOid, pr: pr.number, open, url: url || null, ...rerunGate(n, pr) };
 }
 
 // ---------- board: la persona ve los pendientes en GitHub, no en la terminal ----------
@@ -1202,7 +1210,8 @@ export function showPr(m) {
     // «Siguiente: <qué> · le toca a <quién>» (el mismo dato que el tablero de Ghosty).
     next: boardNextOf(p, conflict),
     // Tras el merge: ¿llegó a producción? El mismo veredicto que el tablero de Ghosty (deployVerdict).
-    deploy: p.merged_at && p.merge_commit_sha ? deployOf(p) : null,
+    // Repo privado: no hay runs de Actions; manda el marcador que deja `ghosty-dev deploy` en la bitácora.
+    deploy: p.merged_at ? (isPrivateRepo() ? privateDeployOf(p) : p.merge_commit_sha ? deployOf(p) : null) : null,
   };
 }
 
@@ -1273,6 +1282,29 @@ function deployOf(p) {
   const v = deployVerdict(Array.isArray(runs?.workflow_runs) ? runs.workflow_runs : [], Math.max(0, (Date.now() - Date.parse(p.merged_at)) / 1000));
   const site = typeof info?.homepage === 'string' && /^https?:\/\//.test(info.homepage) ? info.homepage : null;
   return { ...v, label: DEPLOY_LABEL[v.state], site };
+}
+
+// Repo privado: ¿se desplegó el merge? Lo dice el último marcador de `ghosty-dev deploy` en el PR o en sus pendientes.
+export function privateDeployOf(p) {
+  const refs = closingRefs(p.body ?? '').filter((n) => n !== p.number);
+  const comments = [p.number, ...refs].flatMap((n) => apiAll(`${API_ISSUE(n)}/comments`, { allowFail: true }) ?? []);
+  const last = deployMarkers(comments).sort((a, b) => String(a.at ?? '').localeCompare(String(b.at ?? ''))).at(-1);
+  const command = `ghosty-dev deploy ${p.number}`;
+  if (!last) return { state: 'none', label: 'Sin deploy registrado (repo privado: el deploy sale de tu terminal)', command, private: true };
+  return { state: last.ok ? 'success' : 'failure', label: last.ok ? `En producción (${last.sha.slice(0, 7)})` : `Deploy falló (${last.sha.slice(0, 7)})`, command: last.ok ? null : command, private: true };
+}
+
+// Repo privado: el último PR que entró a la base en las últimas 24 h sin marcador de deploy (null si no hay).
+function undeployedMerge(base) {
+  if (!isPrivateRepo()) return null;
+  const since = Date.now() - 24 * 3600_000;
+  const merged = (api('GET', `${REPO}/pulls?state=closed&base=${encodeURIComponent(base)}&sort=updated&direction=desc&per_page=10`, undefined, { allowFail: true }) ?? [])
+    .filter((p) => p?.merged_at && Date.parse(p.merged_at) >= since)
+    .sort((a, b) => String(b.merged_at).localeCompare(String(a.merged_at)));
+  const last = merged[0];
+  if (!last) return null;
+  const d = privateDeployOf(last);
+  return d.state === 'success' ? null : { pr: last.number, state: d.state, declared: Boolean(deployConfig(repoTop()).deploy) };
 }
 
 // ---------- next: el siguiente paso correcto, según el estado del repo (sobrevive a la compactación) ----------
@@ -1346,6 +1378,10 @@ export function next() {
   const own = branch?.match(/^ghosty-dev\/(\d+)-/);
   if (own) return out('abrir-pr', `ghosty-dev pr ${own[1]}`, `la rama de #${own[1]} no tiene PR abierto (sube la rama y abre el PR con «Closes #${own[1]}»)`, { issue: Number(own[1]) });
   if (branch && branch !== def) return out('ligar', `ghosty-dev pr <n>`, `la rama ${branch} no tiene PR ni pendiente: \`ghosty-dev pr <n>\` la sube, abre el PR y la liga a #n (el trabajo tiene que vivir en la bitácora)`);
+  // Repo privado: un merge sin deploy va antes de tomar trabajo nuevo (no hay Actions que lo despliegue solo).
+  const undeployed = !branch || branch === def ? undeployedMerge(def) : null;
+  if (undeployed)
+    return out('deploy', `ghosty-dev deploy ${undeployed.pr}`, `el PR #${undeployed.pr} ya entró a ${def} y ${undeployed.state === 'failure' ? 'su deploy falló' : 'no tiene deploy registrado'} (repo privado: sin GitHub Actions, el deploy sale de tu terminal)${undeployed.declared ? '' : `; antes, ${DEPLOY_HOWTO}`}`, { pr: undeployed.pr });
   const list = ready();
   if (list.length) {
     const first = list[0];
@@ -1561,16 +1597,33 @@ function prePushTarget(dir) {
   return { action: 'write', path, shown };
 }
 
+// doctor: un repo privado con los workflows de ghosty-dev. Con Actions bloqueado nunca arrancan, y la puerta
+// queda «esperando» un job que no llega (Formmy, 27-nov). null si no aplica.
+export function privateWorkflowsCheck(dir) {
+  if (!isPrivateRepo({ cwd: dir })) return null;
+  const found = ACTIONS_WORKFLOWS.filter((f) => existsSync(join(dir, f)));
+  if (!found.length) return { name: 'privado-sin-actions', ok: true, detail: `${PRIVATE_WHY}`, fix: null };
+  return {
+    name: 'privado-sin-actions',
+    ok: null,
+    detail: `repo privado con ${found.join(', ')}: si GitHub Actions está bloqueado nunca arrancan; la puerta la evalúa Ghosty Studio y el deploy sale de ghosty-dev deploy`,
+    fix: `bórralos: git rm ${found.join(' ')} && git commit -m "ghosty-dev: repo privado sin Actions"`,
+  };
+}
+
 // `labels: false`: no crea las etiquetas en GitHub (la persona no lo confirmó); quedan en el plan como «skip».
 const REVIEW_CONFIG_PATH = '.github/ghosty-dev/config.json';
 const REVIEW_CHECK_DEFAULT = { name: 'Ghosty Review', app: 'ghosty-studio' };
 
 export function init(dir, { dryRun = false, force = false, protectBranch = true, labels = true, filesOnly = false, noChecks = false } = {}) {
+  // Repo privado: ningún workflow de ghosty-dev (sin GitHub Actions). Con --files-only no se pregunta a GitHub: sólo
+  // cuenta GHOSTY_DEV_REPO_VISIBILITY=private (la caja de gs lo pasa).
+  const priv = filesOnly ? process.env.GHOSTY_DEV_REPO_VISIBILITY === 'private' : isPrivateRepo({ cwd: dir });
   const files = [
     ['templates/pendiente.md', '.github/ISSUE_TEMPLATE/pendiente.md'],
-    ['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml'],
+    ...(priv ? [] : [['.github/workflows/evidence-gate.yml', '.github/workflows/evidence-gate.yml']]),
     // Revisiones de Ghosty: llama al workflow reutilizable blissito/ghosty-dev/.github/workflows/checks.yml@v1.
-    ...(noChecks ? [] : [['templates/ghosty-checks.yml', '.github/workflows/ghosty-checks.yml']]),
+    ...(noChecks || priv ? [] : [['templates/ghosty-checks.yml', '.github/workflows/ghosty-checks.yml']]),
     ['src/evidence.mjs', '.github/ghosty-dev/evidence.mjs'],
     ['src/gate.mjs', '.github/ghosty-dev/gate.mjs'],
     ['skill/SKILL.md', '.claude/skills/ghosty-dev/SKILL.md'],
@@ -1579,6 +1632,7 @@ export function init(dir, { dryRun = false, force = false, protectBranch = true,
   const plan = [];
   // filesOnly: sólo archivos del árbol de trabajo; ni etiquetas ni protección ni una llamada a GitHub.
   if (filesOnly) protectBranch = false;
+  if (priv) plan.push({ action: 'privado', private: true, name: `sin workflows de GitHub Actions (${ACTIONS_WORKFLOWS.map((f) => basename(f)).join(', ')}): ${PRIVATE_WHY}` });
   if (!filesOnly) for (const state of STATES) plan.push(labels ? { action: 'label', name: label(state) } : { action: 'skip', name: `${label(state)} (etiqueta no creada: confirma con ghosty-dev init --yes)` });
   for (const [, to] of files) {
     const exists = existsSync(join(dir, to));

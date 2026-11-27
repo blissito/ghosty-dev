@@ -12,6 +12,7 @@ import * as boxes from '../src/box.mjs';
 import * as writer from '../src/writer.mjs';
 import * as factory from '../src/factory.mjs';
 import * as userSkill from '../src/user-skill.mjs';
+import * as privates from '../src/private.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
@@ -30,7 +31,8 @@ Uso: ghosty-dev <comando> [opciones]
                                          el PR de preparación sólo toca la puerta)
                                          --files-only: SÓLO escribe archivos (sin gh, sin etiquetas ni protección): para una caja
                                          sin credenciales; se sube con commit + PR y la persona corre luego init y protect
-                                         etiquetas, plantilla, Action de evidencia, skill, AGENTS.md
+                                         etiquetas, plantilla, Action de evidencia, skill, AGENTS.md (repo privado:
+                                         sin workflows de Actions; la puerta la evalúa Ghosty Studio)
                                          (protege la rama sólo si la puerta ya está en ella). Dice repo y rama antes
                                          de escribir (fuera de la rama principal pide --yes), confirma las etiquetas
                                          (sin terminal, sólo con --yes) y lista los workflows que dispara el push
@@ -169,7 +171,17 @@ Uso: ghosty-dev <comando> [opciones]
                                          neutral), la puerta de evidencia en verde, sin borrador ni conflicto; si no,
                                          dice qué falta (--wait espera a que resuelva). Después espera el deploy de
                                          producción (workflow en push a la rama base) y dice cómo salió. Usa esto,
-                                         no gh pr merge. Sale 0 hecho, 1 falta algo o el deploy falló, 75 en curso
+                                         no gh pr merge. Sale 0 hecho, 1 falta algo o el deploy falló, 75 en curso.
+                                         Repo privado: no espera Actions; corre el deploy declarado (ghosty-dev deploy)
+  deploy [<pr>]                          repo privado (sin GitHub Actions): en la rama base limpia hace git pull --ff-only,
+                                         corre «deploy:» de .ghosty/dev.md (o factory.md), espera a que «deploy_check:»
+                                         dé 200 (~3 min) y lo anota en el pendiente del PR. Sale 0 en producción, 1 falló
+  gate [<pr>]                            evalúa la puerta ghosty-dev/evidencia del PR ahora: en repo privado la evalúa
+                                         Ghosty Studio (sin Actions); en público re-corre la Action. Sale 1 si queda roja
+
+Repos privados: ghosty-dev no usa GitHub Actions. init no escribe workflows, la puerta la publica Ghosty Studio
+(mismo check ghosty-dev/evidencia), la CI corre en la caja de la vista previa («ci:» en .ghosty/dev.md) y el deploy
+sale de ghosty-dev deploy. Los repos públicos siguen igual.
 
 Flujo del agente de terminal: git push → ghosty-dev preview --wait --json → prueba la app en la liga → evidencia.
 Si la vista previa falla: ghosty-dev box logs → ghosty-dev box exec -- <comando> → arregla → git push.
@@ -513,7 +525,7 @@ async function printPr(r, note) {
         `  estado: ${x.state}`,
         ...(x.next ? [`  ${x.next.line}`] : []),
         ...(x.closed ? [`  ${cmd.closedLine(x.closed)}`] : []),
-        ...(x.deploy ? [`  deploy: ${x.deploy.label}${x.deploy.state === 'success' && x.deploy.site ? ` · ${x.deploy.site}` : x.deploy.url ? ` · ${x.deploy.url}` : ''}`] : []),
+        ...(x.deploy ? [`  deploy: ${x.deploy.label}${x.deploy.state === 'success' && x.deploy.site ? ` · ${x.deploy.site}` : x.deploy.url ? ` · ${x.deploy.url}` : ''}${x.deploy.command ? ` → ${x.deploy.command}` : ''}`] : []),
         `  rama: ${x.branch ?? '—'}`,
         `  cierra: ${x.closes.map((c) => '#' + c).join(', ') || `— (no está ligado a un pendiente: ${cmd.linkHint(x.pr)})`}`,
         `  ${x.url}`,
@@ -523,6 +535,19 @@ async function printPr(r, note) {
       ].join('\n'),
     );
 }
+
+// Repo privado (sin Actions): la puerta del PR la evalúa Ghosty Studio. Se pide tras publicar evidencia, revisión o
+// confirmación; si gs no contesta, la evalúa solo con el webhook del comentario (no es fatal).
+async function gsGate(r) {
+  if (!r?.gsGate) return r;
+  try {
+    r.gate = await privates.gateViaGs(r.gsGate, { repo: cmd.repoFullName() });
+  } catch (e) {
+    r.gate = { pr: r.gsGate, error: e.message };
+  }
+  return r;
+}
+const gateLine = (x) => (x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : x.gate ? `\n  ${privates.gateText(x.gate).replace(/\n/g, '\n  ')}` : '');
 
 function print(data, human) {
   if (values.json) console.log(JSON.stringify(targetRepo && data && typeof data === 'object' && !Array.isArray(data) ? { repo: targetRepo, ...data } : data, null, 2));
@@ -593,9 +618,9 @@ try {
       `Evidencia válida${x.criteriaChecked ? '' : ' (sin comparar criterios: falta --issue-file)'}.${x.manual?.length ? ` Pendiente de la persona: ${x.manual.map((m) => m.criterion).join('; ')}.` : ''} No se publicó nada.`,
     );
   } else if (command === 'review') {
-    const r = cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
+    const r = await gsGate(cmd.review(num(arg), { file: values.file, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') }));
     if (r.brief) print(r, (x) => x.brief);
-    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
+    else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${gateLine(x)}${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
   } else if (command === 'confirm') {
     const images = values.image ?? [];
     // Con capturas: suben a Ghosty Studio y, si #n vive en gs, se confirma por su op (comentario con imágenes + puerta).
@@ -605,8 +630,8 @@ try {
     } else {
       // Sin run en gs: el comentario de GitHub lleva las capturas como imágenes.
       const note = [values.note, ...(c?.attachments ?? []).map((a) => `![${a.name}](${a.url})`)].filter(Boolean).join('\n\n') || undefined;
-      const r = cmd.confirm(num(arg), { criterion: values.criterion, note, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
-      print(r, (x) => `Criterio ${x.index} de #${x.number} confirmado por @${x.by} (commit ${x.sha.slice(0, 7)}): ${x.criterion}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.url ? `\n  ${x.url}` : ''}`);
+      const r = await gsGate(cmd.confirm(num(arg), { criterion: values.criterion, note, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') }));
+      print(r, (x) => `Criterio ${x.index} de #${x.number} confirmado por @${x.by} (commit ${x.sha.slice(0, 7)}): ${x.criterion}.${gateLine(x)}${x.url ? `\n  ${x.url}` : ''}`);
     }
   } else if (command === 'criteria') {
     const r = cmd.criteria(num(arg), { set: values.set, text: arg2, reason: values.reason });
@@ -834,9 +859,9 @@ try {
     await writer.claimBeat(n);
     print(r, (x) => `Nota en #${x.number}: ${x.url}`);
   } else if (command === 'evidence') {
-    const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
+    const r = await gsGate(cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') }));
     await writer.claimBeat(num(arg));
-    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.awaitingPerson?.length ? `\n  Falta tu verificación: ${x.awaitingPerson.join('; ')} → ghosty-dev confirm ${x.number} --criterion <i>` : ''}`);
+    print(r, (x) => `Evidencia publicada en #${x.number}${x.url ? `: ${x.url}` : ''}.${gateLine(x)}${x.awaitingPerson?.length ? `\n  Falta tu verificación: ${x.awaitingPerson.join('; ')} → ghosty-dev confirm ${x.number} --criterion <i>` : ''}`);
   } else if (command === 'block') {
     const r = cmd.block(num(arg), values.by === undefined ? undefined : (() => { const b = refOf(values.by, '--by <m>'); return b.repo ? b : b.n; })(), { reason: values.reason, person: values.person === true });
     print(r, (x) =>
@@ -946,6 +971,8 @@ try {
     r.checks.unshift(up.versionCheck(up.currentVersion(), await up.latestVersion()));
     r.checks.splice(1, 0, userSkill.userSkillCheck());
     // ¿Está el repo preparado? La puerta, su revisor y la protección (Formmy, 23-nov: sin esto ningún PR de la nube pasaba).
+    const priv = cmd.privateWorkflowsCheck(top);
+    if (priv) r.checks.push(priv);
     try {
       r.checks.push(...cmd.readinessChecks(cmd.repoReadiness({ dir: top })));
     } catch (e) {
@@ -1089,6 +1116,26 @@ try {
         ].join('\n'),
       );
     }
+  } else if (command === 'gate') {
+    // La puerta ghosty-dev/evidencia del PR, a pedido: privado → la evalúa Ghosty Studio; público → re-corre la Action.
+    const pr = arg === undefined ? (values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr()) : num(arg, '<pr>');
+    if (privates.isPrivateRepo()) {
+      const g = await privates.gateViaGs(pr, { repo: cmd.repoFullName() });
+      print(g, privates.gateText);
+      process.exitCode = g.conclusion === 'failure' ? 1 : 0;
+    } else {
+      const p = (await import('../src/gh.mjs')).api('GET', `repos/{owner}/{repo}/pulls/${pr}`, undefined, { allowFail: true });
+      if (!p?.number) throw new cmd.UserError(`No encontré el PR #${pr} en este repo.`);
+      const run = cmd.rerunGateRun(p.head?.sha);
+      print({ pr, via: 'actions', rerun: run }, (x) => (x.rerun ? `Puerta del PR #${x.pr} re-ejecutada (run ${x.rerun}). Síguela: ghosty-dev wait --pr ${x.pr} --until ci` : `El PR #${x.pr} no tiene run de la puerta (evidence-gate.yml) que re-ejecutar en su último commit.`));
+      if (!run) process.exitCode = 1;
+    }
+  } else if (command === 'deploy') {
+    const { deploy, deployText } = await import('../src/deploy.mjs');
+    const pr = arg === undefined ? (values.pr !== undefined ? num(values.pr, '--pr <m>') : undefined) : num(arg, '<pr>');
+    const r = await deploy(pr, { onNote: (n) => console.error(n), stream: values.json ? 'stderr' : 'stdout' });
+    print(r, deployText);
+    process.exitCode = r.exitCode;
   } else if (command === 'merge') {
     const { merge, mergeText } = await import('../src/merge.mjs');
     const pr = arg === undefined ? (values.pr !== undefined ? num(values.pr, '--pr <m>') : previews.currentPr()) : num(arg, '<pr>');
