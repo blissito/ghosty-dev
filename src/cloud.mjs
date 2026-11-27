@@ -124,7 +124,21 @@ const view = (r) => ({
   note: r.error === 'factory_paused' ? text(r.message) : null,
   // Lo que gs dice que se puede hacer con esta fila (servidor viejo: sin `actions`, null).
   actions: cleanActions(r.actions),
+  // «Qué sigue y a quién le toca» (`nextStepOf` de gs, la misma línea que la tarjeta web). null en servidores viejos.
+  next: nextOf(r.next),
+  column: text(r.column, 40),
+  // Dormida: la caja está suspendida y nada avanza hasta despertarla (`ghosty-dev wake <n>`).
+  sleeping: typeof r.sleepingAt === 'string' && r.sleepingAt.length > 0,
 });
+
+// La línea `next` de gs, saneada: sólo texto corto, nada que se ejecute.
+function nextOf(n) {
+  if (!n || typeof n !== 'object') return null;
+  const line = text(n.line, 300);
+  const label = text(n.label, 200);
+  if (!line && !label) return null;
+  return { line: line ?? label, label, owner: text(n.owner, 40), why: text(n.why, 300), failed: n.failed === true };
+}
 
 // Manda el pendiente #n a una caja de trabajo. La nube trabaja sobre lo que hay en GitHub, no sobre tu carpeta.
 // Con `pr` y sin pendiente: gs adopta el PR (vista previa, revisión y checks) y responde SIN id: no crea pendiente.
@@ -226,6 +240,43 @@ export async function list() {
   return (Array.isArray(res?.runs) ? res.runs : []).map(view);
 }
 
+// Todo el tablero del repo (runs en la nube, pendientes de terminal y PRs) con su «qué sigue»: la vista de `cloud`
+// y de la fila. `factory` = la fábrica del repo (encendida, en pausa, horario).
+export async function board() {
+  const res = await call('GET', `${RUNS}?repo=${encodeURIComponent(repoName())}`);
+  const rows = (Array.isArray(res?.runs) ? res.runs : []).map(view);
+  const other = (r, kind) => ({
+    number: number(r.issue ?? r.number), title: text(r.title) ?? '', kind,
+    pr: text(r.prUrl ?? (r.pr && typeof r.pr === 'object' ? r.pr.url : r.url)), next: nextOf(r.next), column: text(r.column, 40),
+    notStarted: r.notStarted === true, blocked: r.blocked && typeof r.blocked === 'object' ? { by: number(r.blocked.by) } : null,
+    actions: cleanActions(r.actions),
+  });
+  const local = (Array.isArray(res?.local) ? res.local : []).map((r) => other(r, 'local')).filter((r) => r.number);
+  const prs = (Array.isArray(res?.prs) ? res.prs : []).map((r) => ({ ...other(r, 'pr'), prNumber: number(r.pr) }));
+  const f = res?.factory && typeof res.factory === 'object' ? { on: res.factory.on !== false, pausedUntil: text(res.factory.pausedUntil, 40), schedule: text(res.factory.schedule, 80) } : null;
+  return { runs: rows, local, prs, factory: f };
+}
+
+// ¿Por qué no avanza la fila? Qué puede tomar la fábrica ahora y, si nada, la razón y el comando que lo destraba.
+// Pura (sin red) para poder probarla.
+export function queueOf(b) {
+  const live = b.runs.filter((r) => LIVE.has(r.phase));
+  const asleep = live.filter((r) => r.sleeping);
+  const needYou = [...live, ...b.local, ...b.prs].filter((r) => r.next?.owner === 'person' || r.phase === 'needs_person');
+  const ready = b.local.filter((r) => r.notStarted && !r.blocked);
+  const waiting = b.local.filter((r) => r.blocked);
+  const fixes = [];
+  if (b.factory && !b.factory.on) fixes.push({ why: `la fábrica está en pausa${b.factory.pausedUntil ? ` hasta ${b.factory.pausedUntil}` : ''}`, cmd: 'ghosty-dev factory resume' });
+  for (const r of asleep) fixes.push({ why: `#${r.number} está dormido`, cmd: `ghosty-dev wake ${r.number}` });
+  for (const r of ready) fixes.push({ why: `#${r.number} nadie lo ha empezado`, cmd: `ghosty-dev claim ${r.number} --cloud` });
+  for (const r of waiting) {
+    const by = r.blocked.by;
+    const blocker = by ? [...b.local, ...b.runs].find((x) => x.number === by) : null;
+    fixes.push({ why: `#${r.number} espera a #${by ?? '?'}${blocker?.notStarted ? ', que nadie ha empezado' : ''}`, cmd: by && blocker?.notStarted ? `ghosty-dev claim ${by} --cloud` : `ghosty-dev unblock ${r.number}` });
+  }
+  return { working: live.filter((r) => !r.sleeping && r.phase !== 'needs_person').length, needYou: needYou.map((r) => r.number), fixes };
+}
+
 async function liveRun(n) {
   const run = (await list()).find((r) => r.number === n && LIVE.has(r.phase));
   if (!run) throw new CloudError(`#${n} no va en la nube.`);
@@ -303,6 +354,18 @@ export async function recover({ start = false, prs } = {}) {
   return { candidates: cands, started: done };
 }
 
+// Despierta la caja de #n (op `wake` de gs, la de «Retomar» en la tarjeta): sale de la suspensión y el escritor sigue.
+export async function wake(n) {
+  const run = await liveRun(n);
+  return { ...view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'wake' })), wasSleeping: run.sleeping };
+}
+
+// Duerme la caja de #n (op `sleep`): libera RAM sin perder nada; gs no la duerme con un turno vivo.
+export async function sleep(n) {
+  const run = await liveRun(n);
+  return view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'sleep' }));
+}
+
 // La pregunta pendiente del escritor (campo `asked` del detalle GET /dev-runs/<id>), saneada. Acepta texto suelto o
 // {question|text, options[]}; sin pregunta, null. No se inventa nada: lo que gs no mande no se imprime.
 export function askedOf(d) {
@@ -334,8 +397,14 @@ export async function tell(n, { note, again = false } = {}) {
   const run = rows.find((r) => LIVE.has(r.phase)) ?? rows[0];
   if (!run) throw new CloudError(`#${n} no va en la nube. Mándalo primero: ghosty-dev claim ${n} --cloud`);
   const before = run.phase;
+  // Dormida, una nota o «otra vuelta» se quedaba en fila sin avanzar (#77, 26-nov): primero se despierta.
+  let woke = false;
+  if (run.sleeping && LIVE.has(run.phase)) {
+    await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'wake' });
+    woke = true;
+  }
   const r = view(await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, again ? { op: 'resume', ...(String(note ?? '').trim() ? { note: String(note) } : {}) } : { op: 'tell', note: String(note) }));
-  return { ...r, op: again ? 'resume' : 'tell', before, answered: !again && before === 'needs_person' };
+  return { ...r, op: again ? 'resume' : 'tell', before, woke, answered: !again && before === 'needs_person' };
 }
 
 export { AuthError };

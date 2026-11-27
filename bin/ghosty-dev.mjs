@@ -77,13 +77,17 @@ Uso: ghosty-dev <comando> [opciones]
                                          Ghosty lo sabe; sin terminal sale 75 con el comando para repetir)
   claim --cloud --pr <m> [--yes]         sin pendiente: Ghosty le pone vista previa, revisión y checks al PR #m
                                          y tu terminal lo sigue escribiendo
-  cloud                                  los pendientes de este repo que van en la nube
+  cloud                                  el tablero del repo: cada pendiente con «Sigue: … · le toca a …» y, al final,
+                                         la fila: qué puede tomar la fábrica y, si nada, por qué y el comando
+                                         (--json: los runs, como siempre; --json --queue: tablero completo + fila)
   stop <n>                               detiene #n en la nube y libera su caja; si no iba en la nube pero quedó la
                                          etiqueta ghosty-dev:en-nube, la quita (vuelve a por-hacer o en-curso)
   tell <n> "mensaje" | --file m.md | -   le manda un mensaje al escritor de #n en la nube (si preguntó, es la
                                          respuesta; si trabaja, un aviso; si está detenido, lo reanuda); - lee stdin
   tell <n> --again ["mensaje"]           «otra vuelta»: el escritor reintenta; si das mensaje, va como nota
   reopen <n>                             retoma #n si lo detuvieron y su PR sigue abierto (misma rama, caja nueva)
+  wake <n>                               despierta la caja dormida de #n en la nube (el «Retomar» de la tarjeta)
+  sleep <n>                              duerme la caja de #n (libera RAM; no aplica con un turno vivo)
   release <n>                            REANUDA un run de la nube que quedó «Esperando otro PR» (no cierra nada;
                                          NO suelta un claim: para eso, unclaim)
   unclaim <n> [--reason "motivo"] [--repo owner/repo]
@@ -193,6 +197,7 @@ const { values, positionals } = parseArgs({
     cloud: { type: 'boolean' },
     reopen: { type: 'boolean' },
     again: { type: 'boolean' },
+    queue: { type: 'boolean' },
     start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
     'no-open': { type: 'boolean' },
@@ -647,7 +652,27 @@ try {
     }
     print(r, (x) => `Tomado #${x.number} ${x.title} con el PR #${x.pr} (rama ${x.branch}).${x.linked ? `\n  Agregué «Closes #${x.number}» a la descripción del PR.` : ''}${x.alsoCloses.length ? `\n  Ese PR también cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}${x.preview ? `\n  Vista previa: ${PHASE_WORD[x.preview.phase] ?? x.preview.phase}${x.preview.phase === 'ready' ? '' : ` (síguela: ghosty-dev preview ${x.pr} --wait)`}` : ''}\n  Sigue: ghosty-dev next`);
   } else if (command === 'cloud') {
-    print(cloud.groupByIssue(await cloud.list()), (l) => (l.length ? l.map((r) => `#${r.number}\t${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}${r.attempts ? `\t(+${r.attempts} intento${r.attempts > 1 ? 's' : ''} anterior${r.attempts > 1 ? 'es' : ''})` : ''}${r.actions?.length ? `\n${cloud.actionLines(r.actions, { n: r.number, pr: r.pr ? Number(String(r.pr).split('/').pop()) : null }, '    ').join('\n')}` : ''}`).join('\n') : 'No hay pendientes de este repo en la nube.'));
+    // Una fila por trabajo con su «Sigue» (la misma línea que la tarjeta web) y, al final, por qué avanza o no la fila.
+    const b = await cloud.board();
+    const runs = cloud.groupByIssue(b.runs);
+    const q = cloud.queueOf(b);
+    const sigue = (r) => (r.next ? `\n    Sigue: ${r.next.line}${r.next.why && r.next.owner === 'nobody' ? ` (${r.next.why})` : ''}` : '');
+    const acts = (r) => (r.actions?.length ? `\n${cloud.actionLines(r.actions, { n: r.number, pr: r.pr ? Number(String(r.pr).split('/').pop()) : null }, '    ').join('\n')}` : '');
+    const others = [...b.local, ...b.prs].filter((o) => !runs.some((r) => r.number === o.number));
+    print(values.queue ? { runs, local: b.local, prs: b.prs, factory: b.factory, queue: q } : runs, () => {
+      const lines = [];
+      for (const r of runs) lines.push(`#${r.number}\t${r.sleeping ? 'Dormido · ' : ''}${r.state}\t${r.title}${r.pr ? `\t${r.pr}` : ''}${r.attempts ? `\t(+${r.attempts} intento${r.attempts > 1 ? 's' : ''} anterior${r.attempts > 1 ? 'es' : ''})` : ''}${sigue(r)}${acts(r)}`);
+      for (const o of others) lines.push(`#${o.number}\t${o.kind === 'pr' ? 'PR' : o.notStarted ? 'Sin empezar' : 'En terminal'}${o.blocked ? ` · espera #${o.blocked.by ?? '?'}` : ''}\t${o.title}${o.pr ? `\t${o.pr}` : ''}${sigue(o)}`);
+      if (!lines.length) lines.push('No hay pendientes abiertos en este repo.');
+      lines.push('', `Fila: ${q.working} trabajando${q.needYou.length ? ` · te necesitan ${q.needYou.map((n) => '#' + n).join(', ')}` : ''}${b.factory && !b.factory.on ? ' · fábrica en pausa' : ''}`);
+      if (!q.working && q.fixes.length) lines.push('  La fábrica no tiene nada que tomar. Para destrabar:');
+      for (const f of q.fixes.slice(0, 8)) lines.push(`  · ${f.why}: ${f.cmd}`);
+      return lines.join('\n');
+    });
+  } else if (command === 'wake' || command === 'sleep') {
+    const n = num(arg);
+    const r = command === 'wake' ? await cloud.wake(n) : await cloud.sleep(n);
+    print(r, (x) => (command === 'wake' ? `#${x.number} ${x.wasSleeping ? 'despierto' : 'no estaba dormido; lo empujé igual'}: ${x.state}.\n  Síguelo: ghosty-dev show ${x.number}` : `#${x.number} dormido: su caja quedó suspendida. Despiértalo: ghosty-dev wake ${x.number}`));
   } else if (command === 'tell') {
     const n = num(arg);
     // Con --again el mensaje es opcional: si viene, viaja como nota de la otra vuelta (antes se tiraba).
@@ -659,7 +684,7 @@ try {
     const r = await cloud.tell(n, { note, again: values.again });
     await writer.claimBeat(n);
     const PHASES = { needs_person: 'Te necesita', working: 'Trabajando', queued: 'En fila', waiting_ci: 'Esperando el CI', reviewing: 'En revisión', blocked: 'Esperando otro PR', merging: 'Mergeando', stopped: 'Detenido' };
-    print(r, (x) => `${x.op === 'resume' ? 'Otra vuelta pedida' : x.answered ? 'Respondí la pregunta del escritor' : 'Mensaje enviado al escritor'} de #${x.number} en la nube.\n  fase: ${PHASES[x.phase] ?? x.state ?? x.phase}\n  Síguelo: ghosty-dev cloud   ·   ghosty-dev show ${x.number}`);
+    print(r, (x) => `${x.woke ? 'Estaba dormido: lo desperté. ' : ''}${x.op === 'resume' ? 'Otra vuelta pedida' : x.answered ? 'Respondí la pregunta del escritor' : 'Mensaje enviado al escritor'} de #${x.number} en la nube.\n  fase: ${PHASES[x.phase] ?? x.state ?? x.phase}\n  Síguelo: ghosty-dev cloud   ·   ghosty-dev show ${x.number}`);
   } else if (command === 'reopen') {
     const r = await cloud.reopen(num(arg));
     print(r, (x) => `#${x.number} retomado en la nube: ${x.state}.\n  ${x.pr ?? x.url}`);

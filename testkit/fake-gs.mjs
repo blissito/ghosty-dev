@@ -221,6 +221,8 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
         Object.assign(r, { phase: 'working', estado: 'trabajando' });
       }
       if (body?.op === 'stop') Object.assign(r, { phase: 'stopped', estado: 'detenido' });
+      if (body?.op === 'sleep') r.sleepingAt = '2026-11-27T04:13:48.000Z';
+      if (body?.op === 'wake') r.sleepingAt = null;
       if (body?.op === 'reopen') Object.assign(r, { phase: 'working', estado: 'trabajando' });
       if (body?.op === 'resume' && (r.phase === 'blocked' || r.phase === 'stopped')) Object.assign(r, { phase: 'working', estado: 'trabajando' });
       return send(res, 200, r);

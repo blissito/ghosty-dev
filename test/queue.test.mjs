@@ -1,0 +1,75 @@
+// La fila desde la terminal (feedback del 26-nov en Formmy): dormidos que se despiertan, «Sigue» de gs en `cloud`
+// y por qué no avanza la fábrica con el comando que lo destraba.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setup, issue } from '../testkit/helpers.mjs';
+import { fakeGs } from '../testkit/fake-gs.mjs';
+import { queueOf } from '../src/cloud.mjs';
+
+async function withCloud(opts, fn) {
+  const gs = await fakeGs(opts);
+  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const file = join(s.config, 'ghosty-dev', 'auth.json');
+  mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 });
+  const tok = gs.grant();
+  writeFileSync(file, JSON.stringify({ baseUrl: gs.base, accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: Date.now() + 3_600_000, scope: tok.scope, email: null }), { mode: 0o600 });
+  const cli = (args) => s.runAsync(args, { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' } });
+  try {
+    await fn({ gs, cli });
+  } finally {
+    await gs.close();
+  }
+}
+
+const sleepy = { id: 'run1', repo: 'acme/demo', issue: 5, title: 'Salud', phase: 'working', estado: 'Trabajando', sleepingAt: '2026-11-27T04:13:48.000Z', next: { line: 'Siguiente: escribir · le toca al agente', owner: 'agent', label: 'Escribir' } };
+
+test('wake y sleep usan las ops del servidor', () =>
+  withCloud({ runs: [{ ...sleepy }] }, async ({ gs, cli }) => {
+    const w = await cli(['wake', '5']);
+    assert.equal(w.code, 0, w.err);
+    assert.match(w.out, /#5 despierto/);
+    assert.deepEqual(gs.devCalls.at(-1).body, { op: 'wake' });
+    const s = await cli(['sleep', '5']);
+    assert.equal(s.code, 0, s.err);
+    assert.deepEqual(gs.devCalls.at(-1).body, { op: 'sleep' });
+  }));
+
+test('tell --again sobre un pendiente dormido lo despierta primero (nunca queda en fila mudo)', () =>
+  withCloud({ runs: [{ ...sleepy }] }, async ({ gs, cli }) => {
+    const r = await cli(['tell', '5', '--again']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /Estaba dormido: lo desperté/);
+    const ops = gs.devCalls.filter((c) => c.method === 'POST').map((c) => c.body.op);
+    assert.deepEqual(ops, ['wake', 'resume']);
+  }));
+
+test('cloud pinta el «Sigue» de gs, los dormidos y la fila con el comando que destraba', () =>
+  withCloud({ runs: [{ ...sleepy }], localRows: [{ issue: 96, title: 'Agente crear', notStarted: true, phase: 'queued' }, { issue: 77, title: 'Formmy Crear', phase: 'queued', blocked: { by: 96 } }] }, async ({ cli }) => {
+    const r = await cli(['cloud']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /#5\tDormido · Trabajando\tSalud/);
+    assert.match(r.out, /Sigue: Siguiente: escribir · le toca al agente/);
+    assert.match(r.out, /#96\tSin empezar\tAgente crear/);
+    assert.match(r.out, /#77\tEn terminal · espera #96/);
+    assert.match(r.out, /#5 está dormido: ghosty-dev wake 5/);
+    assert.match(r.out, /#77 espera a #96, que nadie ha empezado: ghosty-dev claim 96 --cloud/);
+  }));
+
+test('queueOf: sin nada vivo y fábrica en pausa, la primera razón es la pausa', () => {
+  const q = queueOf({ runs: [], local: [{ number: 9, notStarted: true, blocked: null }], prs: [], factory: { on: false, pausedUntil: null } });
+  assert.equal(q.working, 0);
+  assert.deepEqual(q.fixes.map((f) => f.cmd), ['ghosty-dev factory resume', 'ghosty-dev claim 9 --cloud']);
+});
+
+test('cloud --json conserva el arreglo de runs; --queue trae tablero y fila', () =>
+  withCloud({ runs: [{ ...sleepy }], localRows: [{ issue: 96, title: 'Agente crear', notStarted: true, phase: 'queued' }] }, async ({ cli }) => {
+    const plain = JSON.parse((await cli(['cloud', '--json'])).out);
+    assert.ok(Array.isArray(plain));
+    assert.equal(plain[0].sleeping, true);
+    assert.equal(plain[0].next.owner, 'agent');
+    const full = JSON.parse((await cli(['cloud', '--json', '--queue'])).out);
+    assert.equal(full.local[0].number, 96);
+    assert.ok(full.queue.fixes.some((f) => f.cmd === 'ghosty-dev claim 96 --cloud'));
+  }));
