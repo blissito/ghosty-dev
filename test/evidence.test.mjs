@@ -82,6 +82,20 @@ test('la puerta encuentra «Closes #n» y exige evidencia por cada uno', () => {
   assert.equal(evaluatePullRequest({ body: 'Closes #3', head }, (n) => issues[n]).ok, true);
 });
 
+test('un PR no es su propio pendiente ni el de otro PR (Formmy #120)', () => {
+  const head = { sha: SHA };
+  const valid = { body: ISSUE, comments: [{ body: formatRevision(120, SHA, revisionMd()) }, { body: formatEvidence(120, VALID_EVIDENCE) }] };
+  const self = evaluatePullRequest({ number: 120, body: 'Closes #120', head }, () => valid);
+  assert.equal(self.ok, false);
+  assert.match(self.failures[0], /se cierra a sí mismo/);
+  const other = evaluatePullRequest({ number: 121, body: 'Closes #119', head }, () => ({ ...valid, isPr: true }));
+  assert.equal(other.ok, false);
+  assert.match(other.failures[0], /#119 es un PR, no un pendiente/);
+  // Con un issue de verdad junto al número propio, se juzga el issue.
+  const both = evaluatePullRequest({ number: 120, body: 'Closes #120\nCloses #3', head }, (n) => (n === 3 ? { body: ISSUE, comments: [{ body: formatRevision(3, SHA, revisionMd()) }, { body: formatEvidence(3, VALID_EVIDENCE) }] } : valid));
+  assert.equal(both.ok, true);
+});
+
 test('«Refs #95» no cierra: el mensaje trae el comando exacto con el número', () => {
   const r = evaluatePullRequest({ number: 120, body: 'Refs #95 (el pendiente sigue abierto)' }, () => null);
   assert.equal(r.ok, false);

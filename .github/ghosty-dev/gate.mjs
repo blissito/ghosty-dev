@@ -69,8 +69,14 @@ export function unlinkedPolicy(raw) {
 // Puro: recibe el PR y una función que trae cada issue ({ body, comments }). `external` = externalReview(…) o null.
 // `prCommits(n)` = shas del PR n (null = no se pudo): valida «probado en la preview del PR #N» (Formmy, fila 40).
 export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked = 'block', prCommits = null, preview = null } = {}) {
-  const refs = closingRefs(pr.body || '');
+  // Un PR no es su propio pendiente (Formmy #120, 26-nov: «Closes #120» en el PR #120 pasó como «evidencia válida»).
+  const selfRef = closingRefs(pr.body || '').includes(pr.number);
+  const refs = closingRefs(pr.body || '').filter((n) => n !== pr.number);
   if (refs.length === 0) {
+    if (selfRef && unlinked === 'block') {
+      const line = `El PR #${pr.number} se cierra a sí mismo («Closes #${pr.number}»): un PR no es un pendiente. Liga el issue que resuelve: ghosty-dev claim --pr ${pr.number} --issue <n> (o «Closes #n» con el número del issue).`;
+      return { ok: false, lines: [line], failures: [line] };
+    }
     // «Refs #95» enlaza pero no cierra: si la descripción nombra un solo pendiente, el comando sale exacto (sin «<n>»).
     const mentioned = [...new Set([...(pr.body || '').matchAll(/(?:^|[^\w&])#(\d+)\b/g)].map((m) => Number(m[1])))].filter((n) => n !== pr.number);
     const fix =
@@ -102,6 +108,11 @@ export function evaluatePullRequest(pr, fetchIssue, external = null, { unlinked 
   if (ref && !/^ghosty-dev\/\d+-/.test(ref)) lines.push(`Informativo: la rama ${ref} no sigue el patrón ghosty-dev/<n>-…; la puerta juzga ${refs.map((r) => '#' + r).join(', ')} igual.`);
   for (const n of refs) {
     const issue = fetchIssue(n);
+    // «Closes #m» con #m = OTRO PR: tampoco es un pendiente; su hilo no es la bitácora.
+    if (issue.isPr) {
+      fail(`#${n} es un PR, no un pendiente: liga el issue que resuelve (ghosty-dev claim --pr ${pr.number ?? '<m>'} --issue <n>).`);
+      continue;
+    }
     // Revisión: otro agente con contexto limpio, del commit exacto que se va a mergear.
     const rev = findRevisionFor(issue.comments, sha);
     if (external?.state === 'passed') {
@@ -179,10 +190,10 @@ export function main() {
   }
   // REST, igual que el CLI (nada de `gh issue view`, que usa GraphQL).
   const get = (path) => JSON.parse(execFileSync(gh, ['api', '-X', 'GET', path], { encoding: 'utf8' }));
-  const fetchIssue = (n) => ({
-    body: get(`repos/{owner}/{repo}/issues/${n}`).body || '',
-    comments: get(`repos/{owner}/{repo}/issues/${n}/comments?per_page=100`),
-  });
+  const fetchIssue = (n) => {
+    const issue = get(`repos/{owner}/{repo}/issues/${n}`);
+    return { body: issue.body || '', isPr: !!issue.pull_request, comments: get(`repos/{owner}/{repo}/issues/${n}/comments?per_page=100`) };
+  };
   // La configuración sale de la rama base (el checkout de la Action), igual que este script.
   let config = null;
   let unlinked = 'block';
