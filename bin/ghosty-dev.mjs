@@ -390,8 +390,10 @@ function serviceLine(key, s) {
   const url = key === 'preview' ? s.deployment ?? s.url : s.url;
   return `  ${label}: ${word}${extra ? ` (${extra})` : ''}${url ? `\n    ${url}` : ''}`;
 }
-const servicesBlock = (sv) =>
-  sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...['preview', 'review', 'smoke', 'gate'].filter((k) => sv[k] && (k !== 'gate' || sv[k].status !== 'sin-check')).map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
+// Con la vista previa ya dicha por gs (`previewLine`), el check «Ghosty · Preview» no se repite: eran dos fuentes que
+// se contradecían («en fila» y «lista» a la vez, 26-nov). Sin gs, el check es lo único que hay y se queda.
+const servicesBlock = (sv, gsPreview = false) =>
+  sv ? ['', `Servicios del PR (commit ${sv.sha.slice(0, 7)}):`, ...(gsPreview ? ['review', 'smoke', 'gate'] : ['preview', 'review', 'smoke', 'gate']).filter((k) => sv[k] && (k !== 'gate' || sv[k].status !== 'sin-check')).map((k) => serviceLine(k, sv[k])), `  CI: ${sv.ci}`] : [];
 
 // Vista previa según Ghosty Studio, para `show`: fase y commit, NUNCA la liga (ésa sólo la da `preview`). Si no hay
 // sesión de ghosty-dev o gs no contesta, `show` sigue con lo de GitHub.
@@ -977,7 +979,15 @@ try {
       if (!r.pr && !r.closed && r.state !== 'cerrado') r.hint = `#${r.number} no tiene PR que lo cierre; si el PR ya existe: ghosty-dev claim --pr <m> --issue ${r.number}`;
       r.preview = r.pr ? await previewSummary(Number(r.pr.split('/').pop())) : null;
       // Dónde vive el trabajo (nube o tu compu) y cómo cambiarlo: un solo escritor a la vez.
-      const cloudRun = (await cloud.list().catch(() => [])).find((c) => c.number === r.number) ?? null;
+      const board = process.env.GHOSTY_DEV_NO_NET ? null : await cloud.board().catch(() => null);
+      const cloudRun = (board?.runs ?? []).filter((c) => c.number === r.number).sort((a, b) => Number(cloud.LIVE.has(b.phase)) - Number(cloud.LIVE.has(a.phase)))[0] ?? null;
+      // Una sola verdad (gs): «qué sigue y a quién le toca», la misma línea que la tarjeta web.
+      const row = cloudRun ?? [...(board?.local ?? []), ...(board?.prs ?? [])].find((o) => o.number === r.number) ?? null;
+      r.next = row?.next ?? null;
+      r.sleeping = !!cloudRun?.sleeping;
+      // La etiqueta de GitHub es la bitácora; si no cuadra con gs se dice, no se presenta como el estado.
+      const liveRun = cloudRun && cloud.LIVE.has(cloudRun.phase);
+      r.labelStale = r.state === 'en-nube' && !liveRun ? 'dice «en la nube» y no hay nada corriendo (ghosty-dev stop ' + r.number + ' la limpia)' : null;
       const localBranch = (git(['branch', '--list', `ghosty-dev/${r.number}-*`], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
       const blocked = r.blockedBy.length > 0 || r.state === 'bloqueado';
       r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch, blocked });
@@ -991,7 +1001,12 @@ try {
       print(r, (x) =>
         [
           `#${x.number} ${x.title}`,
-          `  estado: ${x.state ?? 'sin etiqueta de bitácora'}`,
+          ...(x.writer.where === 'nube' || x.next
+            ? [`  estado: ${x.sleeping ? 'Dormido · ' : ''}${x.writer.detail ?? x.state ?? '—'}${x.state && x.writer.where === 'nube' ? ` (etiqueta de GitHub: ${x.state})` : ''}`]
+            : [`  estado: ${x.state ?? 'sin etiqueta de bitácora'}`]),
+          ...(x.next ? [`  sigue: ${x.next.line}`] : []),
+          ...(x.sleeping ? [`  dormido: nada avanza hasta despertarlo (ghosty-dev wake ${x.number})`] : []),
+          ...(x.labelStale ? [`  etiqueta vieja: ${x.labelStale}`] : []),
           ...(x.stopReason ? [`  detenido por: ${x.stopReason}`] : []),
           ...(x.actions ? [`  escribe: ${x.writer.where}${x.writer.detail ? ` (${x.writer.detail})` : ''}`, '  acciones:', ...cloud.actionLines(x.actions, { n: x.number, pr: x.pr ? Number(String(x.pr).split('/').pop()) : null }, '    ')] : [`  escribe: ${x.writer.where}${x.writer.detail ? ` (${x.writer.detail})` : ''} — para cambiarlo: ${x.writer.move}`]),
           `  escritor: ${x.assignees.join(', ') || '—'}`,
@@ -1001,7 +1016,7 @@ try {
           `  pedidos nuevos: ${x.asks.length ? x.asks.map((a) => a.text).join(' · ') : '—'}`,
           ...(x.pr ? [`  PR: ${x.pr}`] : x.closed ? [`  PR: ${cmd.closedLine(x.closed)}`] : x.hint ? [`  PR: — (${x.hint})`] : []),
           ...previewLine(x.preview),
-          ...servicesBlock(x.services),
+          ...servicesBlock(x.services, !!x.preview),
           ...(x.ficha ? ['', x.ficha] : []),
         ].join('\n'),
       );
