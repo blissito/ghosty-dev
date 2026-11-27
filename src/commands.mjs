@@ -1251,7 +1251,9 @@ export const nextLine = (n) => `Siguiente: ${(n.owner === 'agent' ? NEXT_FIX[n.s
 // Los checks del commit en la forma de boardNext (check runs + statuses).
 function checksLite(sha) {
   const { runs, statuses } = commitChecks(sha);
-  return [...runs.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion })), ...statuses.map((s) => ({ name: s.context, status: s.state === 'pending' ? 'in_progress' : 'completed', conclusion: s.state === 'pending' ? null : s.state === 'success' ? 'success' : 'failure' }))];
+  // El más nuevo primero (id mayor): boardNext se queda con el primero por nombre. Un sha puede traer el job viejo de
+  // Actions «ghosty-dev/evidencia» en rojo y el check nuevo de gs en verde (Formmy #156, repo privado sin Actions).
+  return [...[...runs].sort((a, b) => (b.id ?? 0) - (a.id ?? 0)).map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion })), ...statuses.map((s) => ({ name: s.context, status: s.state === 'pending' ? 'in_progress' : 'completed', conclusion: s.state === 'pending' ? null : s.state === 'success' ? 'success' : 'failure' }))];
 }
 function boardNextOf(p, conflict) {
   if (p.state !== 'open' || p.merged_at || !p.head?.sha) return null;

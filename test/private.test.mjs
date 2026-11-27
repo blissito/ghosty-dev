@@ -193,3 +193,13 @@ test('deploy <pr>: comando que falla deja el marcador fail y sale 1; árbol suci
   r = await s.runAsync(['deploy', '81']);
   assert.match(r.err, /Estás en otra: el deploy sale de main/);
 });
+
+test('mismo sha con el job viejo de Actions en rojo y el check nuevo de gs en verde: manda el más nuevo (Formmy #156)', () => {
+  const p = { ...mergeable(), statusCheckRollup: [ok('test'), ok('Ghosty Review'), { id: 1, name: 'ghosty-dev/evidencia', status: 'COMPLETED', conclusion: 'FAILURE' }, { id: 2, name: 'ghosty-dev/evidencia', status: 'COMPLETED', conclusion: 'SUCCESS', app: 'ghosty-studio' }] };
+  const s = setup({ ...PRIVATE, issues: { 5: issue(5, 'Chat') }, prs: [p] });
+  const sh = s.run('show', '--pr', '81', '--json');
+  assert.equal(JSON.parse(sh.out).next.step, 'merge', sh.out);
+  const r = s.run('merge', '81', '--no-deploy');
+  assert.equal(r.code, 0, r.err + r.out);
+  assert.match(r.out, /Merge del PR #81 hecho/);
+});
