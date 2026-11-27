@@ -193,6 +193,13 @@ if (group === 'label' && verb === 'create') {
     }
     out({ mergeable, mergeable_state: mergeable === null ? 'unknown' : p.mergeableState, base: { ref: p.baseRefName ?? 'main' }, number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: Boolean(p.draft), merged_at: p.mergedAt ?? null, closed_at: p.closedAt ?? null, body: p.body ?? '', html_url: p.url, head: { ref: p.headRefName, sha: sha(p) } });
   }
+  else if (path.endsWith('/pulls') && method === 'POST') {
+    // Abrir un PR (ghosty-dev pr): queda abierto con el cuerpo que mandó el CLI.
+    const number = Math.max(100, ...db.prs.map((p) => p.number)) + 1;
+    const pr = { number, title: body.title, url: `https://github.com/${db.repo}/pull/${number}`, headRefName: body.head, headRefOid: 'f'.repeat(40), body: body.body, draft: Boolean(body.draft), baseRefName: body.base };
+    db.prs.push(pr);
+    out({ number, html_url: pr.url });
+  }
   else if (path.endsWith('/pulls')) out(page(db.prs.filter((p) => (p.state ?? 'open') === (q.get('state') ?? 'open')).map((p) => ({ number: p.number, title: p.title ?? `PR ${p.number}`, state: p.state ?? 'open', draft: Boolean(p.draft), merged_at: p.mergedAt ?? null, closed_at: p.closedAt ?? null, html_url: p.url, body: p.body ?? '', base: { ref: p.baseRefName ?? 'main' }, head: { ref: p.headRefName, sha: sha(p) } }))));
   else if ((m = path.match(/compare\/([^.]+)\.\.\.(.+)$/))) out({ status: (db.ancestors ?? []).includes(`${m[1]}...${m[2]}`) ? 'ahead' : 'diverged' });
   else if ((m = path.match(/commits\/([^/]+)\/check-runs$/))) {

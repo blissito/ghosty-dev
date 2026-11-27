@@ -11,6 +11,7 @@ import * as shares from '../src/share.mjs';
 import * as boxes from '../src/box.mjs';
 import * as writer from '../src/writer.mjs';
 import * as factory from '../src/factory.mjs';
+import * as userSkill from '../src/user-skill.mjs';
 import { waitPr } from '../src/watch.mjs';
 import { syncDeps } from '../src/deps.mjs';
 import { createInterface } from 'node:readline/promises';
@@ -107,6 +108,9 @@ Uso: ghosty-dev <comando> [opciones]
                                          (tope 5 min), dice si quedó verde o rojo y avisa cuando la vista previa y la
                                          revisión de Ghosty terminan (no las espera: el CI manda)
   asks <n> [--peek]                      los pedidos nuevos de la persona (@ghosty o desde Ghosty); los marca leídos
+  pr [<n>] [--draft]                     sube la rama actual y abre su PR con «Closes #n» (o liga el que ya tiene);
+                                         sirve también con una rama hecha a mano: <n> dice de qué pendiente es
+  note <n> "texto" | --file n.md | -     avance sin código (infra, DNS, una decisión) en la bitácora de #n
   evidence <n> [--pr <m>] --file e.md    valida y publica la evidencia y vuelve a correr la puerta del PR que
                                          cierra #n (también la re-dispara el workflow con issue_comment)
   evidence --check --file e.md [--issue-file pendiente.md]
@@ -216,6 +220,7 @@ const { values, positionals } = parseArgs({
     'no-checks': { type: 'boolean' },
     dir: { type: 'string' },
     file: { type: 'string' },
+    draft: { type: 'boolean' },
     check: { type: 'boolean' },
     'issue-file': { type: 'string' },
     by: { type: 'string' },
@@ -268,6 +273,9 @@ if (values.version) {
 
 
 let [command, arg, arg2] = positionals;
+// La skill a nivel usuario, al día con esta versión: cualquier sesión de Claude (también la abierta en otro repo)
+// sabe trabajar los pendientes con el CLI. Silenciosa y sin red; fuera en pruebas.
+if (!process.env.GHOSTY_DEV_GH && !process.env.GHOSTY_DEV_NO_USER_SKILL) userSkill.installUserSkill();
 let existing = null; // sesión que ya había al pedir login
 const num = (v, what = '<n>') => parseRef(v, what).n;
 
@@ -663,6 +671,9 @@ try {
     // Adoptar lo que ya existe: un PR abierto queda como el trabajo del pendiente, sin rama ni worktree nuevos.
     const n = num(values.issue ?? arg, '--issue <n>');
     const r = cmd.adopt(n, num(values.pr, '--pr <m>'));
+    // El tablero ya lo cuenta como tuyo: latido del claim y del PR (antes: «escribe: nadie» tras adoptar).
+    await writer.claimBeat(n);
+    await writer.beat(n, 'pushed');
     // Preguntar por la preview la arma si el aviso de GitHub se perdió (gs; Formmy, fila 48).
     if (!process.env.GHOSTY_DEV_NO_NET) {
       try {
@@ -807,6 +818,19 @@ try {
         .concat(x.stale.length ? [`Obsoletos (avisos del bot que ya no aplican a la cabeza del PR; no hay que hacerlos):`, ...x.stale.map((a) => `  - ${a.reason}: ${a.text.split('\n')[0].slice(0, 120)}`)] : [])
         .join('\n'),
     );
+  } else if (command === 'pr') {
+    await factory.guard();
+    const r = cmd.openPr(arg === undefined ? null : num(arg), { draft: values.draft });
+    await writer.claimBeat(r.number);
+    await writer.beat(r.number, 'pushed');
+    print(r, (x) => `${x.created ? 'Abrí' : 'Ligué'} el PR #${x.pr} para #${x.number} ${x.title} (rama ${x.branch}).\n  ${x.url}${x.alsoCloses.length ? `\n  También cierra ${x.alsoCloses.map((c) => '#' + c).join(', ')}.` : ''}\n  Sigue: ghosty-dev wait --pr ${x.pr} --until ci`);
+  } else if (command === 'note') {
+    const n = num(arg);
+    const { readFileSync } = await import('node:fs');
+    const text = values.file !== undefined ? readFileSync(values.file, 'utf8') : arg2 === '-' ? readFileSync(0, 'utf8') : positionals.slice(2).join(' ');
+    const r = cmd.note(n, text);
+    await writer.claimBeat(n);
+    print(r, (x) => `Nota en #${x.number}: ${x.url}`);
   } else if (command === 'evidence') {
     const r = cmd.evidence(num(arg), values.file, { pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
     await writer.claimBeat(num(arg));
@@ -918,6 +942,7 @@ try {
     // ¿Hay ghosty-dev más nuevo? (fila 57) Primero, con la línea exacta para actualizar.
     const up = await import('../src/update.mjs');
     r.checks.unshift(up.versionCheck(up.currentVersion(), await up.latestVersion()));
+    r.checks.splice(1, 0, userSkill.userSkillCheck());
     // ¿Está el repo preparado? La puerta, su revisor y la protección (Formmy, 23-nov: sin esto ningún PR de la nube pasaba).
     try {
       r.checks.push(...cmd.readinessChecks(cmd.repoReadiness({ dir: top })));
@@ -1017,7 +1042,19 @@ try {
       // La etiqueta de GitHub es la bitácora; si no cuadra con gs se dice, no se presenta como el estado.
       const liveRun = cloudRun && cloud.LIVE.has(cloudRun.phase);
       r.labelStale = r.state === 'en-nube' && !liveRun ? 'dice «en la nube» y no hay nada corriendo (ghosty-dev stop ' + r.number + ' la limpia)' : null;
-      const localBranch = (git(['branch', '--list', `ghosty-dev/${r.number}-*`], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
+      const branchHere = (pattern) => (git(['branch', '--list', pattern], { allowFail: true }) ?? '').split('\n').map((l) => l.replace(/^[*+\s]+/, '').trim()).find(Boolean) ?? null;
+      // La rama del claim, o la del PR adoptado si está en este clon (una rama hecha a mano también es «tu compu»).
+      let localBranch = branchHere(`ghosty-dev/${r.number}-*`);
+      if (!localBranch && r.pr) {
+        const head = (() => {
+          try {
+            return cmd.prOf(r.number)?.headRefName ?? null;
+          } catch {
+            return null;
+          }
+        })();
+        if (head) localBranch = branchHere(head);
+      }
       const blocked = r.blockedBy.length > 0 || r.state === 'bloqueado';
       r.writer = cmd.writerOf({ number: r.number, cloudRun, localBranch, blocked });
       // gs calcula las acciones (un solo sitio); sin `actions` (servidor viejo) queda el `move` de writerOf.

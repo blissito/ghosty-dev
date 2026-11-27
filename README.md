@@ -2,6 +2,15 @@
 
 **No necesitas una fábrica: necesitas una bitácora que no se pierda y evidencia que no mienta.**
 
+
+## Todo pasa por el CLI, aunque empieces fuera (0.11.0)
+
+- `ghosty-dev pr [<n>]`: sube la rama actual y abre su PR con «Closes #n», o liga el que ya tenía, y te asigna el pendiente. Sirve también con una rama hecha a mano.
+- `ghosty-dev note <n> "texto"`: avance sin código (infra, DNS, una decisión) en la bitácora del pendiente.
+- `claim --pr` y `pr` mandan el latido a Ghosty Studio, así que el tablero ya muestra el trabajo como tuyo; `show` reconoce la rama del PR adoptado.
+- La skill se instala también en `~/.claude/skills/ghosty-dev/`, así la ve cualquier sesión de Claude aunque esté abierta en otro repo; `doctor` revisa que esté al día.
+- `next` sugiere `ghosty-dev pr`, ya no `gh pr create`.
+
 ## Cómo se usa (3 pasos)
 
 1. **Le dices a tu agente qué hay que hacer.** Él lo apunta como pendientes (issues de GitHub).
@@ -105,7 +114,7 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 
 ## Comandos
 
-`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `confirm <n> --criterion <i> [--note "…"] [--image a.png]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
+`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `pr [<n>] [--draft]` · `note <n> "texto"` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `confirm <n> --criterion <i> [--note "…"] [--image a.png]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 > La puerta del repo sólo bloquea `claim` si falta o es anterior a 0.9.38; si únicamente difiere de tu versión, `doctor` avisa (`init --force --no-checks --files-only`).
 
 `show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n> [--duplicate-of <m>]` · `unblock <n> [--by <m>]` · `login` · `whoami` · `logout` · `env ls [--pr <m>]` · `env push <archivo>` · `labels [--fix]`.

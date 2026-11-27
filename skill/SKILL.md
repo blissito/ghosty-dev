@@ -1,6 +1,6 @@
 ---
 name: ghosty-dev
-description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que se cierran con evidencia). Úsala al empezar cualquier tarea de código en un repo con etiquetas ghosty-dev:*, cuando pidan «toma el siguiente pendiente», «cierra el #n» o cuando descubras trabajo nuevo.
+description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que se cierran con evidencia) usando el CLI ghosty-dev. Úsala ANTES de tocar un pendiente o un PR de un repo con etiquetas ghosty-dev:* o carpeta .ghosty/ (p. ej. blissito/formmy_rrv7), también si tu sesión está abierta en otro repo; cuando pidan «toma el siguiente pendiente», «cierra el #n», «el #n», o cuando descubras trabajo nuevo, aunque sea infra (DNS, servidores) sin código.
 ---
 
 # Bitácora: el trabajo vive en GitHub Issues, no en tu sesión
@@ -9,10 +9,15 @@ description: Trabajar con la bitácora del repo (pendientes en GitHub Issues que
 
 1. `ghosty-dev next` — el siguiente paso exacto según el repo (empieza aquí siempre, también tras compactar).
    **Fábrica en pausa** (la persona la pausó o está fuera de su horario): `next`, `claim` y `asks` salen **6** con la línea («Fábrica en pausa hasta las 8:00»), y `wait` corta igual. No tomes trabajo nuevo: termina el paso que traes, déjalo subido y detente. Sólo la persona la reanuda (`/c/dev` o `ghosty-dev factory resume`); `ghosty-dev factory` dice el estado.
-2. Trabajo nuevo: `ghosty-dev claim <n>`. Trabajo que ya existe (PR a mano, rama propia): `ghosty-dev claim --pr <m> --issue <n>`.
+2. Trabajo nuevo: `ghosty-dev claim <n>`. Rama hecha a mano: `ghosty-dev pr <n>` (la sube, abre el PR con «Closes #n» y te la asigna). PR que ya existe: `ghosty-dev claim --pr <m> --issue <n>`. Avance sin código (DNS, infra, una decisión): `ghosty-dev note <n> "…"`.
 3. Push → `ghosty-dev preview --wait --json` → prueba la app; si falla: `ghosty-dev box logs` / `box exec -- <cmd>` → arregla → push.
 4. CI verde → revisión de otra sesión: `ghosty-dev review <n> --pr <m>` (subagente ghosty-dev-revisor), 0 hallazgos abiertos.
 5. `ghosty-dev evidence <n> --pr <m> --file evidencia.md` (re-dispara la puerta) → la persona decide el merge; si te lo pide: `ghosty-dev merge <m>` (sólo con TODOS los checks en verde, y espera el deploy), nunca `gh pr merge`. Nunca `gh issue comment` a mano.
+
+**¿Y gh, git u otro CLI?** Úsalos si te sirven; no están prohibidos. Pero lo que mueve el pendiente (tomarlo, abrir o
+ligar su PR, avanzar, evidencia, merge) va por `ghosty-dev`, porque sólo así lo ve el tablero de la persona. Si algo
+lo hiciste fuera, regístralo en el momento (`pr <n>`, `claim --pr`, `note`). Si el CLI no puede algo, dilo: se
+arregla el CLI, no se rodea.
 
 Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pendiente** (un issue con etiqueta
 `ghosty-dev:*`). Tres leyes, sin excepción:
@@ -32,7 +37,7 @@ ghosty-dev ready --json            # qué se puede tomar (listo, desbloqueado o 
 ghosty-dev claim <n>               # te lo asigna, crea worktree y rama ghosty-dev/<n>-… e instala dependencias (--fast enlaza)
 cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree, un escritor
 # … código y tests …
-git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
+ghosty-dev pr                      # sube la rama y abre el PR con «Closes #<n>» (lo liga si ya existe)
 ghosty-dev wait <n> --watch        # espera al CI en una sola llamada (en Claude Code, timeout 360000)
 ghosty-dev show <n>                # la ficha y los servicios del PR: vista previa (con su liga), revisión, smoke y CI
 ghosty-dev preview --wait --json   # la vista previa del PR de tu rama: espera a la del último push y da su liga

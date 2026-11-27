@@ -359,6 +359,42 @@ export function claim(n, { worktree = true, base, deps = 'install', onWarning = 
   return { number: n, title: issue.title, branch, worktree: path, base: from?.ref ?? null, warning: from?.warning ?? null };
 }
 
+// `ghosty-dev pr [<n>]`: sube la rama actual y abre (o adopta) su PR ligado a #n, sin pasar por gh. #n sale del
+// argumento o del nombre de la rama (`ghosty-dev/<n>-…`). Funciona con cualquier rama: la que hizo claim o una hecha a
+// mano (así lo que se trabajó fuera del CLI entra a la bitácora en un paso).
+const currentBranch = () => git(['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })?.trim() || null;
+const defaultBranchName = () => api('GET', REPO, undefined, { allowFail: true })?.default_branch || 'main';
+
+export function openPr(n, { branch = currentBranch(), draft = false } = {}) {
+  const def = defaultBranchName();
+  if (!branch || branch === def) throw new UserError(`Estás en ${branch || 'ninguna rama'}: cambia a la rama del trabajo (o crea una con ghosty-dev claim <n>).`);
+  const own = branch.match(/^ghosty-dev\/(\d+)-/);
+  const number = n ?? (own ? Number(own[1]) : null);
+  if (!number) throw new UserError(`¿De qué pendiente es la rama ${branch}? ghosty-dev pr <n>`);
+  const issue = viewIssue(number);
+  if (issue.state !== 'OPEN') throw new UserError(`#${number} está cerrado.`);
+  git(['push', '-u', 'origin', 'HEAD']);
+  const existing = openPrs().find((p) => p.headRefName === branch);
+  let created = false;
+  let m = existing?.number;
+  if (!m) {
+    const body = `Closes #${number}\n\n${MAIN_FLOW_LINE} <qué y cómo>\n`;
+    m = api('POST', `${REPO}/pulls`, { title: issue.title, head: branch, base: def, body, draft }).number;
+    created = true;
+  }
+  const r = adopt(number, m);
+  return { ...r, created };
+}
+
+// `ghosty-dev note <n> "texto"`: avance que no es código (infra, DNS, una decisión) en la bitácora del pendiente.
+export function note(n, text) {
+  const body = String(text ?? '').trim();
+  if (!body) throw new UserError('La nota está vacía: ghosty-dev note <n> "texto" (o --file nota.md, o - para leer de stdin).');
+  const issue = viewIssue(n);
+  const url = api('POST', `${API_ISSUE(n)}/comments`, { body: `📝 **Nota** (ghosty-dev)\n\n${body}\n` }).html_url;
+  return { number: n, title: issue.title, url };
+}
+
 // Adopta lo que ya existe (Formmy, fila 32): un PR abierto a mano o desde una rama propia queda como el trabajo del
 // pendiente #n sin rehacer rama ni worktree. Mismas reglas que claim (un solo escritor, sin bloqueos), y el PR gana
 // «Closes #n» en su descripción si no lo tenía (así la puerta, gs y `ready` lo ven).
@@ -1308,8 +1344,8 @@ export function next() {
     if (closed) return out('reabrir', `gh pr reopen ${closed.pr}`, `${closedLine(closed)}. Mientras siga cerrado, un push a ${branch} no corre CI, vista previa ni revisión`, { pr: closed.pr, closed });
   }
   const own = branch?.match(/^ghosty-dev\/(\d+)-/);
-  if (own) return out('abrir-pr', `git push -u origin HEAD && gh pr create --fill --body "Closes #${own[1]}"`, `la rama de #${own[1]} no tiene PR abierto`, { issue: Number(own[1]) });
-  if (branch && branch !== def) return out('ligar', `gh pr create --fill --body "Closes #<n>"  (o, si es de un pendiente: ghosty-dev claim <n>)`, `la rama ${branch} no tiene PR ni pendiente: el trabajo tiene que vivir en la bitácora`);
+  if (own) return out('abrir-pr', `ghosty-dev pr ${own[1]}`, `la rama de #${own[1]} no tiene PR abierto (sube la rama y abre el PR con «Closes #${own[1]}»)`, { issue: Number(own[1]) });
+  if (branch && branch !== def) return out('ligar', `ghosty-dev pr <n>`, `la rama ${branch} no tiene PR ni pendiente: \`ghosty-dev pr <n>\` la sube, abre el PR y la liga a #n (el trabajo tiene que vivir en la bitácora)`);
   const list = ready();
   if (list.length) {
     const first = list[0];
