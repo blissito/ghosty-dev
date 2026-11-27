@@ -179,6 +179,7 @@ Sesión propia en Ghosty Studio (nube, vista previa y variables; GitHub sigue si
   whoami                                 con qué cuenta de Ghosty Studio estás y cuándo vence la sesión
   logout                                 revoca la sesión y borra ~/.config/ghosty-dev/auth.json
   env ls                                 nombres de las variables del repo: guardadas, faltantes, riesgos
+  env ls --pr <m>                        las variables que le faltan a ese PR para probarse (primero las que lee su diff)
   env push <archivo> [--replace] [--yes] guarda las variables del archivo (nunca imprime valores); por defecto
                                          fusiona con las guardadas, --replace reemplaza todas
 
@@ -1081,6 +1082,19 @@ try {
   } else if (command === 'whoami') {
     const r = await auth.whoami();
     print(r, (x) => `${x.email ?? 'Sesión activa'} en ${x.base}${x.expiresAt ? ` (vence ${x.expiresAt}; se renueva sola)` : ''}\n  sesión: ${x.source === 'env' ? 'GHOSTY_DEV_TOKEN' : x.path}${x.scope ? `\n  permisos: ${x.scope}` : ''}`);
+  } else if (command === 'env' && arg === 'ls' && values.pr !== undefined) {
+    // Las variables que le faltan a ESE PR para probarse (la misma cuenta que el aviso de la vista previa en gs).
+    const pr = num(values.pr, '--pr <m>');
+    const p = await previews.fetchPreview(pr);
+    const top = (p.missingEnvPriority ?? []).filter((k) => p.missingEnv?.includes(k));
+    const rest = (p.missingEnv ?? []).filter((k) => !top.includes(k));
+    print({ pr, missing: p.missingEnv, priority: top, rest }, (x) =>
+      x.missing === null
+        ? `PR #${pr}: la vista previa todavía no dice qué variables lee (¿ya se armó? ghosty-dev preview ${pr}).`
+        : !x.missing.length
+          ? `PR #${pr}: no le falta ninguna variable para probarse.`
+          : [`PR #${pr}: le faltan ${x.missing.length} variable(s) para probarse.`, ...(x.priority.length ? [`  las lee este PR: ${x.priority.join(', ')}`] : []), ...(x.rest.length ? [`  el resto: ${x.rest.join(', ')}`] : []), '  Súbelas: ghosty-dev env push .env.preview (y la vista previa se rearma sola)'].join('\n'),
+    );
   } else if (command === 'env' && arg === 'ls') {
     const r = await envVars.ls();
     print(r, (x) =>
@@ -1088,7 +1102,7 @@ try {
         `${x.repo}${x.workspace ? ` · espacio ${x.workspace}` : ''}`,
         `  guardadas: ${x.saved === null ? 'no se pudieron leer' : x.saved.join(', ') || '—'}`,
         `  faltan: ${x.missing.join(', ') || '—'}`,
-        ...x.risks.map((k) => `  riesgo: ${k.key}: ${k.risk}`),
+        ...envVars.riskLines(x.risks),
         ...x.blocked.map((b) => `  pedido ${b.id} bloqueado por: ${b.keys.join(', ') || 'variables sin nombre'}`),
         x.canWrite ? '  Guárdalas con: ghosty-dev env push <archivo>' : '  Sólo el dueño del espacio guarda variables.',
       ].join('\n'),
@@ -1110,11 +1124,12 @@ try {
       [`Guardadas en ${x.repo}${x.workspace ? ` (espacio ${x.workspace})` : ''}: ${x.keys.join(', ') || '—'}`]
         .concat(x.kept?.length ? [`  se quedaron: ${x.kept.join(', ')}`] : [])
         .concat(x.dropped?.length ? [`  descartadas: ${x.dropped.join(', ')}`] : [])
-        .concat(x.risks.map((k) => `  riesgo: ${k.key}: ${k.risk}`))
+        // Sólo los riesgos de lo que acabas de subir: lo demás ya estaba guardado (y lo dice `env ls`).
+        .concat(envVars.riskLines(x.risks, x.keys))
         .join('\n'),
     );
   } else if (command === 'env') {
-    throw new cmd.UserError('Uso: ghosty-dev env ls | ghosty-dev env push <archivo> [--replace] [--yes]');
+    throw new cmd.UserError('Uso: ghosty-dev env ls [--pr <m>] | ghosty-dev env push <archivo> [--replace] [--yes]');
   } else {
     throw new cmd.UserError(`Comando desconocido: ${command}. Usa ghosty-dev --help.`);
   }

@@ -87,3 +87,18 @@ export async function push(p) {
     replace: p.replace,
   };
 }
+
+// Lo que significa cada riesgo (los códigos de gs, `env-risk.ts`), en palabras.
+const RISK_LABEL = { remote_db: 'apunta a una base remota', live_payment_key: 'es una llave live de pagos', real_email: 'manda correo real' };
+
+/** Una línea por tipo de riesgo, sólo de las variables en `only` (si se da): «Ojo: SES_KEY, SES_SECRET manda correo real». */
+export function riskLines(risks, only = null) {
+  const keep = only ? new Set(only) : null;
+  const by = new Map();
+  for (const r of risks ?? []) {
+    if (!r?.key || (keep && !keep.has(r.key))) continue;
+    const label = RISK_LABEL[r.risk] ?? r.risk;
+    by.set(label, [...(by.get(label) ?? []), r.key]);
+  }
+  return [...by].map(([label, keys]) => `  Ojo: ${keys.join(', ')} ${label} (la vista previa la usaría de verdad).`);
+}

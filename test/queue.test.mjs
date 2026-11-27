@@ -73,3 +73,13 @@ test('cloud --json conserva el arreglo de runs; --queue trae tablero y fila', ()
     assert.equal(full.local[0].number, 96);
     assert.ok(full.queue.fixes.some((f) => f.cmd === 'ghosty-dev claim 96 --cloud'));
   }));
+
+test('env: riesgos en palabras, agrupados y sólo de lo que se subió', async () => {
+  const { riskLines } = await import('../src/env.mjs');
+  const risks = [{ key: 'SES_KEY', risk: 'real_email' }, { key: 'SES_SECRET', risk: 'real_email' }, { key: 'MONGO_ATLAS', risk: 'remote_db' }];
+  assert.deepEqual(riskLines(risks, ['TURNSTILE_SITE_KEY']), []);
+  const all = riskLines(risks);
+  assert.equal(all.length, 2);
+  assert.match(all[0], /SES_KEY, SES_SECRET manda correo real/);
+  assert.match(all[1], /MONGO_ATLAS apunta a una base remota/);
+});
