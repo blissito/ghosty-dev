@@ -29,7 +29,7 @@ Tu sesión se puede tirar en cualquier momento. Lo que importa queda en el **pen
 
 ```sh
 ghosty-dev ready --json            # qué se puede tomar (listo, desbloqueado o CI ya resuelto)
-ghosty-dev claim <n>               # te lo asigna y crea su worktree y su rama ghosty-dev/<n>-…
+ghosty-dev claim <n>               # te lo asigna, crea worktree y rama ghosty-dev/<n>-… e instala dependencias (--fast enlaza)
 cd ../<repo>-<n>                 # trabaja SÓLO ahí: un pendiente, un worktree, un escritor
 # … código y tests …
 git push -u origin HEAD && gh pr create --fill --body "Closes #<n>"
@@ -147,6 +147,15 @@ Si no hubo PR (tarea sin código), `ghosty-dev close <n>`, que también exige ev
 Si es un duplicado de otro pendiente: `ghosty-dev close <n> --duplicate-of <m>` (sin evidencia, «no planeado»; si
 iba en la nube, primero lo detiene). Si `stop <n>` dice que no iba en la nube pero quedó la etiqueta
 `ghosty-dev:en-nube`, la quita.
+
+## ¿Por qué no avanza? (0.10.0)
+
+- `ghosty-dev cloud`: cada pendiente con «Sigue: … · le toca a …» y la fila al final, con el comando que destraba
+  (`wake <n>`, `claim <m> --cloud`, `unblock <n>`, `factory resume`). Úsalo antes de adivinar.
+- Dormido = nada avanza: `ghosty-dev wake <n>` (o `tell`, que despierta solo). `sleep <n>` libera la caja.
+- `show <n>`: el estado sale de Ghosty Studio; la etiqueta de GitHub sólo se dice si no cuadra (`labels --fix`).
+- Verificación de la persona con prueba: `confirm <n> --criterion <i> --image captura.png`.
+- Variables que faltan para probar un PR: `env ls --pr <m>`.
 
 ## La revisión: tú no te calificas
 

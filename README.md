@@ -105,10 +105,10 @@ Las actions van fijadas por SHA y los binarios por versión con su sha256. Funci
 
 ## Comandos
 
-`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `confirm <n> --criterion <i> [--note "…"]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
+`next` · `init [--yes]` · `protect [--dry-run]` · `claim --pr <m> --issue <n>` · `add "título" --goal … --criteria … [--repo owner/repo]` · `criteria <n> [--set <i> "texto" --reason "…"]` · `confirm <n> --criterion <i> [--note "…"] [--image a.png]` · `ready [--json] [--claim]` · `claim <n|owner/repo#n>` · `wait <n> [--watch]` · `review <n> [--file f.md]` · `evidence <n> --file f.md` · `board` · `block <n> --by <m>` ·
 > La puerta del repo sólo bloquea `claim` si falta o es anterior a 0.9.38; si únicamente difiere de tu versión, `doctor` avisa (`init --force --no-checks --files-only`).
 
-`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n> [--duplicate-of <m>]` · `unblock <n> [--by <m>]` · `login` · `whoami` · `logout` · `env ls` · `env push <archivo>`.
+`show <n>` · `show --pr <m>` · `preview [<pr>] [--wait] [--open]` · `doctor [--pr <m>]` · `check-lock` · `preview share|unshare|requests [<pr>]` · `preview accept|reject <id> --pr <m>` · `box logs|exec|restart|rebuild [<pr>]` · `wait --pr <m> --until preview|ci|review|any` · `deps [<pr>]` · `close <n> [--duplicate-of <m>]` · `unblock <n> [--by <m>]` · `login` · `whoami` · `logout` · `env ls [--pr <m>]` · `env push <archivo>` · `labels [--fix]`.
 
 Con el repo conectado a [Ghosty Studio](https://www.ghosty.studio), todo PR no borrador recibe solo su vista previa,
 la revisión de Ghosty Review, el smoke y la ficha, lo escriba quien lo escriba. `wait --watch` avisa cuando la vista
@@ -120,18 +120,19 @@ Si falla: `box logs` (el log del build y del servidor) y `box exec -- <comando>`
 `preview` sale 0 lista, 75 armándose y 1 si falló; `show --pr <m>` da estado, ficha, servicios y `preview: {phase, sha}`.
 La liga lleva la llave de la vista previa: no la pegues en issues ni PRs ([SECURITY.md](SECURITY.md)).
 
-En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty-dev login`; no hace falta otro CLI): `claim <n> --cloud` · `claim --cloud --pr <m>` · `cloud` · `tell <n> "mensaje"` · `stop <n>` · `teleport <n>`. Para soltar un claim local que ya no vas a trabajar: `unclaim <n> [--reason "…"]` (`release` sólo reanuda un run de la nube que esperaba otro PR). Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
+En la nube (opcional, con una cuenta de [Ghosty Studio](https://www.ghosty.studio) y `ghosty-dev login`; no hace falta otro CLI): `claim <n> --cloud` · `claim --cloud --pr <m>` · `cloud` · `tell <n> "mensaje"` · `wake <n>` · `sleep <n>` · `stop <n>` · `teleport <n>`. `cloud` da el tablero del repo con el «Sigue: … · le toca a …» de cada pendiente (la misma línea que la tarjeta web) y, al final, la fila: qué puede tomar la fábrica y, si nada, por qué y el comando que lo destraba. `tell` sobre un pendiente dormido lo despierta primero. Para soltar un claim local que ya no vas a trabajar: `unclaim <n> [--reason "…"]` (`release` sólo reanuda un run de la nube que esperaba otro PR). Un agente construye el pendiente en una caja de trabajo con el mismo contrato y te avisa. Detalle en `ghosty-dev --help` y en [SPEC.md](SPEC.md).
 
 ### Sesión de Ghosty Studio y variables de la vista previa
 
 La nube y los secretos de la vista previa (`DATABASE_URL`, llaves de API…) usan una sesión propia de Ghosty Studio,
-separada de GitHub (GitHub sigue siendo `gh` y su token nunca sale de tu máquina). Pide `profile repo:env dev`; una
-sesión vieja sin `dev` se renueva con `ghosty-dev login --force`. Qué se guarda y dónde: [SECURITY.md](SECURITY.md).
+separada de GitHub (GitHub sigue siendo `gh` y su token nunca sale de tu máquina). Pide `profile repo:env dev files` (`files`: las capturas de `confirm --image`); una
+sesión vieja sin alguno se renueva con `ghosty-dev login --force`. Qué se guarda y dónde: [SECURITY.md](SECURITY.md).
 
 ```sh
 ghosty-dev login                       # navegador (OAuth con PKCE); por SSH, sin terminal o con --device: liga + código
 ghosty-dev login --no-wait             # para agentes: liga + código y sale; luego ghosty-dev login --wait (exit 75 = sigue pendiente)
 ghosty-dev env ls                      # sólo nombres: guardadas, faltantes, riesgos
+ghosty-dev env ls --pr 152             # las que le faltan a ese PR para probarse
 ghosty-dev env push .env.preview       # el archivo siempre se nombra; muestra los nombres y pide confirmación
 ghosty-dev whoami · ghosty-dev logout  # logout revoca la sesión en Ghosty
 ```
