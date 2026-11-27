@@ -8,16 +8,16 @@ import { setup, issue } from '../testkit/helpers.mjs';
 import { fakeGs } from '../testkit/fake-gs.mjs';
 import { queueOf } from '../src/cloud.mjs';
 
-async function withCloud(opts, fn) {
+async function withCloud(opts, fn, issues = { 5: issue(5, 'Salud') }) {
   const gs = await fakeGs(opts);
-  const s = setup({ issues: { 5: issue(5, 'Salud') } });
+  const s = setup({ issues });
   const file = join(s.config, 'ghosty-dev', 'auth.json');
   mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 });
   const tok = gs.grant();
   writeFileSync(file, JSON.stringify({ baseUrl: gs.base, accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: Date.now() + 3_600_000, scope: tok.scope, email: null }), { mode: 0o600 });
   const cli = (args) => s.runAsync(args, { extra: { GHOSTY_DEV_BASE_URL: gs.base, CI: '1' } });
   try {
-    await fn({ gs, cli });
+    await fn({ gs, cli, s });
   } finally {
     await gs.close();
   }
@@ -100,3 +100,19 @@ test('confirm --image sube las capturas y confirma por la op del run', () =>
     assert.equal(call.body.criterion, 2);
     assert.equal(call.body.attachments[0].url, 'https://files.test/f1');
   }));
+
+test('labels: «en la nube» sin run vivo se señala y --fix la regresa a su estado', () =>
+  withCloud(
+    { runs: [{ ...sleepy, issue: 5 }] },
+    async ({ cli, s }) => {
+      const r = await cli(['labels']);
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.out, /sin nada corriendo: #8/);
+      assert.doesNotMatch(r.out, /#5/);
+      const f = await cli(['labels', '--fix']);
+      assert.equal(f.code, 0, f.err);
+      assert.match(f.out, /#8: quité «en la nube» → listo/);
+      assert.ok(!s.read().issues[8].labels.includes('ghosty-dev:en-nube'));
+    },
+    { 5: issue(5, 'Salud', { labels: ['ghosty-dev:en-nube'] }), 8: issue(8, 'Viejo', { labels: ['ghosty-dev:en-nube'] }) },
+  ));

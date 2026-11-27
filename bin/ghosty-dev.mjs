@@ -88,6 +88,7 @@ Uso: ghosty-dev <comando> [opciones]
                                          respuesta; si trabaja, un aviso; si está detenido, lo reanuda); - lee stdin
   tell <n> --again ["mensaje"]           «otra vuelta»: el escritor reintenta; si das mensaje, va como nota
   reopen <n>                             retoma #n si lo detuvieron y su PR sigue abierto (misma rama, caja nueva)
+  labels [--fix]                         etiquetas «en la nube» sin run vivo en gs (--fix las regresa a su estado)
   wake <n>                               despierta la caja dormida de #n en la nube (el «Retomar» de la tarjeta)
   sleep <n>                              duerme la caja de #n (libera RAM; no aplica con un turno vivo)
   release <n>                            REANUDA un run de la nube que quedó «Esperando otro PR» (no cierra nada;
@@ -201,6 +202,7 @@ const { values, positionals } = parseArgs({
     reopen: { type: 'boolean' },
     again: { type: 'boolean' },
     queue: { type: 'boolean' },
+    fix: { type: 'boolean' },
     start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
     'no-install': { type: 'boolean' },
@@ -686,6 +688,18 @@ try {
       for (const f of q.fixes.slice(0, 8)) lines.push(`  · ${f.why}: ${f.cmd}`);
       return lines.join('\n');
     });
+  } else if (command === 'labels') {
+    // Etiquetas que no cuadran con gs: «en la nube» sin run vivo (gs las barre cada 10 min; esto lo hace ya).
+    const live = new Set((await cloud.list()).filter((r) => cloud.LIVE.has(r.phase)).map((r) => r.number));
+    const stale = cmd.cloudLabeled().filter((i) => !live.has(i.number));
+    const fixed = values.fix ? stale.map((i) => cmd.clearCloudLabel(i.number)) : [];
+    print({ stale, fixed }, (x) =>
+      !x.stale.length
+        ? 'Las etiquetas cuadran con Ghosty Studio.'
+        : values.fix
+          ? x.fixed.map((f) => `#${f.number}: quité «en la nube» → ${f.state}`).join('\n')
+          : [`Dicen «en la nube» sin nada corriendo: ${x.stale.map((i) => '#' + i.number).join(', ')}`, '  Arréglalas: ghosty-dev labels --fix'].join('\n'),
+    );
   } else if (command === 'wake' || command === 'sleep') {
     const n = num(arg);
     const r = command === 'wake' ? await cloud.wake(n) : await cloud.sleep(n);

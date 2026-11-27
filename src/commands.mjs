@@ -985,6 +985,9 @@ export function removeBlockedBy(body = '', by) {
 // La etiqueta que pone Ghosty Studio cuando #n va en la nube. Si el run ya no vive (se detuvo o se perdió) y la
 // etiqueta se quedó, `stop` la quita para que GitHub no siga diciendo «en la nube».
 export const CLOUD_LABEL = 'ghosty-dev:en-nube';
+// Issues abiertos con la etiqueta «en la nube» (la bitácora); quien llama decide cuáles ya no tienen run vivo.
+export const cloudLabeled = () => openIssues().filter((i) => (i.labels || []).some((l) => l.name === CLOUD_LABEL)).map((i) => ({ number: i.number, title: i.title }));
+
 export function clearCloudLabel(n) {
   const issue = viewIssue(n);
   if (!(issue.labels || []).some((l) => l.name === CLOUD_LABEL)) return { number: n, cleared: false, state: stateOf(issue) };
