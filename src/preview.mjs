@@ -52,6 +52,10 @@ export async function fetchPreview(pr, { repo = repoFullName() } = {}) {
     page: signedUrl(r?.page) && !new URL(r.page).search ? r.page : null,
     error,
     message: r?.message ? cleanMessage(r.message) : null,
+    // En fila: por qué (lugares del espacio y quién los ocupa). Sin el campo (gs viejo): null.
+    queue: r?.queue && typeof r.queue === 'object' && typeof r.queue.why === 'string'
+      ? { why: cleanMessage(r.queue.why), slots: Number(r.queue.slots) || 0, used: Number(r.queue.used) || 0, buyUrl: typeof r.queue.buyUrl === 'string' && r.queue.buyUrl.startsWith('/') ? r.queue.buyUrl : null }
+      : null,
     // OAuth que vio la caja (proveedores, si ya se registró, llaves faltantes): sin secretos; lo valida doctor.
     oauth: r?.oauth && typeof r.oauth === 'object' ? r.oauth : null,
     // Variables que el código lee y la vista previa no tiene (sólo nombres; las que lee el PR primero). null = no se sabe.

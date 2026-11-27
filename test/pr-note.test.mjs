@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setup, issue } from '../testkit/helpers.mjs';
 import { installUserSkill, userSkillCheck } from '../src/user-skill.mjs';
+import { withPreview } from '../testkit/with-pr.mjs';
 
 // Un remoto bare para que `git push` funcione sin red.
 function withOrigin(s) {
@@ -90,4 +91,12 @@ test('la skill de usuario se instala, se actualiza y doctor la revisa', () => {
   assert.equal(userSkillCheck({ path, source }).ok, null);
   assert.equal(installUserSkill({ path, source }).action, 'updated');
   assert.ok(existsSync(path));
+});
+
+test('preview en fila dice por qué (lugares ocupados) y dónde comprar más', async () => {
+  await withPreview([{ phase: 'queued', sha: 'b'.repeat(40), queue: { why: 'los 6 lugares del espacio están ocupados (#124: 2)', slots: 6, used: 6, buyUrl: '/app/cajas' } }], async ({ cli }) => {
+    const r = await cli(['preview', '73']);
+    assert.match(r.out + r.err, /Por qué: los 6 lugares/);
+    assert.match(r.out + r.err, /Más lugares: https:\/\/www\.ghosty\.studio\/app\/cajas/);
+  });
 });

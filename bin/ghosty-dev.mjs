@@ -487,7 +487,9 @@ function previewText(x, { opened } = {}) {
     const msg = x.message ?? 'Se arma sola con el siguiente push (PR no borrador).';
     return `${head}. ${msg}${/rebuild|es borrador|está cerrado|fork|no aplica/.test(msg) ? '' : `\n  Para armarla sin push: ghosty-dev box rebuild ${x.pr}`}`;
   }
-  return `${head}. Espérala: ghosty-dev preview ${x.pr} --wait`;
+  // En fila: el porqué que manda gs (lugares ocupados y por quién, o que se perdió el aviso), no sólo «en fila».
+  const why = x.queue?.why ?? x.message ?? null;
+  return `${head}.${why ? `\n  Por qué: ${why}` : ''}${x.queue && x.queue.used >= x.queue.slots && x.queue.buyUrl ? `\n  Más lugares: https://www.ghosty.studio${x.queue.buyUrl}` : ''}${why ? '\n ' : ''} Espérala: ghosty-dev preview ${x.pr} --wait`;
 }
 
 // «Depende de #N» al día en la descripción del PR (src/deps.mjs). Lo hacen solos preview y wait: nunca detiene el
