@@ -64,6 +64,8 @@ Uso: ghosty-dev <comando> [opciones]
   ready [--json] [--claim] [--cloud]     pendientes que se pueden tomar ahora (sin bloqueo, o CI ya resuelto);
                                          avisa los PR abiertos que no están ligados a un pendiente
   claim <n> [--no-worktree] [--base B]   te asigna el pendiente y crea su rama y worktree desde origin/main (o B)
+                                         y lo deja listo: instala dependencias con su lockfile y corre typegen
+                                         (--fast: enlaza el node_modules del clon; --no-install: sin instalar)
                                          si el repo no está preparado (puerta, revisor Ghosty Review, protección) NO arranca:
                                          abre «Preparar el repo para ghosty-dev» (una vez), bloquea #n por él y sale 7;
                                          --skip-readiness lo salta (operador: sólo
@@ -200,6 +202,8 @@ const { values, positionals } = parseArgs({
     queue: { type: 'boolean' },
     start: { type: 'boolean' },
     'no-worktree': { type: 'boolean' },
+    'no-install': { type: 'boolean' },
+    fast: { type: 'boolean' },
     'no-open': { type: 'boolean' },
     'duplicate-of': { type: 'string' },
     'dry-run': { type: 'boolean' },
@@ -613,7 +617,7 @@ try {
         if (await confirmCloud({ n: next.number }, `ghosty-dev claim ${next.number} --cloud${values.workspace ? ` --workspace ${values.workspace}` : ''} --yes`)) printCloud(await cloud.start(next.number, { workspace: values.workspace }));
         process.exit(process.exitCode ?? 0);
       }
-      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
+      const result = first.state === 'esperando' ? { ...first, resumed: true } : cmd.claim(first.number, { worktree: !values['no-worktree'], base: values.base, deps: values['no-install'] ? 'skip' : values.fast ? 'link' : 'install', onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
       print(result, (r) => `Tomado #${r.number} ${r.title}${r.worktree ? `\n  worktree: ${r.worktree}\n  rama: ${r.branch}` : ''}${r.resumed ? `\n  retoma: ${r.reason}` : ''}`);
     } else {
       print(list, (l) => (l.length ? l.map((i) => `#${i.number}\t${i.reason}\t${i.title}`).join('\n') : 'No hay pendientes listos.'));
@@ -732,7 +736,7 @@ try {
     // Si la nube ya lo escribe, un solo escritor: se detiene su caja y se trae su rama para seguir aquí.
     const back = notReady || process.env.GHOSTY_DEV_NO_NET ? null : await cloud.takeBack(num(arg));
     if (back) console.error(`#${back.number} iba en la nube: la detuve y traje su rama${back.branch ? ` (${back.branch})` : ''}.`);
-    const r = notReady ? null : cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
+    const r = notReady ? null : cmd.claim(num(arg), { worktree: !values['no-worktree'], base: values.base, deps: values['no-install'] ? 'skip' : values.fast ? 'link' : 'install', onWarning: (w) => console.error(`Aviso: ${w}`), onProgress: (m) => console.error(m) });
     if (r) await writer.claimBeat(num(arg));
     if (r) print(r, (x) => `Tomado #${x.number} ${x.title}\n  rama: ${x.branch}${x.base ? ` (parte de ${x.base})` : ''}${x.worktree ? `\n  worktree: ${x.worktree}` : ''}`);
   } else if (command === 'wait' && values.pr === undefined) {

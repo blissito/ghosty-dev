@@ -1,4 +1,5 @@
 // Comandos de la bitácora. Cada uno se traza a una ley o a una fuente (ver SPEC.md, «Qué copiamos y de quién»).
+import { prepareWorktree } from './worktree-deps.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, appendFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -302,7 +303,7 @@ export function unclaim(n, { reason } = {}) {
   return { number: n, title: issue.title, released: true, wasState, state: 'listo', reason: why || null, traced: Boolean(posted), url: issue.url };
 }
 
-export function claim(n, { worktree = true, base, onWarning = () => {}, onProgress = () => {} } = {}) {
+export function claim(n, { worktree = true, base, deps = 'install', onWarning = () => {}, onProgress = () => {} } = {}) {
   const from = worktree ? claimBase(base, { onProgress }) : null;
   if (from?.warning) onWarning(from.warning);
   const issue = viewIssue(n);
@@ -351,6 +352,9 @@ export function claim(n, { worktree = true, base, onWarning = () => {}, onProgre
       const secs = Math.round((Date.now() - t0) / 1000);
       if (secs >= 10) onProgress(`worktree listo en ${secs} s.`);
     }
+    // Listo para trabajar: dependencias (y typegen de React Router) sin pasos a mano.
+    const prep = prepareWorktree(path, top, { mode: deps, onProgress });
+    if (prep.warning) onWarning(prep.warning);
   }
   return { number: n, title: issue.title, branch, worktree: path, base: from?.ref ?? null, warning: from?.warning ?? null };
 }
