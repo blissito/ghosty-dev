@@ -37,7 +37,8 @@ export function shellJoin(parts) {
 }
 
 const sha = (v) => (typeof v === 'string' && /^[0-9a-f]{7,64}$/i.test(v) ? v.toLowerCase() : null);
-const code = (v) => (Number.isInteger(v) ? Math.max(0, Math.min(255, v)) : null);
+// Un código negativo (el daemon da -1 cuando no pudo correr el comando) es un fallo: nunca se recorta a 0 (Formmy #120).
+const code = (v) => (Number.isInteger(v) ? (v < 0 ? 1 : Math.min(255, v)) : null);
 
 // La sonda de memoria de gs (logs/restart): cuántas veces mató algo el oom-killer y qué hacer.
 const memoryOf = (m) =>

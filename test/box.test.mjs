@@ -38,6 +38,19 @@ test('box exec -- <cmd…>: arma una línea de shell, sale con el código del co
     const one = await cli(['box', 'exec', '--', 'ls -la | head']);
     assert.equal(one.code, 0, one.err);
     assert.deepEqual(gs.boxCalls[1], { method: 'POST', pr: 73, query: '', body: { op: 'exec', cmd: 'ls -la | head' } });
+    // stdout y el código ≠ 0 llegan tal cual; un -1 del daemon (no corrió) sale como fallo, nunca como 0 (Formmy #120).
+    gs.box.execCode = 3;
+    gs.box.execText = 'hola\n';
+    const three = await cli(['box', 'exec', '73', '--json', '--', 'echo hola; exit 3']);
+    assert.equal(three.code, 3);
+    assert.equal(JSON.parse(three.out).text, 'hola\n');
+    assert.equal(JSON.parse(three.out).exitCode, 3);
+    gs.box.execCode = -1;
+    gs.box.execText = '';
+    const lost = await cli(['box', 'exec', '73', '--json', '--', 'echo hola']);
+    assert.notEqual(lost.code, 0);
+    assert.equal(JSON.parse(lost.out).exitCode, 1);
+    delete gs.box.execText;
     const none = await cli(['box', 'exec', '73']);
     assert.equal(none.code, 1);
     assert.match(none.err, /Falta el comando/);
