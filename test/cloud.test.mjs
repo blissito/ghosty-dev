@@ -98,7 +98,7 @@ test('403 insufficient_scope: dice qué permiso falta y cómo pedirlo, sin reint
     const again = await cli(['login', '--force', '--no-wait', '--json']);
     assert.equal(again.code, 0, again.err);
     assert.equal(JSON.parse(again.out).status, 'pending');
-    assert.equal(gs.calls.find((c) => c.path === '/oauth2/device').form.scope, 'profile repo:env dev');
+    assert.equal(gs.calls.find((c) => c.path === '/oauth2/device').form.scope, 'profile repo:env dev files');
     assert.doesNotMatch(r.out + r.err + again.out + again.err, TOKENS);
   }));
 

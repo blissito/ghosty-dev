@@ -45,7 +45,7 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
     const access = `at_${s.n}`;
     s.refresh = `rt_${s.n}`;
     s.valid.add(access);
-    return { access_token: access, refresh_token: s.refresh, expires_in: 3600, token_type: 'Bearer', scope: devScope ? 'profile repo:env dev' : 'profile repo:env' };
+    return { access_token: access, refresh_token: s.refresh, expires_in: 3600, token_type: 'Bearer', scope: devScope ? 'profile repo:env dev files' : 'profile repo:env' };
   };
   s.grant = issue; // una sesión ya aprobada, para las pruebas que no prueban el login
   const run = (over) => ({ id: `run${s.runs.length + 1}`, repo: 'acme/demo', issue: 5, title: 'Salud', phase: 'working', estado: 'trabajando', pr: null, prUrl: null, issueUrl: 'https://github.com/acme/demo/issues/5', branch: 'ghosty-dev/5-salud', ...over });
@@ -190,6 +190,11 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
       if (body?.op === 'rebuild') return send(res, 200, { phase: 'building', sha });
       return send(res, 400, { error: 'bad_request', message: 'op: exec | restart | rebuild' });
     }
+    if (url.pathname === '/api/v2/me/files' && req.method === 'POST') {
+      s.uploads = [...(s.uploads ?? []), { name: url.searchParams.get('nombre'), mime: req.headers['content-type'], size: Buffer.byteLength(raw) }];
+      const k = s.uploads.length;
+      return send(res, 200, { id: `f${k}`, name: url.searchParams.get('nombre'), mime: req.headers['content-type'], size: Buffer.byteLength(raw), url: `https://files.test/f${k}` });
+    }
     if (url.pathname.startsWith('/api/v2/me/dev-runs')) {
       const body = raw ? JSON.parse(raw) : null;
       s.devCalls.push({ method: req.method, path: url.pathname, query: url.search, body });
@@ -221,6 +226,7 @@ export async function fakeGs({ deviceReplies = ['ok'], saved = ['OLD_KEY', 'API_
         Object.assign(r, { phase: 'working', estado: 'trabajando' });
       }
       if (body?.op === 'stop') Object.assign(r, { phase: 'stopped', estado: 'detenido' });
+      if (body?.op === 'confirm') r.confirmed = { criterion: body.criterion, attachments: body.attachments };
       if (body?.op === 'sleep') r.sleepingAt = '2026-11-27T04:13:48.000Z';
       if (body?.op === 'wake') r.sleepingAt = null;
       if (body?.op === 'reopen') Object.assign(r, { phase: 'working', estado: 'trabajando' });

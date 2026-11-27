@@ -83,3 +83,20 @@ test('env: riesgos en palabras, agrupados y sólo de lo que se subió', async ()
   assert.match(all[0], /SES_KEY, SES_SECRET manda correo real/);
   assert.match(all[1], /MONGO_ATLAS apunta a una base remota/);
 });
+
+test('confirm --image sube las capturas y confirma por la op del run', () =>
+  withCloud({ runs: [{ ...sleepy, sleepingAt: null }] }, async ({ gs, cli }) => {
+    const { mkdtempSync } = await import('node:fs');
+    const d = mkdtempSync(join((await import('node:os')).tmpdir(), 'gd-img-'));
+    const img = join(d, 'login.png');
+    writeFileSync(img, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const r = await cli(['confirm', '5', '--criterion', '2', '--image', img]);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /confirmado con 1 captura/);
+    assert.equal(gs.uploads[0].name, 'login.png');
+    assert.equal(gs.uploads[0].mime, 'image/png');
+    const call = gs.devCalls.at(-1);
+    assert.equal(call.body.op, 'confirm');
+    assert.equal(call.body.criterion, 2);
+    assert.equal(call.body.attachments[0].url, 'https://files.test/f1');
+  }));

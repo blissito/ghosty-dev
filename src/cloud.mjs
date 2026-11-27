@@ -3,7 +3,7 @@
 // de ghosty-dev (src/auth.mjs, permiso `dev`): no hace falta otro CLI. Todo lo que llega del servidor se trata como
 // dato: se valida antes de meterlo en una URL o en un comando de git, y se limpia antes de imprimirlo.
 import { git } from './gh.mjs';
-import { repoFullName } from './commands.mjs';
+import { repoFullName, UserError } from './commands.mjs';
 import { AuthError, checkRepo, plain, request } from './auth.mjs';
 
 export class CloudError extends Error {}
@@ -408,3 +408,24 @@ export async function tell(n, { note, again = false } = {}) {
 }
 
 export { AuthError };
+
+// «Ya lo verifiqué» con pruebas: sube las capturas y confirma el criterio por la op `confirm` del run de #n (la misma
+// que el botón de la tarjeta: comentario en GitHub con las imágenes y puerta otra vez). null = #n no tiene run en gs.
+export async function confirmWithImages(n, { criterion, note, images = [] }) {
+  const { readFileSync } = await import('node:fs');
+  const { basename, extname } = await import('node:path');
+  const { uploadFile } = await import('./auth.mjs');
+  const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
+  const runs = (await list()).filter((r) => r.number === n);
+  const run = runs.find((r) => LIVE.has(r.phase)) ?? runs[0] ?? null;
+  const attachments = [];
+  for (const f of images) {
+    const mime = MIME[extname(f).toLowerCase()];
+    if (!mime) throw new UserError(`${f}: sólo imágenes (png, jpg, gif, webp).`);
+    const up = await uploadFile(basename(f), readFileSync(f), mime);
+    attachments.push({ url: up.url, name: up.name ?? basename(f), mime, size: up.size ?? null });
+  }
+  if (!run) return { run: null, attachments };
+  const r = await call('POST', `${RUNS}/${encodeURIComponent(runId(run.id))}`, { op: 'confirm', criterion: Number(criterion), note: note ?? null, attachments });
+  return { run: view(r), attachments };
+}

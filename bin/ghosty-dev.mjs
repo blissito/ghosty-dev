@@ -35,7 +35,7 @@ Uso: ghosty-dev <comando> [opciones]
                                          (sin terminal, sólo con --yes) y lista los workflows que dispara el push
   protect [--dry-run]                    vuelve obligatorio ghosty-dev/evidencia en la rama principal; --dry-run
                                          lista los PR abiertos que quedarían bloqueados y por qué
-  confirm <n> --criterion <i> [--note "…"]
+  confirm <n> --criterion <i> [--note "…"] [--image a.png …]
                                          verificación de la persona: confirma el criterio i (1 = el primero) que la evidencia
                                          declaró «- [~] … — verificación de la persona: …». Sólo con permiso de escritura;
                                          deja un comentario de rastro (quién, cuándo, nota) y vuelve a correr la puerta
@@ -224,6 +224,7 @@ const { values, positionals } = parseArgs({
     criteria: { type: 'string', multiple: true },
     criterion: { type: 'string' },
     note: { type: 'string' },
+    image: { type: 'string', multiple: true },
     context: { type: 'string' },
     from: { type: 'string' },
     device: { type: 'boolean' },
@@ -584,8 +585,17 @@ try {
     if (r.brief) print(r, (x) => x.brief);
     else print(r, (x) => `Revisión publicada en #${x.number} (commit ${x.sha.slice(0, 7)}): ${x.open} hallazgo(s) abierto(s).${x.url ? `\n  ${x.url}` : ''}${x.open ? `\n  ${cmd.blockHint(x.number)}` : ''}`);
   } else if (command === 'confirm') {
-    const r = cmd.confirm(num(arg), { criterion: values.criterion, note: values.note, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
-    print(r, (x) => `Criterio ${x.index} de #${x.number} confirmado por @${x.by} (commit ${x.sha.slice(0, 7)}): ${x.criterion}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.url ? `\n  ${x.url}` : ''}`);
+    const images = values.image ?? [];
+    // Con capturas: suben a Ghosty Studio y, si #n vive en gs, se confirma por su op (comentario con imágenes + puerta).
+    const c = images.length ? await cloud.confirmWithImages(num(arg), { criterion: values.criterion, note: values.note, images }) : null;
+    if (c?.run) {
+      print({ number: num(arg), criterion: Number(values.criterion), attachments: c.attachments, run: c.run }, (x) => `Criterio ${x.criterion} de #${x.number} confirmado con ${x.attachments.length} captura(s); la puerta del PR corre otra vez.`);
+    } else {
+      // Sin run en gs: el comentario de GitHub lleva las capturas como imágenes.
+      const note = [values.note, ...(c?.attachments ?? []).map((a) => `![${a.name}](${a.url})`)].filter(Boolean).join('\n\n') || undefined;
+      const r = cmd.confirm(num(arg), { criterion: values.criterion, note, pr: values.pr === undefined ? undefined : num(values.pr, '--pr <m>') });
+      print(r, (x) => `Criterio ${x.index} de #${x.number} confirmado por @${x.by} (commit ${x.sha.slice(0, 7)}): ${x.criterion}.${x.rerun ? ` Puerta del PR re-ejecutada (run ${x.rerun}).` : ''}${x.url ? `\n  ${x.url}` : ''}`);
+    }
   } else if (command === 'criteria') {
     const r = cmd.criteria(num(arg), { set: values.set, text: arg2, reason: values.reason });
     print(r, (x) => (x.criteria ? (x.criteria.length ? x.criteria.map((c) => `${c.index}. ${c.text}`).join('\n') : `#${x.number} no tiene criterios.`) : `Criterio ${x.index} de #${x.number} enmendado (comentario de rastro publicado).\n  antes: ${x.before}\n  ahora: ${x.after}`));

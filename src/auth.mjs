@@ -14,7 +14,8 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export const CLIENT_ID = 'ghosty-dev';
-export const SCOPE = 'profile repo:env dev';
+// `files`: subir capturas de `confirm --image` a tu biblioteca de Ghosty Studio (las sesiones viejas: login --force).
+export const SCOPE = 'profile repo:env dev files';
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 export const USER_AGENT = `ghosty-dev/${VERSION}`;
@@ -462,6 +463,19 @@ export async function request(method, path, body, { scope = 'repo:env', retried 
   } catch {
     throw new AuthError(`Ghosty Studio respondió algo que no es JSON (${res.status}).`);
   }
+}
+
+// Sube bytes crudos a la biblioteca de archivos (`POST /api/v2/me/files?nombre=`, scope `files`). Regresa {id, name, mime, size, url}.
+export async function uploadFile(name, bytes, mime, { retried = false } = {}) {
+  const { token, fromEnv } = await currentToken();
+  const res = await call(`${baseUrl()}/api/v2/me/files?nombre=${encodeURIComponent(name)}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'user-agent': USER_AGENT, accept: 'application/json', 'content-type': mime },
+    body: bytes,
+  });
+  if (res.status === 401 && !retried && !fromEnv && (await refresh(readAuth()))) return uploadFile(name, bytes, mime, { retried: true });
+  if (!res.ok) throw await toError(res, { scope: 'files', token, fromEnv });
+  return JSON.parse(await res.text());
 }
 
 // ---------- whoami, logout ----------

@@ -28,7 +28,7 @@ async function withGs(opts, fn) {
 // Una sesión guardada como la dejaría login, con el access y el vencimiento que pida la prueba.
 function saveSession(file, { accessToken, refreshToken, expiresAt }) {
   mkdirSync(join(file, '..'), { recursive: true, mode: 0o700 });
-  writeFileSync(file, JSON.stringify({ baseUrl: currentBase, accessToken, refreshToken, expiresAt, scope: 'profile repo:env dev', email: null }), { mode: 0o600 });
+  writeFileSync(file, JSON.stringify({ baseUrl: currentBase, accessToken, refreshToken, expiresAt, scope: 'profile repo:env dev files', email: null }), { mode: 0o600 });
 }
 
 test('login sin navegador usa el device flow: pending → ok, y guarda la sesión con 0600 en un dir 0700', () =>
@@ -43,7 +43,7 @@ test('login sin navegador usa el device flow: pending → ok, y guarda la sesió
     assert.equal(gs.polls.length, 3);
     // El device endpoint sale del respaldo ${base}/oauth2/device (la metadata no lo trae), con client y scope.
     const dev = gs.calls.find((c) => c.path === '/oauth2/device');
-    assert.deepEqual(dev.form, { client_id: 'ghosty-dev', scope: 'profile repo:env dev' });
+    assert.deepEqual(dev.form, { client_id: 'ghosty-dev', scope: 'profile repo:env dev files' });
     assert.match(dev.ua, /^ghosty-dev\/\d+\.\d+\.\d+$/);
     const saved = JSON.parse(readFileSync(authFile, 'utf8'));
     assert.equal(saved.accessToken, 'at_1');
@@ -88,7 +88,7 @@ test('login con navegador (persona en la terminal): loopback 127.0.0.1/cb con PK
           const u = new URL(m[1]);
           assert.equal(u.origin + u.pathname, `${gs.base}/oauth2/authorize`);
           assert.equal(u.searchParams.get('client_id'), 'ghosty-dev');
-          assert.equal(u.searchParams.get('scope'), 'profile repo:env dev');
+          assert.equal(u.searchParams.get('scope'), 'profile repo:env dev files');
           assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
           assert.match(u.searchParams.get('redirect_uri'), /^http:\/\/127\.0\.0\.1:\d+\/cb$/);
           // Un tercero que regresa con otro state: 400 y el CLI sigue esperando.
