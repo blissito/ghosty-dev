@@ -418,6 +418,8 @@ export async function confirmWithImages(n, { criterion, note, images = [] }) {
   const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
   const runs = (await list()).filter((r) => r.number === n);
   const run = runs.find((r) => LIVE.has(r.phase)) ?? runs[0] ?? null;
+  // gs acepta hasta 5 y descarta el resto en silencio: mejor decirlo antes de subir nada.
+  if (images.length > 5) throw new UserError(`Son ${images.length} capturas; van hasta 5 por confirmación.`);
   const attachments = [];
   for (const f of images) {
     const mime = MIME[extname(f).toLowerCase()];
